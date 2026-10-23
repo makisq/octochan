@@ -8,13 +8,42 @@
 ```bash
 git clone https://github.com/makisq/PACAL
 cd PACAL/octochan
-go build -o ochan .                      # сам ochan
-(cd mcp && go build -o ../ochan-mcp .)   # сервер MCP для нейросетей — по желанию
-./ochan --version
+make install
+ochan --version
 ```
 
 ```
 ochan 0.1.0-alpha
+```
+
+`make install` собирает `ochan` и сервер MCP `ochan-mcp` и кладёт их в
+`~/.local/bin` — дальше они вызываются по имени из любого каталога, без
+`./` и пути. Если этого каталога ещё нет в `PATH`, установщик скажет, какую
+строку добавить в профиль оболочки; сам профиль он не правит.
+
+| | |
+|---|---|
+| `make install` | в `~/.local/bin` |
+| `make install PREFIX=/usr/local` | в `/usr/local/bin`; копирование — через `sudo`, сборка — от вашего имени |
+| `scripts/install.sh` | то же без `make` |
+| `make uninstall` | убрать |
+| `make build` | только собрать в `bin/` |
+
+На Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+Программы ставятся в `%LOCALAPPDATA%\Programs\ochan`, каталог
+добавляется в `PATH` пользователя; в новом окне терминала `ochan` и
+`ochan-mcp` вызываются по имени. Убрать — с `-Uninstall`.
+
+Собрать руками, без установки:
+
+```bash
+go build -o ochan .
+(cd mcp && go build -o ../ochan-mcp .)
 ```
 
 Собирается под Linux, macOS и Windows, в том числе накрест:
@@ -32,7 +61,8 @@ go build -ldflags "-X octochan/cmd.Version=0.1.0-alpha" -o ochan .
 (cd mcp && go build -ldflags "-X main.serverVersion=0.1.0-alpha" -o ../ochan-mcp .)
 ```
 
-Положите `ochan` (и `ochan-mcp`, если нужен) в каталог из `PATH`.
+Собранное руками кладётся в любой каталог из `PATH` — так же, как это
+делает `make install`.
 
 ## Первый запуск
 

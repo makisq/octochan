@@ -31,9 +31,14 @@ Linux, Ansible или что угодно ещё подключается ист
 
 ```bash
 cd octochan
-go build -o ochan .
-./ochan --version
+make install          # или scripts/install.sh; на Windows — scripts\install.ps1
+ochan --version
 ```
+
+`ochan` и `ochan-mcp` ставятся в `~/.local/bin` (на Windows — в
+`%LOCALAPPDATA%\Programs\ochan`, он добавляется в `PATH`) и дальше
+вызываются по имени из любого каталога, как `echo` или `python`.
+Подробнее — [«Установка»](docs/guide/install.md).
 
 Сравнить конфигурации по смыслу (`8GB` и `8192MB` равны):
 

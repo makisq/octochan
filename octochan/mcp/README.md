@@ -55,13 +55,15 @@ MCP открытый протокол, и подключиться может л
 
 ## Сборка
 
+`make install` в каталоге `octochan` ставит `ochan-mcp` рядом с `ochan`
+в `~/.local/bin` (на Windows — `scripts\install.ps1`), и оба вызываются по
+имени. Сервер находит `ochan` рядом с собой или в `PATH`; иначе — флаг
+`--ochan`. Собрать руками:
+
 ```bash
 cd octochan/mcp
 go build -o ochan-mcp .
 ```
-
-Положите `ochan-mcp` рядом с `ochan` — сервер найдёт его сам. Иначе укажите
-путь флагом `--ochan` или добавьте `ochan` в `PATH`.
 
 ## Запуск
 
