@@ -80,6 +80,9 @@ type Role struct {
 	Paths []string
 	// Limits — пределы частоты действий.
 	Limits []Limit
+	// TempPerms и TempDeny — права и запреты со сроком (temporary.go).
+	TempPerms []TempPerm
+	TempDeny  []TempPerm
 }
 
 // NeedsAuth сообщает, что для входа в роль нужен логин или пароль.
@@ -102,7 +105,7 @@ func (r *Role) Allows(command string) bool {
 	if r.Denies(command) {
 		return false
 	}
-	for _, perm := range r.Perms {
+	for _, perm := range append(append([]string(nil), r.Perms...), active(r.TempPerms, Now())...) {
 		if Covers(perm, command) {
 			return true
 		}
@@ -115,7 +118,7 @@ func (r *Role) Denies(command string) bool {
 	if contains(Free, command) {
 		return false
 	}
-	for _, perm := range r.Deny {
+	for _, perm := range append(append([]string(nil), r.Deny...), active(r.TempDeny, Now())...) {
 		if Covers(perm, command) {
 			return true
 		}

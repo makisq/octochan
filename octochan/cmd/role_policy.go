@@ -19,16 +19,34 @@ var (
 	roleLimitClear bool
 )
 
+var denyTemp tempFlags
+
 var roleDenyCmd = &cobra.Command{
-	Use:   "deny <роль> <право>...",
+	Use:   "deny <роль> <право>... [--for <срок> | --until <момент>]",
 	Short: "Запретить роли права: запрет перекрывает разрешение",
 	Long: "Запрет сильнее права, в том числе all: роль с all и запретом serve\n" +
 		"может всё, кроме serve. Команды, без которых не узнать свою роль и не\n" +
-		"вернуться (role, set role, back role, help), не запрещаются.",
+		"вернуться (role, set role, back role, help), не запрещаются.\n\n" +
+		"С --for или --until запрет действует до срока — заморозка на время\n" +
+		"инцидента или релиза.",
 	Args:    cobra.MinimumNArgs(2),
-	Example: "ochan role deny ops serve tls\nochan role deny dan role",
+	Example: "ochan role deny ops serve tls\nochan role deny dan role\nochan role deny dan apply --for 4h",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		now := rbac.Now()
+		until, temporary, err := denyTemp.until(now)
+		if err != nil {
+			return err
+		}
 		return mutateRoles(func(store *rbac.Store) error {
+			if temporary {
+				perms := splitPerms(args[1:])
+				if err := store.DenyFor(args[0], perms, until, moduleCommands()); err != nil {
+					return err
+				}
+				cmd.Printf("Роль %s: запрещено %s до %s\n", store.Find(args[0]).Name, strings.Join(perms, ", "),
+					formatUntil(until, now))
+				return nil
+			}
 			if err := store.DenyPerms(args[0], splitPerms(args[1:]), moduleCommands()); err != nil {
 				return err
 			}
@@ -165,6 +183,13 @@ var roleShowCmd = &cobra.Command{
 		cmd.Printf("Запреты:   %s\n", noneOr(role.Deny))
 		cmd.Printf("Область:   %s\n", noneOr(role.Paths))
 		cmd.Printf("Пределы:   %s\n", noneOr(limitTexts(role.Limits)))
+		now := rbac.Now()
+		if temp := role.ActiveTemp(); len(temp) > 0 {
+			cmd.Printf("На время:  %s\n", strings.Join(tempTexts(temp, now), "; "))
+		}
+		if temp := role.ActiveTempDeny(); len(temp) > 0 {
+			cmd.Printf("Запреты на время: %s\n", strings.Join(tempTexts(temp, now), "; "))
+		}
 		cmd.Printf("Вход:      %s\n", noneOr(auth))
 		return nil
 	},
@@ -187,6 +212,7 @@ func noneOr(values []string) string {
 }
 
 func init() {
+	denyTemp.add(roleDenyCmd, "запретить")
 	roleScopeCmd.Flags().BoolVar(&roleScopeClear, "clear", false, "снять область")
 	roleLimitCmd.Flags().BoolVar(&roleLimitClear, "clear", false, "снять пределы")
 	roleCreateCmd.Flags().StringSliceVar(&roleDeny, "deny", nil, "запреты роли через запятую")

@@ -181,10 +181,11 @@ func (s *Store) Undeny(name string, perms []string) error {
 			kept = append(kept, perm)
 		}
 	}
-	if len(kept) == len(role.Deny) {
+	temp := withoutPerms(role.TempDeny, perms)
+	if len(kept) == len(role.Deny) && len(temp) == len(role.TempDeny) {
 		return fmt.Errorf("у роли %s нет таких запретов: %s", role.Name, strings.Join(perms, ", "))
 	}
-	role.Deny = kept
+	role.Deny, role.TempDeny = kept, temp
 	return nil
 }
 

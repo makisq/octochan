@@ -53,7 +53,7 @@
 - [`ochan role create`](#ochan-role-create) — Создать роль и выдать ей права
 - [`ochan role delete`](#ochan-role-delete) — Удалить роль
 - [`ochan role deny`](#ochan-role-deny) — Запретить роли права: запрет перекрывает разрешение
-- [`ochan role grant`](#ochan-role-grant) — Выдать роли права
+- [`ochan role grant`](#ochan-role-grant) — Выдать роли права, навсегда или на время
 - [`ochan role limit`](#ochan-role-limit) — Ограничить частоту команд роли
 - [`ochan role list`](#ochan-role-list) — Перечислить роли и их права
 - [`ochan role revoke`](#ochan-role-revoke) — Забрать у роли права
@@ -67,7 +67,7 @@
 - [`ochan serve`](#ochan-serve) — Запустить общий оркестратор: подключение по сети в одной из ролей
 - [`ochan services`](#ochan-services) — Показать доступные сервисы сценариев
 - [`ochan set`](#ochan-set) — Переключение: set role <роль>
-- [`ochan set role`](#ochan-set-role) — Переключиться на роль
+- [`ochan set role`](#ochan-set-role) — Переключиться на роль, навсегда или на время
 - [`ochan shell`](#ochan-shell) — Запустить интерактивную оболочку
 - [`ochan srs`](#ochan-srs) — Сохранить сценарий во внутреннее хранилище
 - [`ochan stats`](#ochan-stats) — Показать статистику конфига
@@ -848,12 +848,15 @@ ochan role delete <роль>
 Запретить роли права: запрет перекрывает разрешение.
 
 ```
-ochan role deny <роль> <право>...
+ochan role deny <роль> <право>... [--for <срок> | --until <момент>]
 ```
 
 Запрет сильнее права, в том числе all: роль с all и запретом serve
 может всё, кроме serve. Команды, без которых не узнать свою роль и не
 вернуться (role, set role, back role, help), не запрещаются.
+
+С --for или --until запрет действует до срока — заморозка на время
+инцидента или релиза.
 
 Право: `admin`.
 
@@ -862,15 +865,26 @@ ochan role deny <роль> <право>...
 ```
 ochan role deny ops serve tls
 ochan role deny dan role
+ochan role deny dan apply --for 4h
 ```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | запретить на время: 30m, 2h, 1d |
+| `--until` | string | — | запретить до момента: "2026-10-24 18:00" или 18:00 сегодня |
 
 ## ochan role grant
 
-Выдать роли права.
+Выдать роли права, навсегда или на время.
 
 ```
-ochan role grant <роль> <право>...
+ochan role grant <роль> <право>... [--for <срок> | --until <момент>]
 ```
+
+С --for или --until право действует до срока и пропадает само:
+отзывать нечего и забыть отозвать нельзя. Выдать на время может и CI
+или скрипт — той же командой, в роли с правом admin; каждая выдача —
+в журнале аудита.
 
 Право: `admin`.
 
@@ -879,7 +893,14 @@ ochan role grant <роль> <право>...
 ```
 ochan role grant slave approve
 ochan role grant slave patch rollback
+ochan role grant dan apply --for 2h
+ochan role grant dan apply --until "2026-10-24 18:00"
 ```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | выдать на время: 30m, 2h, 1d |
+| `--until` | string | — | выдать до момента: "2026-10-24 18:00" или 18:00 сегодня |
 
 ## ochan role limit
 
@@ -1144,14 +1165,17 @@ ochan set
 
 ## ochan set role
 
-Переключиться на роль.
+Переключиться на роль, навсегда или на время.
 
 ```
-ochan set role <роль>
+ochan set role <роль> [--for <срок> | --until <момент>]
 ```
 
 Если у роли задан логин или пароль, их спросят. В роль, в которую
 уже входили, можно вернуться без них: back role.
+
+С --for или --until роль действует до срока, а потом сама возвращается
+прежняя: поднять права на полчаса и не забыть их опустить.
 
 Право: `свободная — доступна любой роли`.
 
@@ -1160,7 +1184,13 @@ ochan set role <роль>
 ```
 ochan set role slave
 ochan set role Dan
+ochan set role master --for 30m
 ```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | переключиться на время: 30m, 2h, 1d |
+| `--until` | string | — | переключиться до момента: "2026-10-24 18:00" или 18:00 сегодня |
 
 ## ochan shell
 

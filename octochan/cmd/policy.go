@@ -223,7 +223,7 @@ func checkPaths(cmd *cobra.Command, role *rbac.Role, key string, args []string) 
 // ссылок на живые источники.
 func pathCandidates(cmd *cobra.Command, args []string) []string {
 	values := append([]string(nil), args...)
-	cmd.Flags().Visit(func(f *pflag.Flag) {
+	visitChanged(cmd, func(f *pflag.Flag) {
 		switch f.Value.Type() {
 		case "string":
 			values = append(values, f.Value.String())
@@ -275,10 +275,21 @@ func checkLimits(role *rbac.Role, key string, recent audit.Recent) error {
 	return nil
 }
 
+// visitChanged обходит флаги, заданные в этой команде. Visit из pflag
+// помнит и флаги прошлых команд того же процесса — в оболочке ochan
+// shell они попали бы в журнал и в проверку области.
+func visitChanged(cmd *cobra.Command, fn func(*pflag.Flag)) {
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Changed {
+			fn(f)
+		}
+	})
+}
+
 // auditArgs — аргументы команды для журнала, без паролей.
 func auditArgs(cmd *cobra.Command, args []string) []string {
 	var out []string
-	cmd.Flags().Visit(func(f *pflag.Flag) {
+	visitChanged(cmd, func(f *pflag.Flag) {
 		value := f.Value.String()
 		if f.Value.Type() == "bool" {
 			out = append(out, "--"+f.Name)
