@@ -207,8 +207,13 @@ func (in *Interpreter) EvalExpr(expr Expr) (Value, error) {
 }
 
 // CallAlias вызывает алиас по имени с готовыми значениями аргументов.
+// Алиас пакета называется пакет.алиас, как и в тексте сценария.
 func (in *Interpreter) CallAlias(name string, args []Value) (Value, error) {
-	decl, err := in.registry.Lookup("", name)
+	module, alias, qualified := strings.Cut(name, ".")
+	if !qualified {
+		module, alias = "", name
+	}
+	decl, err := in.registry.Lookup(module, alias)
 	if err != nil {
 		return nil, err
 	}

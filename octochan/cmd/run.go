@@ -39,44 +39,52 @@ var (
 // глазами, и он умеет ровно то, что дают встроенные функции.
 func aliases() (*lang.Registry, []error) {
 	aliasRegistryOnce.Do(func() {
-		aliasRegistry = lang.NewRegistry()
-
 		fm, err := mustFileManager()
 		if err != nil {
+			aliasRegistry = lang.NewRegistry()
 			aliasLoadErrs = append(aliasLoadErrs, err)
 			return
 		}
-
-		if err := aliasRegistry.LoadDir("", fm.AliasesDir()); err != nil {
-			aliasLoadErrs = append(aliasLoadErrs, err)
-		}
-
-		entries, err := os.ReadDir(fm.ModulesDir())
-		if err != nil {
-			if !os.IsNotExist(err) {
-				aliasLoadErrs = append(aliasLoadErrs, err)
-			}
-			return
-		}
-
-		for _, entry := range entries {
-			path := filepath.Join(fm.ModulesDir(), entry.Name())
-
-			switch {
-			case entry.IsDir():
-				if err := aliasRegistry.LoadDir(entry.Name(), path); err != nil {
-					aliasLoadErrs = append(aliasLoadErrs, err)
-				}
-			case filepath.Ext(entry.Name()) == lang.AliasExtension:
-				pkg := strings.TrimSuffix(entry.Name(), lang.AliasExtension)
-				if _, err := aliasRegistry.LoadFile(pkg, path); err != nil {
-					aliasLoadErrs = append(aliasLoadErrs, err)
-				}
-			}
-		}
+		aliasRegistry, aliasLoadErrs = loadAliasRegistry(fm.AliasesDir(), fm.ModulesDir())
 	})
 
 	return aliasRegistry.Clone(), aliasLoadErrs
+}
+
+// loadAliasRegistry читает библиотеку алиасов из каталогов. Её же читает
+// процесс песочницы: рабочих каталогов ochan, кроме этих двух, он не видит.
+func loadAliasRegistry(aliasesDir, modulesDir string) (*lang.Registry, []error) {
+	registry := lang.NewRegistry()
+	var errs []error
+
+	if err := registry.LoadDir("", aliasesDir); err != nil {
+		errs = append(errs, err)
+	}
+
+	entries, err := os.ReadDir(modulesDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			errs = append(errs, err)
+		}
+		return registry, errs
+	}
+
+	for _, entry := range entries {
+		path := filepath.Join(modulesDir, entry.Name())
+
+		switch {
+		case entry.IsDir():
+			if err := registry.LoadDir(entry.Name(), path); err != nil {
+				errs = append(errs, err)
+			}
+		case filepath.Ext(entry.Name()) == lang.AliasExtension:
+			pkg := strings.TrimSuffix(entry.Name(), lang.AliasExtension)
+			if _, err := registry.LoadFile(pkg, path); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	return registry, errs
 }
 
 // reportAliasErrors печатает проблемы загрузки, не прерывая работу:
@@ -109,11 +117,14 @@ var runCmd = &cobra.Command{
 		registry, errs := aliases()
 		reportAliasErrors(cmd, errs)
 
+		target := args[0]
+		if box != nil {
+			return runSandboxed(cmd, box, target, args[1:])
+		}
+
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
 		interp.SetErr(cmd.ErrOrStderr())
-		interp.SetSandbox(box)
 
-		target := args[0]
 		if target == "-" || config.FileExists(target) {
 			src, err := runOpts.source(target)
 			if err != nil {
@@ -137,6 +148,31 @@ var runCmd = &cobra.Command{
 		}
 		return printResult(cmd, result)
 	},
+}
+
+// runSandboxed выполняет сценарий или алиас в процессе песочницы.
+func runSandboxed(cmd *cobra.Command, box *lang.Sandbox, target string, args []string) error {
+	spec := isolatedSpec{Mode: "call", Alias: target, Args: args}
+	if target == "-" || config.FileExists(target) {
+		src, err := runOpts.source(target)
+		if err != nil {
+			return err
+		}
+		spec = isolatedSpec{Mode: "run", Name: src.Name, Content: src.Content}
+	}
+	spec.setBox(box)
+
+	result, err := isolated(cmd, spec, cmd.OutOrStdout())
+	if err != nil {
+		return err
+	}
+	if err := result.err(); err != nil {
+		return err
+	}
+	if result.HasValue {
+		cmd.Println(result.Value)
+	}
+	return nil
 }
 
 // prepareScript разбирает сценарий и регистрирует объявленные в нём

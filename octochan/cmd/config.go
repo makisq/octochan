@@ -86,6 +86,10 @@ func initConfig() error {
 	viper.SetDefault("logs.min_level", "warning")
 	viper.SetDefault("logs.rules", logs.DefaultRules)
 
+	// Песочница ОС для сценариев с --sandbox: strict — отказываться
+	// выполнять, если ядро не даёт полной изоляции.
+	viper.SetDefault("sandbox.strict", false)
+
 	// Оболочка: сколько команд помнить между запусками.
 	viper.SetDefault("shell.history_size", 1000)
 

@@ -91,6 +91,9 @@ type scriptSetup struct {
 	box *lang.Sandbox
 	// dir — каталог для относительных путей; пусто — текущий.
 	dir string
+	// script — текст сценария: в песочнице его разбирает процесс
+	// песочницы заново.
+	script source
 }
 
 func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, out io.Writer) *lang.Interpreter {
@@ -135,8 +138,34 @@ func loadScript(registry *lang.Registry, src source) (*lang.File, error) {
 // План сценария, прервавшегося ошибкой, неполон: это говорится в самом
 // плане, а не замалчивается.
 func planScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, out io.Writer) ([]lang.Effect, []lang.Invocation, error) {
+	return execScript(cmd, registry, file, setup, true, out)
+}
+
+// execScript выполняет сценарий — в режиме плана или по-настоящему.
+//
+// В песочнице сценарий выполняется отдельным процессом под ограничениями
+// ядра: даже обойдя проверки языка, он не дотянется ни до файлов вне
+// разрешённых каталогов, ни до сети. План и выполнение идут одним путём,
+// поэтому их отпечатки сравнимы.
+func execScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, plan bool, out io.Writer) ([]lang.Effect, []lang.Invocation, error) {
+	if setup.box != nil {
+		spec := isolatedSpec{Mode: "run", Name: setup.script.Name, Content: setup.script.Content,
+			Check: true, Dir: setup.dir}
+		if plan {
+			spec.Mode = "plan"
+		}
+		spec.setBox(setup.box)
+		result, err := isolated(cmd, spec, out)
+		if err != nil {
+			return nil, nil, err
+		}
+		return result.Effects, result.Invocations, result.err()
+	}
+
 	interp := setup.interpreter(cmd, registry, out)
-	interp.SetPlanMode()
+	if plan {
+		interp.SetPlanMode()
+	}
 	err := interp.RunFile(file)
 	return interp.Effects(), interp.Invocations(), err
 }
@@ -221,7 +250,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 	if err != nil {
 		return nil, fmt.Errorf("не удалось определить текущий каталог: %w", err)
 	}
-	setup := scriptSetup{box: box, dir: dir}
+	setup := scriptSetup{box: box, dir: dir, script: src}
 
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)
@@ -293,8 +322,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		}
 	}
 
-	var setup scriptSetup
-	setup.dir = run.Dir
+	setup := scriptSetup{dir: run.Dir, script: source{Name: request.Source, Content: request.Payload}}
 	if run.Sandboxed {
 		box, err := lang.NewSandbox(run.Roots, run.Env, run.Live)
 		if err != nil {
@@ -306,7 +334,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)
 
-	file, err := loadScript(registry, source{Name: request.Source, Content: request.Payload})
+	file, err := loadScript(registry, setup.script)
 	if err != nil {
 		return fmt.Errorf("сохранённый в заявке сценарий: %w", err)
 	}
@@ -337,9 +365,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 
 	cmd.Printf("Заявка %s, сценарий %s\n", request.ID, request.Source)
 
-	interp := setup.interpreter(cmd, registry, cmd.OutOrStdout())
-	runErr := interp.RunFile(file)
-	effects := interp.Effects()
+	effects, _, runErr := execScript(cmd, registry, file, setup, false, cmd.OutOrStdout())
 
 	// След остаётся и при ошибке: записанное до сбоя уже записано.
 	var (

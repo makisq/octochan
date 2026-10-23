@@ -13,14 +13,18 @@ import (
 
 	"octochan/rbac"
 	"octochan/remote"
+	"octochan/sandbox"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-// TestMain позволяет тестовому бинарю быть ochan: сервер запускает
-// дочерним процессом самого себя, и в тестах это тестовый бинарь.
+// TestMain позволяет тестовому бинарю быть ochan: сервер и песочница
+// запускают дочерним процессом самого себя, и в тестах это тестовый бинарь.
 func TestMain(m *testing.M) {
+	if sandbox.Enter() {
+		os.Exit(SandboxChild())
+	}
 	if os.Getenv("OCHAN_TEST_AS_OCHAN") == "1" {
 		os.Exit(Execute())
 	}

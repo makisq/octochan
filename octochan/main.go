@@ -12,6 +12,7 @@ import (
 	"os"
 
 	"octochan/cmd"
+	"octochan/sandbox"
 
 	// Регистрация встроенных модулей сценариев.
 	_ "octochan/module"
@@ -20,5 +21,10 @@ import (
 )
 
 func main() {
+	// Процесс песочницы ставит ограничения ядра раньше всего остального:
+	// ни конфига, ни журнала, ни модулей он не читает.
+	if sandbox.Enter() {
+		os.Exit(cmd.SandboxChild())
+	}
 	os.Exit(cmd.Execute())
 }

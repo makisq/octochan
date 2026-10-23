@@ -92,7 +92,7 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	effects, calls, runErr := planScript(cmd, registry, file, scriptSetup{box: box}, cmd.OutOrStdout())
+	effects, calls, runErr := planScript(cmd, registry, file, scriptSetup{box: box, script: src}, cmd.OutOrStdout())
 
 	plan := lang.BuildPlan(file.Name, effects)
 	if runErr != nil {

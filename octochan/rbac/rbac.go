@@ -32,7 +32,7 @@ const All = "all"
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
 	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "lang", "logs",
-		"modules", "print", "requests", "services", "stats", "status", "validate"},
+		"modules", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
 	"plan":    {"plan"},
 	"request": {"request"},
 	"approve": {"approve", "reject"},
