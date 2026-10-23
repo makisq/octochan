@@ -128,7 +128,7 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 			request.ID, request.State.Russian())
 	}
 	if err := checkRequestScope(currentRole, request); err != nil {
-		return err
+		return refuse(cmd, err)
 	}
 	if request.Script != nil {
 		return applyScriptRequest(cmd, store, request)

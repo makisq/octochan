@@ -51,7 +51,11 @@ var auditCmd = &cobra.Command{
 				mark = "-"
 			}
 			what := strings.TrimSpace(strings.ReplaceAll(rec.Command, ".", " ") + " " + strings.Join(rec.Args, " "))
-			if rec.Event != audit.EventCommand {
+			switch {
+			case rec.Event == audit.EventCommand:
+			case what == "":
+				what = rec.Event
+			default:
 				what = rec.Event + ": " + what
 			}
 			where := rec.User

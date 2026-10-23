@@ -79,6 +79,14 @@
 
 Подробнее — [«Серверный режим»](../guide/server.md).
 
+## sandbox — песочница ОС
+
+| Ключ | По умолчанию | |
+|---|---|---|
+| `strict` | `false` | `true` — не выполнять сценарий с `--sandbox`, если ядро не даёт полной изоляции (`ochan sandbox` покажет, чего нет) |
+
+Подробнее — [«Безопасность»](../guide/security.md).
+
 ## Переменные окружения
 
 | Переменная | |
@@ -91,11 +99,16 @@
 | `PGPASSWORD`, `~/.pgpass` | пароль живого PostgreSQL — не в строке подключения |
 
 Служебные, их задаёт сам ochan: `OCTOCHAN_ROLE_GRANT` — допуск сервера
-для дочернего процесса; `OCTOCHAN_PLUGIN` и `OCTOCHAN_PLUGIN_LOG_LEVEL` —
-рукопожатие и журнал модулей.
+для дочернего процесса; `OCTOCHAN_REMOTE_ADDR` — адрес клиента сервера или
+ochan-mcp для журнала аудита; `OCTOCHAN_SANDBOX_STAGE` — шаг процесса
+песочницы; `OCTOCHAN_PLUGIN` и `OCTOCHAN_PLUGIN_LOG_LEVEL` — рукопожатие и
+журнал модулей.
 
 ## Сервер MCP
 
 `ochan-mcp` настраивается флагами (`--root`, `--allow-live`, `--allow-env`,
-`--ochan`, `--timeout`, `--max-output`), а `ochan` под ним — этим же
-конфигом. См. [mcp/README.md](../../mcp/README.md).
+`--ochan`, `--timeout`, `--max-output`; для HTTP — `--listen`, `--path`,
+`--token-file`, `--tls-cert`, `--tls-key`, `--allow-plaintext`,
+`--allow-origin`, `--session-idle`), а `ochan` под ним — этим же конфигом.
+Токен HTTP можно задать окружением `OCHAN_MCP_TOKEN`. См.
+[mcp/README.md](../../mcp/README.md).

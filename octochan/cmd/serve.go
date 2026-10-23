@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"octochan/i18n"
 	"octochan/rbac"
 	"octochan/remote"
 
@@ -205,6 +206,9 @@ func remoteAuthorize(role *rbac.Role, args []string) error {
 	}
 	if reason, ok := remoteOnly[key]; ok {
 		return errors.New(reason)
+	}
+	if role.Denies(key) {
+		return i18n.Errorf("команда %s роли %s запрещена", strings.ReplaceAll(key, ".", " "), role.Name)
 	}
 	if !role.Allows(key) {
 		return fmt.Errorf("роль %s не может выполнять %s: нужно право %s", role.Name,

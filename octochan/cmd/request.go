@@ -383,7 +383,7 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 		return err
 	}
 	if err := checkRequestScope(currentRole, request); err != nil {
-		return err
+		return refuse(cmd, err)
 	}
 	who := ""
 	if currentRole != nil {
@@ -391,7 +391,7 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	}
 	if state == workspace.RequestApproved && request.State == workspace.RequestPending {
 		if err := checkApprover(cmd, request); err != nil {
-			return err
+			return refuse(cmd, err)
 		}
 	}
 	if err := store.Decide(request, state, who, comment); err != nil {

@@ -137,6 +137,12 @@ func TestApprovalSeparationOfDuties(t *testing.T) {
 	t.Setenv(EnvRole, "dan")
 	id := requestIDPattern.FindStringSubmatch(e.must("request", "tune.ochan"))[1]
 	e.fails("свою заявку не согласуют", "approve", id)
+	// Отказ внутри команды, после допуска, — тоже в журнале.
+	t.Setenv(EnvRole, "")
+	if out := e.must("audit", "--role", "dan", "--denied"); !strings.Contains(out, "свою заявку не согласуют") {
+		t.Fatalf("отказ согласования не в журнале:\n%s", out)
+	}
+	t.Setenv(EnvRole, "dan")
 	if card := e.must("requests", id); !strings.Contains(card, "роль dan") {
 		t.Fatalf("роль автора не в заявке:\n%s", card)
 	}

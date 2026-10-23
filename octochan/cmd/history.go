@@ -159,7 +159,7 @@ var rollbackCmd = &cobra.Command{
 				entry.ID, entry.Kind.Russian())
 		}
 		if err := checkEntryScope(currentRole, entry); err != nil {
-			return err
+			return refuse(cmd, err)
 		}
 		if entry.Reverted() && !rollbackForce {
 			return fmt.Errorf("запись %s уже отменена записью %s; используйте --force, "+

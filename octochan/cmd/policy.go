@@ -97,6 +97,22 @@ func admit(cmd *cobra.Command, role *rbac.Role, key string, args []string) error
 	}
 }
 
+// refuse пишет в журнал аудита отказ, который команда вынесла сама, уже
+// после допуска: свою заявку не согласуют, заявка вне области. Иначе в
+// журнале такая попытка выглядела бы разрешённой.
+func refuse(cmd *cobra.Command, err error) error {
+	if err == nil || currentRole == nil {
+		return err
+	}
+	if journal, jerr := auditJournal(); jerr == nil {
+		_ = journal.Append(audit.Record{Event: audit.EventCommand, Role: currentRole.Name,
+			Command: commandKey(cmd), Args: auditArgs(cmd, cmd.Flags().Args()),
+			Remote: os.Getenv(EnvRemoteAddr), User: workspace.CurrentUser()},
+			func(audit.Recent) error { return err })
+	}
+	return err
+}
+
 // checkCommand — права, запреты и пути команды.
 func checkCommand(cmd *cobra.Command, role *rbac.Role, key string, args []string) error {
 	if role.Denies(key) {
