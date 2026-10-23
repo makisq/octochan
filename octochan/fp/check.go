@@ -27,9 +27,16 @@ type Options struct {
 	Consistency Consistency
 	// Quiet — Q_off: вопросы, о которых оператор просил не сообщать.
 	Quiet []string
-	// Library — библиотека скиллов: операции скилла и есть ли он вообще.
+	// Library — библиотека скиллов: есть ли скилл, его операции и версия.
 	// nil — библиотеки нет, и скилл даёт ровно то, что объявлено в import.
-	Library func(skill string) (ops []string, ok bool)
+	Library func(name string) (*Skill, bool)
+}
+
+// Skill — скилл в библиотеке.
+type Skill struct {
+	Ops []string
+	// Version — версия скилла; пусто — у скилла нет версии.
+	Version string
 }
 
 // Result — итог разбора и проверки.
@@ -44,6 +51,9 @@ type Result struct {
 	Required []string
 	// Dependents — D(c): ячейки, зависящие от c напрямую или по цепочке.
 	Dependents map[string][]string
+	// Skills — подключённые скиллы и их версии: из библиотеки, а без неё —
+	// как объявлено в import.
+	Skills map[string]string
 }
 
 // Errors возвращает число отказов (без замечаний).
@@ -94,6 +104,8 @@ func Check(prog *Program, opts Options) *Result {
 		knowledge: make(map[string]bool),
 		skills:    make(map[string]*Import),
 		rules:     make(map[string]*Rule),
+
+		skillVersions: make(map[string]string),
 	}
 
 	c.declareClasses()
@@ -120,6 +132,7 @@ func Check(prog *Program, opts Options) *Result {
 		Knowledge:   sortedSet(c.knowledge),
 		Required:    c.requiredNames(),
 		Dependents:  deps,
+		Skills:      c.skillVersions,
 	}
 }
 
@@ -144,6 +157,8 @@ type checker struct {
 	required  []requirement
 	skills    map[string]*Import
 	rules     map[string]*Rule
+
+	skillVersions map[string]string
 }
 
 func (c *checker) report(pos Pos, code Code, format string, args ...any) {
@@ -548,15 +563,26 @@ func (c *checker) checkImports() {
 		c.skills[imp.Skill] = imp
 
 		var libraryOps []string
+		c.skillVersions[imp.Skill] = strings.TrimPrefix(imp.Version, "v")
 		if c.opts.Library != nil {
-			ops, ok := c.opts.Library(imp.Skill)
+			skill, ok := c.opts.Library(imp.Skill)
 			if !ok {
 				c.report(imp.Pos, ErrUndef, "скилла @%s нет в библиотеке", imp.Skill)
 				continue
 			}
-			libraryOps = ops
-			if imp.Version != "" {
-				c.report(imp.Pos, Note, "версия %s скилла @%s не проверена: библиотека версий пока не ведёт", imp.Version, imp.Skill)
+			libraryOps = skill.Ops
+			c.skillVersions[imp.Skill] = skill.Version
+
+			// Версия — часть знания: операция с тем же именем в другой
+			// версии скилла может делать другое.
+			switch {
+			case imp.Version == "":
+			case skill.Version == "":
+				c.report(imp.Pos, ErrUndef, "промпт требует @%s %s, а у скилла в библиотеке версии нет", imp.Skill, imp.Version)
+				continue
+			case !VersionMatches(imp.Version, skill.Version):
+				c.report(imp.Pos, ErrUndef, "промпт требует @%s %s, а в библиотеке версия %s", imp.Skill, imp.Version, skill.Version)
+				continue
 			}
 		}
 
@@ -891,4 +917,33 @@ func sortedSet(set map[string]bool) []string {
 	}
 	sort.Strings(items)
 	return items
+}
+
+// VersionMatches сообщает, подходит ли версия have под требование want.
+//
+// Требование совпадает с началом версии по целым числам: v2 подходит
+// под 2.0 и 2.7.1, v2.3 — под 2.3 и 2.3.9, v2.3.1 — только под 2.3.1.
+// Так промпт пишет ровно ту точность, которая ему важна.
+func VersionMatches(want, have string) bool {
+	want = strings.TrimPrefix(want, "v")
+	have = strings.TrimPrefix(have, "v")
+	if want == "" {
+		return true
+	}
+	if have == "" {
+		return false
+	}
+	w, h := strings.Split(want, "."), strings.Split(have, ".")
+	if len(w) > len(h) {
+		// 2.3 удовлетворяет требованию 2.3.0, но не 2.3.1.
+		for len(h) < len(w) {
+			h = append(h, "0")
+		}
+	}
+	for i := range w {
+		if strings.TrimLeft(w[i], "0") != strings.TrimLeft(h[i], "0") {
+			return false
+		}
+	}
+	return true
 }

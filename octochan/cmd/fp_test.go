@@ -20,6 +20,10 @@ func TestFPCheckUsesAliasLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifest, err := os.ReadFile("../examples/fp/pgconf/package.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	e := newScriptEnv(t)
 	out, err := e.ochan("fp", "check", example)
@@ -39,11 +43,31 @@ func TestFPCheckUsesAliasLibrary(t *testing.T) {
 	// Реестр алиасов кешируется на процесс: новый пакет виден новому запуску.
 	resetAliasCache()
 
+	// Пример требует v1, а у пакета без манифеста версии нет.
+	out, err = e.ochan("fp", "check", example)
+	if err == nil || !strings.Contains(out, "промпт требует @pgconf v1, а у скилла в библиотеке версии нет") {
+		t.Fatalf("требование версии к безверсионному пакету принято: %v\n%s", err, out)
+	}
+
+	e.write(filepath.Join(pkg, "package.yaml"), string(manifest))
+	resetAliasCache()
+
 	out = e.must("fp", "check", example)
-	for _, want := range []string{"✅", "K:       connection_limit, memory_budget, prod_limit, set_param, store"} {
+	for _, want := range []string{"✅", "K:       connection_limit, memory_budget, prod_limit, set_param, store",
+		"Скилл:   @pgconf 1.2.0"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("в выводе нет %q:\n%s", want, out)
 		}
+	}
+
+	if out := e.must("aliases"); !strings.Contains(out, "Пакет pgconf 1.2.0 — правка параметров конфигурации PostgreSQL") {
+		t.Fatalf("aliases не показывает версию пакета:\n%s", out)
+	}
+
+	e.write(e.path("v2.fp"), "goal: x\nclasses:\n  Goal : \"x\"\nimport @pgconf v2\n")
+	out, err = e.ochan("fp", "check", "v2.fp")
+	if err == nil || !strings.Contains(out, "промпт требует @pgconf v2, а в библиотеке версия 1.2.0") {
+		t.Fatalf("несовпадение версии не найдено: %v\n%s", err, out)
 	}
 
 	// Операции, которой в пакете нет, скилл не даёт.

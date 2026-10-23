@@ -66,6 +66,9 @@ var fpCheckCmd = &cobra.Command{
 		cmd.Printf("Цель γ:  %s\n", result.Goal)
 		cmd.Printf("K:       %s\n", orNone(result.Knowledge))
 		cmd.Printf("Req(P):  %s\n", orNone(result.Required))
+		for _, name := range sortedPaths(result.Skills) {
+			cmd.Printf("Скилл:   @%s %s\n", name, versionOrNone(result.Skills[name]))
+		}
 		for _, cell := range result.Program.Cells {
 			cmd.Printf("D(%s):   %s\n", cell.Name, orNone(result.Dependents[cell.Name]))
 		}
@@ -105,15 +108,24 @@ func fpOptions(cmd *cobra.Command) (fp.Options, error) {
 	// верит объявлению в import на слово, а смотрит в библиотеку.
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)
-	packages := map[string][]string{}
+	packages := map[string]*fp.Skill{}
 	for _, info := range registry.List() {
-		if info.Module != "" {
-			packages[info.Module] = append(packages[info.Module], info.Name)
+		if info.Module == "" {
+			continue
 		}
+		skill, ok := packages[info.Module]
+		if !ok {
+			skill = &fp.Skill{}
+			if pkg, ok := registry.Package(info.Module); ok {
+				skill.Version = pkg.Version
+			}
+			packages[info.Module] = skill
+		}
+		skill.Ops = append(skill.Ops, info.Name)
 	}
-	opts.Library = func(skill string) ([]string, bool) {
-		ops, ok := packages[skill]
-		return ops, ok
+	opts.Library = func(name string) (*fp.Skill, bool) {
+		skill, ok := packages[name]
+		return skill, ok
 	}
 	return opts, nil
 }

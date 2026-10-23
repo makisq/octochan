@@ -243,6 +243,14 @@ var aliasesCmd = &cobra.Command{
 				title := "Алиасы пользователя"
 				if info.Module != "" {
 					title = "Пакет " + info.Module
+					if pkg, ok := registry.Package(info.Module); ok {
+						title += " " + pkg.Version
+						if pkg.Description != "" {
+							title += " — " + pkg.Description
+						}
+					} else {
+						title += " (без версии)"
+					}
 				}
 				cmd.Printf("\n%s\n", title)
 			}

@@ -98,6 +98,11 @@ type ScriptRun struct {
 	// SHA-256 на момент создания заявки.
 	Libraries map[string]string `json:"libraries,omitempty"`
 
+	// Packages — пакеты алиасов, которые вызывает сценарий, и их версии;
+	// пустая строка — пакет без версии. Код сверяется по Libraries, а
+	// версия нужна тому, кто согласует: по ней видно, с чем строился план.
+	Packages map[string]string `json:"packages,omitempty"`
+
 	// Effects — отпечатки действий из плана, по порядку. Перед выполнением
 	// план строится заново и сверяется с ними.
 	Effects []string `json:"effects"`

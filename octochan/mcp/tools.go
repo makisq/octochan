@@ -253,7 +253,7 @@ func buildTools(live []string) []tool {
 		{
 			Name:        "aliases",
 			Title:       "Алиасы и встроенные функции",
-			Description: "Перечисляет алиасы и встроенные функции языка ochan: библиотеку навыков. Только список, без выполнения.",
+			Description: "Перечисляет алиасы и встроенные функции языка ochan: библиотеку навыков с версиями пакетов. Только список, без выполнения.",
 			Command:     "aliases",
 			Slots: []slot{{Name: "package", Kind: slotPackage,
 				Description: "показать только этот пакет алиасов"}},

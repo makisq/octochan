@@ -147,24 +147,36 @@ func fingerprints(effects []lang.Effect) []string {
 	return prints
 }
 
-// libraryHashes — суммы файлов библиотеки, от которых зависит сценарий.
-func libraryHashes(file *lang.File, registry *lang.Registry) (map[string]string, error) {
+// libraryHashes — суммы файлов библиотеки, от которых зависит сценарий,
+// и версии их пакетов.
+func libraryHashes(file *lang.File, registry *lang.Registry) (map[string]string, map[string]string, error) {
 	hashes := make(map[string]string)
+	packages := make(map[string]string)
 	for _, decl := range lang.Uses(file, registry) {
+		if decl.Module != "" {
+			version := ""
+			if pkg, ok := registry.Package(decl.Module); ok {
+				version = pkg.Version
+			}
+			packages[decl.Module] = version
+		}
 		path := decl.Pos.File
 		if _, done := hashes[path]; done {
 			continue
 		}
 		sum, err := fileHash(path)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		hashes[path] = sum
 	}
 	if len(hashes) == 0 {
-		return nil, nil
+		hashes = nil
 	}
-	return hashes, nil
+	if len(packages) == 0 {
+		packages = nil
+	}
+	return hashes, packages, nil
 }
 
 func fileHash(path string) (string, error) {
@@ -218,7 +230,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*wor
 		return nil, fmt.Errorf("сценарий прервался при построении плана: %w", err)
 	}
 
-	libraries, err := libraryHashes(file, registry)
+	libraries, packages, err := libraryHashes(file, registry)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +239,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*wor
 	run := &workspace.ScriptRun{
 		Dir:       dir,
 		Libraries: libraries,
+		Packages:  packages,
 		Effects:   fingerprints(effects),
 	}
 	if box != nil {

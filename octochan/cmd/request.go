@@ -194,6 +194,10 @@ func writeRequestDoc(request *workspace.Request, path string) error {
 		doc.Fields = append(doc.Fields,
 			report.Field{Name: "Каталог", Value: request.Script.Dir},
 			report.Field{Name: "Песочница", Value: sandboxSummary(request.Script)})
+		for _, name := range sortedPaths(request.Script.Packages) {
+			doc.Fields = append(doc.Fields,
+				report.Field{Name: "Пакет " + name, Value: versionOrNone(request.Script.Packages[name])})
+		}
 		doc.Listing = request.Payload
 	}
 	if request.DecidedBy != "" {
@@ -276,6 +280,9 @@ func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	if request.Script != nil {
 		cmd.Printf("Каталог:   %s\n", request.Script.Dir)
 		cmd.Printf("Песочница: %s\n", sandboxSummary(request.Script))
+		for _, name := range sortedPaths(request.Script.Packages) {
+			cmd.Printf("Пакет:     %s %s\n", name, versionOrNone(request.Script.Packages[name]))
+		}
 		for _, path := range sortedPaths(request.Script.Libraries) {
 			cmd.Printf("Алиасы:    %s\n", path)
 		}
@@ -357,6 +364,13 @@ func requestMailBody(request *workspace.Request) string {
 		body += "\n" + request.Plan.Render(60)
 	}
 	return body
+}
+
+func versionOrNone(version string) string {
+	if version == "" {
+		return "без версии"
+	}
+	return version
 }
 
 // sandboxSummary описывает песочницу заявки одной строкой.

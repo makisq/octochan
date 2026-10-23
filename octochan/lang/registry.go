@@ -4,12 +4,82 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+
+	"octochan/config"
 )
 
 // AliasExtension — расширение файлов с алиасами.
 const AliasExtension = ".ochan"
+
+// ManifestName — описание пакета алиасов: версия и назначение. Лежит
+// в каталоге пакета рядом с его файлами .ochan.
+const ManifestName = "package.yaml"
+
+// versionPattern — версия из одного, двух или трёх чисел: 2, 2.3, 2.3.1.
+var versionPattern = regexp.MustCompile(`^v?(\d+(?:\.\d+){0,2})$`)
+
+// Package — описание пакета алиасов из его манифеста.
+type Package struct {
+	Name        string
+	Version     string
+	Description string
+	// Manifest — путь к файлу описания.
+	Manifest string
+}
+
+// LoadManifest читает описание пакета. Пакет без манифеста — не ошибка:
+// он просто без версии, и nil это и означает.
+//
+// Манифест разбирается тем же разборщиком, что и конфиги: строки
+// «ключ: значение». Неизвестный ключ — ошибка: опечатка в «version»
+// иначе тихо сделала бы пакет безверсионным.
+func LoadManifest(name, dir string) (*Package, error) {
+	path := filepath.Join(dir, ManifestName)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("не удалось прочитать %s: %w", path, err)
+	}
+
+	fields, err := config.ParseConfig(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	pkg := &Package{Name: name, Manifest: path}
+	for section, params := range fields {
+		if section != "" {
+			return nil, fmt.Errorf("%s: секции не поддерживаются: [%s]", path, section)
+		}
+		for key, value := range params {
+			switch key {
+			case "name":
+				if value != name {
+					return nil, fmt.Errorf("%s: пакет называется %q, а лежит в каталоге %q — имя пакета задаёт каталог",
+						path, value, name)
+				}
+			case "version":
+				m := versionPattern.FindStringSubmatch(value)
+				if m == nil {
+					return nil, fmt.Errorf("%s: версия %q, ожидалось вида 1, 1.2 или 1.2.3", path, value)
+				}
+				pkg.Version = m[1]
+			case "description":
+				pkg.Description = value
+			default:
+				return nil, fmt.Errorf("%s: неизвестное поле %q; допустимы name, version, description", path, key)
+			}
+		}
+	}
+	if pkg.Version == "" {
+		return nil, fmt.Errorf("%s: не указана version", path)
+	}
+	return pkg, nil
+}
 
 // Registry хранит алиасы, разложенные по пространствам имён.
 //
@@ -23,11 +93,22 @@ type Registry struct {
 	modules map[string]map[string]*AliasDecl
 	// order хранит порядок подключения пакетов для разрешения коротких имён
 	order []string
+	// packages — описания пакетов, у которых есть манифест.
+	packages map[string]*Package
 }
 
 // NewRegistry создаёт пустой реестр.
 func NewRegistry() *Registry {
-	return &Registry{modules: map[string]map[string]*AliasDecl{"": {}}}
+	return &Registry{
+		modules:  map[string]map[string]*AliasDecl{"": {}},
+		packages: map[string]*Package{},
+	}
+}
+
+// Package возвращает описание пакета, если у него есть манифест.
+func (r *Registry) Package(module string) (*Package, bool) {
+	pkg, ok := r.packages[module]
+	return pkg, ok
 }
 
 // Clone возвращает копию реестра. Объявления общие — их никто не
@@ -35,8 +116,12 @@ func NewRegistry() *Registry {
 // в оригинале.
 func (r *Registry) Clone() *Registry {
 	clone := &Registry{
-		modules: make(map[string]map[string]*AliasDecl, len(r.modules)),
-		order:   append([]string(nil), r.order...),
+		modules:  make(map[string]map[string]*AliasDecl, len(r.modules)),
+		order:    append([]string(nil), r.order...),
+		packages: make(map[string]*Package, len(r.packages)),
+	}
+	for module, pkg := range r.packages {
+		clone.packages[module] = pkg
 	}
 	for module, space := range r.modules {
 		copied := make(map[string]*AliasDecl, len(space))
@@ -260,6 +345,7 @@ func (r *Registry) LoadFile(module, path string) (*File, error) {
 }
 
 // LoadDir подключает все файлы .ochan из директории как пакет module.
+// У пакета (module не пуст) читается и манифест с версией.
 func (r *Registry) LoadDir(module, dir string) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -283,6 +369,17 @@ func (r *Registry) LoadDir(module, dir string) error {
 		if _, err := r.LoadFile(module, filepath.Join(dir, name)); err != nil {
 			return err
 		}
+	}
+
+	if module == "" {
+		return nil
+	}
+	pkg, err := LoadManifest(module, dir)
+	if err != nil {
+		return err
+	}
+	if pkg != nil {
+		r.packages[module] = pkg
 	}
 	return nil
 }

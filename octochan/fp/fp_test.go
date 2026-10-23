@@ -262,9 +262,12 @@ func TestKnowledgeClosure(t *testing.T) {
 }
 
 func TestSkillsAgainstLibrary(t *testing.T) {
-	library := func(skill string) ([]string, bool) {
-		if skill == "driving" {
-			return []string{"path_around", "stop"}, true
+	library := func(name string) (*Skill, bool) {
+		switch name {
+		case "driving":
+			return &Skill{Ops: []string{"path_around", "stop"}, Version: "2.3.1"}, true
+		case "legacy":
+			return &Skill{Ops: []string{"old"}}, true
 		}
 		return nil, false
 	}
@@ -277,7 +280,21 @@ func TestSkillsAgainstLibrary(t *testing.T) {
 	expect(t, check(t, head+"import @driving\n  provides: path_around\nrequires: stop\n", opts), ErrUndef, "stop")
 	expect(t, check(t, head+"import @driving\n  provides: fly\n", opts), ErrUndef, "в скилле @driving нет операции fly")
 	expect(t, check(t, head+"import @nginx\n", opts), ErrUndef, "скилла @nginx нет в библиотеке")
-	expect(t, check(t, head+"import @driving v2.3\n", opts), Note, "версия v2.3 скилла @driving не проверена")
+
+	// Версия — часть знания: та же операция в другой версии может делать
+	// другое.
+	for _, want := range []string{"v2", "v2.3", "v2.3.1"} {
+		expectClean(t, check(t, head+"import @driving "+want+"\nrequires: stop\n", opts))
+	}
+	expect(t, check(t, head+"import @driving v2.4\n", opts), ErrUndef, "промпт требует @driving v2.4, а в библиотеке версия 2.3.1")
+	expect(t, check(t, head+"import @driving v3\n", opts), ErrUndef, "в библиотеке версия 2.3.1")
+	expect(t, check(t, head+"import @legacy v1\n", opts), ErrUndef, "у скилла в библиотеке версии нет")
+	expectClean(t, check(t, head+"import @legacy\nrequires: old\n", opts))
+
+	r := check(t, head+"import @driving v2\nimport @legacy\n", opts)
+	if r.Skills["driving"] != "2.3.1" || r.Skills["legacy"] != "" {
+		t.Errorf("версии скиллов: %v", r.Skills)
+	}
 
 	// Арбитр A2: классы скилла должны быть допустимы для задачи.
 	expect(t, check(t, head+"import @driving\n  requires_class: Speed\n", opts), ErrUndef,
@@ -400,7 +417,7 @@ func FuzzCheckText(f *testing.F) {
 	}
 	f.Add(head + "??n_x(except: {a}\ncell c:\n  set A.b.c = 1 km/\nreport:\n  choice: x\n  q:\n")
 	f.Fuzz(func(t *testing.T, src string) {
-		r := CheckText("fuzz.fp", src, Options{MaxMeanings: 2, Library: func(string) ([]string, bool) { return nil, true }})
+		r := CheckText("fuzz.fp", src, Options{MaxMeanings: 2, Library: func(string) (*Skill, bool) { return &Skill{Version: "1.2"}, true }})
 		for _, d := range r.Diagnostics {
 			if d.Pos.Line < 1 || d.Pos.Col < 1 {
 				t.Fatalf("находка без места: %s", d)
@@ -436,5 +453,31 @@ func TestProtocolExamplesParse(t *testing.T) {
 	program := strings.Join(blocks, "\n")
 	if _, diags := Parse("протокол", program); len(diags) > 0 {
 		t.Fatalf("примеры протокола не разбираются:\n%s\n%s", dump(diags), program)
+	}
+}
+
+func TestVersionMatches(t *testing.T) {
+	cases := []struct {
+		want, have string
+		ok         bool
+	}{
+		{"", "", true},
+		{"", "1.2", true},
+		{"v1", "", false},
+		{"v1", "1", true},
+		{"v1", "1.9.3", true},
+		{"v1.2", "1.2.7", true},
+		{"v1.2", "1.20", false},
+		{"v1.2.3", "1.2.3", true},
+		{"v1.2.3", "1.2.4", false},
+		{"v1.2.0", "1.2", true},
+		{"v1.2.1", "1.2", false},
+		{"v2", "1.9", false},
+		{"v01.2", "1.02", true},
+	}
+	for _, tc := range cases {
+		if got := VersionMatches(tc.want, tc.have); got != tc.ok {
+			t.Errorf("VersionMatches(%q, %q) = %v, ожидалось %v", tc.want, tc.have, got, tc.ok)
+		}
 	}
 }

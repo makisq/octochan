@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"octochan/lang"
 )
 
 // scriptEnv — домашний каталог с библиотекой алиасов и рабочий каталог
@@ -225,5 +227,24 @@ func TestCheckCommand(t *testing.T) {
 
 	if out := e.must("check"); !strings.Contains(out, "библиотека алиасов: ошибок не найдено") {
 		t.Fatalf("вывод: %s", out)
+	}
+}
+
+// В заявке видно, с какой версией пакета строился план.
+func TestScriptRequestShowsPackageVersion(t *testing.T) {
+	e := newScriptEnv(t)
+	pkg := filepath.Join(e.home, ".octochan", "modules", "pgconf")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.write(filepath.Join(pkg, "lib.ochan"), "alias limit() { return 300 }\n")
+	e.write(filepath.Join(pkg, lang.ManifestName), "version: 1.4\n")
+	e.write(e.path("pkg.ochan"), "write(\"limit.txt\", str(pgconf.limit()))\n")
+	resetAliasCache()
+
+	created := e.must("request", "pkg.ochan")
+	id := requestIDPattern.FindStringSubmatch(created)[1]
+	if card := e.must("requests", id); !strings.Contains(card, "Пакет:     pgconf 1.4") {
+		t.Fatalf("версии пакета нет в карточке:\n%s", card)
 	}
 }

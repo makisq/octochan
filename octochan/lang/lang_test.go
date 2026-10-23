@@ -691,3 +691,55 @@ func TestRegistryCloneIsIndependent(t *testing.T) {
 		t.Fatal("алиас копии попал в оригинал")
 	}
 }
+
+func writeManifest(t *testing.T, dir, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, ManifestName), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPackageManifest(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "lib.ochan"), []byte("alias f() { return 1 }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Без манифеста пакет просто без версии.
+	registry := NewRegistry()
+	if err := registry.LoadDir("pgconf", dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.Package("pgconf"); ok {
+		t.Fatal("у пакета без манифеста появилось описание")
+	}
+
+	writeManifest(t, dir, "# скилл\nname: pgconf\nversion: v1.2.0\ndescription: \"правка параметров\"\n")
+	registry = NewRegistry()
+	if err := registry.LoadDir("pgconf", dir); err != nil {
+		t.Fatal(err)
+	}
+	pkg, ok := registry.Package("pgconf")
+	if !ok || pkg.Version != "1.2.0" || pkg.Description != "правка параметров" {
+		t.Fatalf("описание пакета: %+v", pkg)
+	}
+	if clone, _ := registry.Clone().Package("pgconf"); clone != pkg {
+		t.Fatal("копия реестра потеряла описание пакета")
+	}
+
+	cases := map[string]string{
+		"version: 1.2.3.4\n":            "ожидалось вида 1, 1.2 или 1.2.3",
+		"version: latest\n":             "ожидалось вида",
+		"verison: 1.0\n":                "неизвестное поле \"verison\"",
+		"name: other\nversion: 1\n":     "имя пакета задаёт каталог",
+		"description: x\n":              "не указана version",
+		"[deps]\nother = 1\nversion: 1": "секции не поддерживаются",
+	}
+	for content, want := range cases {
+		writeManifest(t, dir, content)
+		err := NewRegistry().LoadDir("pgconf", dir)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("манифест %q: ожидалась ошибка с %q, получено %v", content, want, err)
+		}
+	}
+}

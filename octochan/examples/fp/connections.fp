@@ -21,7 +21,7 @@ generalization connection_limit(target : Config, limit : Limit) :
 
 instance prod_limit = connection_limit(target := prod_conf, limit := connections)
 
-import @pgconf
+import @pgconf v1
   provides: Config, set_param, store
   requires_class: Config
 
