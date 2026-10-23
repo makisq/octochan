@@ -2,9 +2,13 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"sync/atomic"
+	"syscall"
 
 	"octochan/pluginhost"
 
@@ -27,19 +31,39 @@ func init() {
 	}
 }
 
+// shellTerminal — исходный режим терминала; восстанавливается при любом
+// выходе из оболочки.
+var shellTerminal *terminalState
+
 // runInteractiveShell запускает REPL.
 //
-// Ручного управления терминалом здесь больше нет. Прежняя версия сама
-// дёргала ioctl TCGETS/TCSETS через syscall — из-за этого проект собирался
-// только под Linux, — а затем передавала терминал go-prompt, который
-// выставляет raw-режим самостоятельно. Отсюда же росли `stty sane`
-// и \r перед каждой строкой вывода.
+// Ручного управления терминалом через ioctl здесь нет: из-за него проект
+// когда-то собирался только под Linux. Режим сохраняется и
+// восстанавливается через golang.org/x/term — см. terminalState.
 func runInteractiveShell(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// Контекст оболочки не отменяется по Ctrl+C: прерывание касается
+	// выполняемой команды, а не самой оболочки. Иначе первый же Ctrl+C
+	// отменял бы контекст навсегда, и все следующие команды падали бы сразу.
+	shellCtx := context.WithoutCancel(ctx)
 
-	if err := startModuleWatcher(ctx); err != nil {
+	shellTerminal = saveTerminal()
+	defer shellTerminal.restore()
+
+	// Закрытое окно или kill -HUP: go-prompt этот сигнал не ловит, и без
+	// обработки процесс завершился бы в сыром режиме терминала.
+	hangup := make(chan os.Signal, 1)
+	signal.Notify(hangup, syscall.SIGHUP)
+	defer signal.Stop(hangup)
+	go func() {
+		if _, ok := <-hangup; ok {
+			exitShell(129)
+		}
+	}()
+
+	if err := startModuleWatcher(shellCtx); err != nil {
 		fmt.Printf("⚠️ Горячая перезагрузка модулей недоступна: %v\n", err)
 	}
 
@@ -48,16 +72,22 @@ func runInteractiveShell(ctx context.Context) error {
 
 	fmt.Println("🐙 Добро пожаловать в OctoChan! Введите 'help' для списка команд, 'exit' для выхода.")
 
-	p := prompt.New(
-		executeShellInput,
-		completer,
+	options := []prompt.Option{
 		prompt.OptionPrefix("ochan> "),
 		prompt.OptionTitle("OctoChan Interactive Shell"),
 		prompt.OptionAddKeyBind(prompt.KeyBind{
 			Key: prompt.ControlD,
-			Fn:  func(*prompt.Buffer) { exitShell() },
+			Fn:  func(*prompt.Buffer) { exitShell(0) },
 		}),
-	)
+	}
+	if shellTerminal != nil {
+		options = append(options, prompt.OptionParser(&restoringParser{
+			ConsoleParser: prompt.NewStandardInputParser(),
+			terminal:      shellTerminal,
+		}))
+	}
+
+	p := prompt.New(func(input string) { executeShellInput(shellCtx, input) }, completer, options...)
 	p.Run()
 	return nil
 }
@@ -65,17 +95,19 @@ func runInteractiveShell(ctx context.Context) error {
 // exitShell завершает процесс из оболочки.
 //
 // go-prompt не умеет прерывать Run() изнутри executor'а, поэтому выход —
-// это os.Exit. Значит, defer'ы из Execute не отработают, и процессы плагинов
-// нужно погасить здесь явно: прежняя версия этого не делала, и после выхода
-// из оболочки они оставались висеть.
-func exitShell() {
+// это os.Exit. Значит, defer'ы не отработают, и всё нужно сделать здесь
+// явно: погасить процессы плагинов и вернуть терминал в исходный режим.
+// Ctrl+D вызывает выход прямо из обработчика клавиши, когда терминал ещё
+// в сыром режиме, — без восстановления он таким бы и остался.
+func exitShell(code int) {
 	stopTokenReminder()
 	pluginhost.GetModuleManager().Cleanup()
-	os.Exit(0)
+	shellTerminal.restore()
+	os.Exit(code)
 }
 
 // executeShellInput выполняет одну строку оболочки.
-func executeShellInput(input string) {
+func executeShellInput(ctx context.Context, input string) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return
@@ -88,9 +120,7 @@ func executeShellInput(input string) {
 	switch input {
 	case "exit", "quit":
 		fmt.Println("Goodbye! 👋")
-		// go-prompt перехватывает Ctrl-D/Ctrl-C сам; выход выполняется
-		// через panic-free путь os.Exit в вызывающем коде.
-		exitShell()
+		exitShell(0)
 		return
 	case "!clear", "clr":
 		fmt.Print("\x1b[2J\x1b[H")
@@ -110,9 +140,71 @@ func executeShellInput(input string) {
 		return
 	}
 
+	if terminated := runShellCommand(ctx, args); terminated {
+		exitShell(143)
+	}
+}
+
+// runShellCommand выполняет одну команду в собственном контексте и
+// сообщает, просили ли процесс завершиться.
+//
+// Ctrl+C отменяет только эту команду. Если команда на отмену не реагирует,
+// второй Ctrl+C завершает оболочку — иначе из зависшей команды было бы не
+// выйти. SIGTERM во время команды завершает оболочку после неё: раньше он
+// просто отменял общий контекст, и процесс продолжал жить.
+func runShellCommand(base context.Context, args []string) (terminated bool) {
+	ctx, cancel := context.WithCancel(base)
+	defer cancel()
+
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	var stop atomic.Bool
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		interrupted := false
+		for {
+			select {
+			case sig := <-signals:
+				if sig == syscall.SIGTERM {
+					stop.Store(true)
+				}
+				if interrupted {
+					fmt.Println("\n⚠️ Команда не остановилась — выход из оболочки")
+					exitShell(130)
+				}
+				interrupted = true
+				cancel()
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// cobra запоминает контекст подкоманды при первом запуске и больше его
+	// не меняет, а флаги не сбрасывает вовсе. Оба состояния переходили бы
+	// из строки в строку.
+	setContext(rootCmd, ctx)
+	resetFlags(rootCmd)
+
 	rootCmd.SetArgs(args)
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Printf("❌ %v\n", err)
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			fmt.Println("⚠️ Прервано")
+		} else {
+			fmt.Printf("❌ %v\n", err)
+		}
+	}
+	return stop.Load()
+}
+
+// setContext передаёт контекст всем командам дерева.
+func setContext(cmd *cobra.Command, ctx context.Context) {
+	cmd.SetContext(ctx)
+	for _, sub := range cmd.Commands() {
+		setContext(sub, ctx)
 	}
 }
 
