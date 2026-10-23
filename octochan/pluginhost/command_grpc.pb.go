@@ -28,6 +28,7 @@ const (
 	CommandModule_Init_FullMethodName                     = "/pluginhost.CommandModule/Init"
 	CommandModule_Name_FullMethodName                     = "/pluginhost.CommandModule/Name"
 	CommandModule_Version_FullMethodName                  = "/pluginhost.CommandModule/Version"
+	CommandModule_GetTranslations_FullMethodName          = "/pluginhost.CommandModule/GetTranslations"
 )
 
 // CommandModuleClient is the client API for CommandModule service.
@@ -45,6 +46,9 @@ type CommandModuleClient interface {
 	Init(ctx context.Context, in *Config, opts ...grpc.CallOption) (*Empty, error)
 	Name(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*NameResponse, error)
 	Version(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*VersionResponse, error)
+	// Языки модуля. Модуль команд без языка его не реализует: старые
+	// модули отвечают Unimplemented, и хост считает, что языков у них нет.
+	GetTranslations(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TranslationsResponse, error)
 }
 
 type commandModuleClient struct {
@@ -145,6 +149,16 @@ func (c *commandModuleClient) Version(ctx context.Context, in *Empty, opts ...gr
 	return out, nil
 }
 
+func (c *commandModuleClient) GetTranslations(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TranslationsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TranslationsResponse)
+	err := c.cc.Invoke(ctx, CommandModule_GetTranslations_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CommandModuleServer is the server API for CommandModule service.
 // All implementations must embed UnimplementedCommandModuleServer
 // for forward compatibility.
@@ -160,6 +174,9 @@ type CommandModuleServer interface {
 	Init(context.Context, *Config) (*Empty, error)
 	Name(context.Context, *Empty) (*NameResponse, error)
 	Version(context.Context, *Empty) (*VersionResponse, error)
+	// Языки модуля. Модуль команд без языка его не реализует: старые
+	// модули отвечают Unimplemented, и хост считает, что языков у них нет.
+	GetTranslations(context.Context, *Empty) (*TranslationsResponse, error)
 	mustEmbedUnimplementedCommandModuleServer()
 }
 
@@ -196,6 +213,9 @@ func (UnimplementedCommandModuleServer) Name(context.Context, *Empty) (*NameResp
 }
 func (UnimplementedCommandModuleServer) Version(context.Context, *Empty) (*VersionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Version not implemented")
+}
+func (UnimplementedCommandModuleServer) GetTranslations(context.Context, *Empty) (*TranslationsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTranslations not implemented")
 }
 func (UnimplementedCommandModuleServer) mustEmbedUnimplementedCommandModuleServer() {}
 func (UnimplementedCommandModuleServer) testEmbeddedByValue()                       {}
@@ -380,6 +400,24 @@ func _CommandModule_Version_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CommandModule_GetTranslations_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommandModuleServer).GetTranslations(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommandModule_GetTranslations_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommandModuleServer).GetTranslations(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CommandModule_ServiceDesc is the grpc.ServiceDesc for CommandModule service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -422,6 +460,10 @@ var CommandModule_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Version",
 			Handler:    _CommandModule_Version_Handler,
+		},
+		{
+			MethodName: "GetTranslations",
+			Handler:    _CommandModule_GetTranslations_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

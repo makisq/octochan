@@ -67,6 +67,8 @@ func registerModuleCommands() {
 		existing[moduleCmd.Name()] = true
 		log.Printf("добавлена команда модуля: %s", moduleCmd.Name())
 	}
+	// Справка команд модулей — на текущем языке, как и своя.
+	localizeCommands(rootCmd)
 }
 
 // refreshModuleCommands пересобирает список команд плагинов.

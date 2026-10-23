@@ -31,7 +31,7 @@ const All = "all"
 // Groups — группы прав. Право — имя группы или имя команды. Вложенная
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
-	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "logs",
+	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "lang", "logs",
 		"modules", "print", "requests", "services", "stats", "status", "validate"},
 	"plan":    {"plan"},
 	"request": {"request"},

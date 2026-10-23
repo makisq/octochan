@@ -82,6 +82,17 @@ message VersionResponse {
     string version = 1;
 }
 
+// Translation — язык, на который модуль переводит ochan.
+message Translation {
+    string code = 1;                 // код языка для lang в config.yaml: de, jp, zh
+    string name = 2;                 // название языка на нём самом: Deutsch, 日本語
+    map<string, string> entries = 3; // русский текст справки или сообщения -> перевод
+}
+
+message TranslationsResponse {
+    repeated Translation languages = 1;
+}
+
 message CommandRequest {
     string name = 1;
     repeated string args = 2;
@@ -101,4 +112,8 @@ service CommandModule {
     rpc Init(Config) returns (Empty);
     rpc Name(Empty) returns (NameResponse);
     rpc Version(Empty) returns (VersionResponse);
+
+    // Языки модуля. Модуль команд без языка его не реализует: старые
+    // модули отвечают Unimplemented, и хост считает, что языков у них нет.
+    rpc GetTranslations(Empty) returns (TranslationsResponse);
 }

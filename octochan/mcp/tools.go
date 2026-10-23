@@ -37,11 +37,24 @@ type tool struct {
 	check func(positional []string) error
 }
 
-// readCommands — команды ochan, которые ничего не меняют.
+// readCommands — команды ochan, которые ничего не меняют. У команды
+// с подкомандами разрешается подкоманда, а не вся команда: logs rank
+// ранжирует журнал внутри разрешённых каталогов, а голый logs показал
+// бы журнал самого ochan.
 var readCommands = map[string]bool{
 	"diff": true, "validate": true, "find": true, "stats": true, "print": true,
 	"plan": true, "services": true, "aliases": true, "modules": true,
-	"history": true, "requests": true, "status": true, "check": true, "fp": true,
+	"history": true, "requests": true, "status": true, "check": true,
+	"fp check": true, "fp protocol": true, "logs rank": true,
+}
+
+// commandPath — команда ochan с подкомандой, если первая из постоянных
+// частей — не флаг: fp check, logs rank.
+func commandPath(t tool) string {
+	if len(t.Fixed) > 0 && !strings.HasPrefix(t.Fixed[0], "-") {
+		return t.Command + " " + t.Fixed[0]
+	}
+	return t.Command
 }
 
 // writeCommands — единственное, что сервер может создать: заявку в
@@ -63,11 +76,11 @@ func checkTable(tools []tool) error {
 		}
 		seen[t.Name] = true
 
-		switch {
-		case readCommands[t.Command] && !t.Writes:
-		case writeCommands[t.Command] && t.Writes:
+		switch path := commandPath(t); {
+		case readCommands[path] && !t.Writes:
+		case writeCommands[path] && t.Writes:
 		default:
-			return fmt.Errorf("инструмент %s: команда ochan %q не разрешена", t.Name, t.Command)
+			return fmt.Errorf("инструмент %s: команда ochan %q не разрешена", t.Name, path)
 		}
 
 		if err := checkScriptTool(t); err != nil {
@@ -149,33 +162,36 @@ func checkScriptTool(t tool) error {
 }
 
 // Описания слотов, которые повторяются в нескольких инструментах.
+//
+// Заголовки и описания инструментов и слотов — по-английски, как и
+// протокол: их читает модель. Вывод инструментов — на языке оператора.
 func sourceSlot(name, what string, live []string) slot {
-	description := what + ": путь к файлу внутри разрешённых каталогов"
+	description := what + ": path to a file inside the allowed directories"
 	if len(live) > 0 {
-		description += " или живой источник (" + strings.Join(live, "://, ") + "://)"
+		description += " or a live source (" + strings.Join(live, "://, ") + "://)"
 	}
 	return slot{Name: name, Kind: slotSource, Description: description, Required: true}
 }
 
 func scenarioSlot() slot {
 	return slot{Name: "scenario", Kind: slotFile, Required: true,
-		Description: "файл сценария (YAML/JSON с полем service) внутри разрешённых каталогов"}
+		Description: "scenario file (YAML/JSON with a service field) inside the allowed directories"}
 }
 
 func overridesSlot() slot {
 	return slot{Name: "overrides", Kind: slotOverrides,
-		Description: "переопределения параметров сценария: {\"параметр\": \"значение\"}"}
+		Description: "scenario parameter overrides: {\"parameter\": \"value\"}"}
 }
 
 func scriptSlot() slot {
 	return slot{Name: "script", Kind: slotScript, Required: true,
-		Description: "текст сценария на языке алиасов ochan; встроенные функции и алиасы перечисляет инструмент aliases"}
+		Description: "script text in the ochan alias language; the aliases tool lists built-in functions and aliases"}
 }
 
 func promptSlot() slot {
 	return slot{Name: "prompt", Kind: slotText, Required: true,
-		Description: "текст формального промпта; язык описан в протоколе (инструмент protocol). " +
-			"Отчёт report: дописывается к промпту и проверяется вместе с ним"}
+		Description: "formal prompt text; the language is described in the protocol (protocol tool). " +
+			"A report: section is appended to the prompt and checked together with it"}
 }
 
 // scriptPromptSlot и reportSlot — промпт, по которому модель написала
@@ -183,24 +199,24 @@ func promptSlot() slot {
 // промпта — по плану, и кладёт в заявку.
 func scriptPromptSlot() slot {
 	return slot{Name: "prompt", Kind: slotText,
-		Description: "формальный промпт, по которому написан сценарий: он проверяется, а его жёсткие " +
-			"правила (hard forbid/require) проверяются по плану — план, который их нарушает, отвергается"}
+		Description: "the formal prompt the script was written for: it is checked, and its hard rules " +
+			"(hard forbid/require) are checked against the plan — a plan that violates them is rejected"}
 }
 
 func reportSlot() slot {
 	return slot{Name: "report", Kind: slotText,
-		Description: "отчёт (раздел report:) о решениях, которые промпт оставил открытыми; " +
-			"проверяется вместе с промптом и попадает в заявку. Без prompt не принимается"}
+		Description: "report (report: section) on the decisions the prompt left open; " +
+			"checked together with the prompt and stored in the request. Not accepted without prompt"}
 }
 
 func nameSlot() slot {
 	return slot{Name: "name", Kind: slotName, Flag: "name",
-		Description: "имя сценария, например поднять_лимит.ochan: оно попадёт в сообщения об ошибках, план и заявку"}
+		Description: "script name, for example raise_limit.ochan: it appears in error messages, the plan and the request"}
 }
 
 func docSlot() slot {
 	return slot{Name: "doc", Kind: slotNewDoc, Flag: "doc",
-		Description: "выгрузить заявку в новый файл .docx; существующий файл не перезаписывается"}
+		Description: "export the request to a new .docx file; an existing file is never overwritten"}
 }
 
 // changesNotOverride отсекает второй аргумент, который ochan принял бы за
@@ -228,116 +244,116 @@ func buildTools(live []string) []tool {
 	return []tool{
 		{
 			Name:        "diff",
-			Title:       "Сравнить две конфигурации",
-			Description: "Сравнивает конфигурации по смыслу: 8GB и 8192MB, 1s и 1000ms считаются равными. Ничего не записывает.",
+			Title:       "Compare two configurations",
+			Description: "Compares configurations by meaning: 8GB and 8192MB, 1s and 1000ms are equal. Writes nothing.",
 			Command:     "diff",
 			Fixed:       []string{"--fast"},
 			Slots: []slot{
-				sourceSlot("left", "первая конфигурация", live),
-				sourceSlot("right", "вторая конфигурация", live),
+				sourceSlot("left", "first configuration", live),
+				sourceSlot("right", "second configuration", live),
 				{Name: "include_defaults", Kind: slotSwitch, Flag: "all",
-					Description: "для живых источников включать параметры со значением по умолчанию"},
+					Description: "for live sources, include parameters with default values"},
 			},
 		},
 		{
 			Name:        "validate",
-			Title:       "Проверить конфигурацию",
-			Description: "Проверяет, что конфигурация разбирается и содержит параметры.",
+			Title:       "Validate a configuration",
+			Description: "Checks that a configuration parses and contains parameters.",
 			Command:     "validate",
-			Slots:       []slot{sourceSlot("source", "конфигурация", live)},
+			Slots:       []slot{sourceSlot("source", "configuration", live)},
 		},
 		{
 			Name:        "find",
-			Title:       "Найти параметр",
-			Description: "Ищет параметр во всех секциях конфигурации и показывает его значения.",
+			Title:       "Find a parameter",
+			Description: "Looks for a parameter in every section of a configuration and shows its values.",
 			Command:     "find",
 			Slots: []slot{
-				sourceSlot("source", "конфигурация", live),
-				{Name: "param", Kind: slotParam, Required: true, Description: "имя параметра"},
+				sourceSlot("source", "configuration", live),
+				{Name: "param", Kind: slotParam, Required: true, Description: "parameter name"},
 			},
 		},
 		{
 			Name:        "stats",
-			Title:       "Статистика конфигурации",
-			Description: "Показывает число секций и параметров, а также замечания источника.",
+			Title:       "Configuration statistics",
+			Description: "Shows the number of sections and parameters and the notes of the source.",
 			Command:     "stats",
-			Slots:       []slot{sourceSlot("source", "конфигурация", live)},
+			Slots:       []slot{sourceSlot("source", "configuration", live)},
 		},
 		{
 			Name:        "print",
-			Title:       "Показать файл",
-			Description: "Выводит содержимое файла как есть.",
+			Title:       "Show a file",
+			Description: "Prints the contents of a file as is.",
 			Command:     "print",
 			Slots: []slot{{Name: "file", Kind: slotFile, Required: true,
-				Description: "файл внутри разрешённых каталогов"}},
+				Description: "file inside the allowed directories"}},
 		},
 		{
 			Name:        "plan_config",
-			Title:       "План правки конфигурации",
-			Description: "Показывает, какие параметры изменила бы правка base значениями из changes. Ничего не меняет.",
+			Title:       "Plan a configuration edit",
+			Description: "Shows which parameters an edit of base with the values from changes would change. Changes nothing.",
 			Command:     "plan",
 			Slots: []slot{
-				sourceSlot("base", "конфигурация, которую правят", live),
-				sourceSlot("changes", "конфигурация с новыми значениями", live),
+				sourceSlot("base", "configuration being edited", live),
+				sourceSlot("changes", "configuration with the new values", live),
 			},
 			check: changesNotOverride,
 		},
 		{
 			Name:  "plan_scenario",
-			Title: "План сценария",
-			Description: "Показывает, какие операции выполнил бы сценарий и над чем. Изменяющие запросы " +
-				"в режиме плана запрещены на уровне клиента ochan.",
+			Title: "Plan a scenario",
+			Description: "Shows which operations a scenario would perform and on what. Changing requests " +
+				"are forbidden in plan mode at the level of the ochan client.",
 			Command: "plan",
 			Slots:   []slot{scenarioSlot(), overridesSlot()},
 			Remote:  true,
 		},
 		{
 			Name:        "services",
-			Title:       "Сервисы сценариев",
-			Description: "Перечисляет сервисы, которые можно указать в поле service сценария, и их исполнителей.",
+			Title:       "Scenario services",
+			Description: "Lists the services that can be put in the service field of a scenario, and their executors.",
 			Command:     "services",
 		},
 		{
 			Name:        "aliases",
-			Title:       "Алиасы и встроенные функции",
-			Description: "Перечисляет алиасы и встроенные функции языка ochan: библиотеку навыков с версиями пакетов. Только список, без выполнения.",
+			Title:       "Aliases and built-in functions",
+			Description: "Lists the aliases and built-in functions of the ochan language: the skill library with package versions. A list only, nothing runs.",
 			Command:     "aliases",
 			Slots: []slot{{Name: "package", Kind: slotPackage,
-				Description: "показать только этот пакет алиасов"}},
+				Description: "show only this alias package"}},
 		},
 		{
 			Name:        "modules",
-			Title:       "Установленные модули",
-			Description: "Перечисляет установленные модули команд ochan.",
+			Title:       "Installed modules",
+			Description: "Lists the installed ochan command modules.",
 			Command:     "modules",
 		},
 		{
 			Name:        "history",
-			Title:       "Журнал операций",
-			Description: "Без id перечисляет операции от новых к старым; с id показывает подробности записи.",
+			Title:       "Operation history",
+			Description: "Without id, lists operations from newest to oldest; with id, shows the details of an entry.",
 			Command:     "history",
 			Slots: []slot{
-				{Name: "id", Kind: slotID, Description: "идентификатор записи или его начало"},
-				{Name: "limit", Kind: slotLimit, Flag: "limit", Description: "сколько записей показать"},
+				{Name: "id", Kind: slotID, Description: "entry ID or its beginning"},
+				{Name: "limit", Kind: slotLimit, Flag: "limit", Description: "how many entries to show"},
 			},
 		},
 		{
 			Name:        "requests",
-			Title:       "Заявки",
-			Description: "Без id перечисляет заявки; с id показывает карточку заявки с планом.",
+			Title:       "Requests",
+			Description: "Without id, lists requests; with id, shows the request card with its plan.",
 			Command:     "requests",
 			Slots: []slot{{Name: "id", Kind: slotID,
-				Description: "идентификатор заявки или его начало"}},
+				Description: "request ID or its beginning"}},
 		},
 		{
 			Name:  "request_config",
-			Title: "Заявка на правку конфигурации",
-			Description: "Создаёт заявку в состоянии «ждёт решения» на правку base значениями из changes. " +
-				"Сама заявка ничего не меняет: согласует и выполняет её человек.",
+			Title: "Request a configuration edit",
+			Description: "Creates a request in the \"pending\" state to edit base with the values from changes. " +
+				"The request itself changes nothing: a human approves and applies it.",
 			Command: "request",
 			Slots: []slot{
-				sourceSlot("base", "конфигурация, которую правят", live),
-				sourceSlot("changes", "конфигурация с новыми значениями", live),
+				sourceSlot("base", "configuration being edited", live),
+				sourceSlot("changes", "configuration with the new values", live),
 				docSlot(),
 			},
 			Writes: true,
@@ -345,9 +361,9 @@ func buildTools(live []string) []tool {
 		},
 		{
 			Name:  "request_scenario",
-			Title: "Заявка на выполнение сценария",
-			Description: "Создаёт заявку в состоянии «ждёт решения» на выполнение сценария. В заявке " +
-				"сохраняется текст сценария. Сама заявка ничего не выполняет: согласует и выполняет её человек.",
+			Title: "Request a scenario run",
+			Description: "Creates a request in the \"pending\" state to run a scenario. The request stores " +
+				"the scenario text. The request itself runs nothing: a human approves and applies it.",
 			Command: "request",
 			Slots:   []slot{scenarioSlot(), overridesSlot(), docSlot()},
 			Writes:  true,
@@ -355,40 +371,42 @@ func buildTools(live []string) []tool {
 		},
 		{
 			Name:  "protocol",
-			Title: "Протокол",
-			Description: "Протокол работы с ochan: кто модель здесь, язык формального промпта, отказы и цикл " +
-				"работы. Его же сервер отдаёт в instructions при подключении; инструмент — для клиентов, " +
-				"которые instructions не показывают модели.",
+			Title: "Protocol",
+			Description: "The protocol of working with ochan: what the model is here, the formal prompt language, " +
+				"refusals and the work cycle. The server also gives it in instructions on connection; the tool " +
+				"is for clients that do not show instructions to the model.",
 			Command: "fp",
 			Fixed:   []string{"protocol"},
 		},
 		{
 			Name:  "check_prompt",
-			Title: "Проверить формальный промпт",
-			Description: "Детерминированная проверка до модели: текст принадлежит языку (⊥syn), слова однозначны " +
-				"(⊥ambig), знания хватает — Req(P) ⊆ K (⊥undef), жёсткие правила совместны (⊥conflict). " +
-				"Скиллы сверяются с библиотекой пакетов алиасов. С разделом report: проверяет и отчёт.",
+			Title: "Check a formal prompt",
+			Description: "A deterministic check before the model: the text belongs to the language (⊥syn), words " +
+				"are unambiguous (⊥ambig), knowledge is sufficient — Req(P) ⊆ K (⊥undef), hard rules are " +
+				"consistent (⊥conflict). Skills are matched against the alias package library. With a report: " +
+				"section, the report is checked too.",
 			Command: "fp",
 			Fixed:   []string{"check"},
 			Slots:   []slot{promptSlot(), nameSlot()},
 		},
 		{
 			Name:  "check_script",
-			Title: "Проверить сценарий",
-			Description: "Проверяет сценарий на языке алиасов, ничего не выполняя: синтаксис, неизвестные " +
-				"имена и функции, число аргументов, break и return не на своём месте, явно неверные типы. " +
-				"Находит ошибки и в ветках, которые при выполнении не сработали бы. Сообщает все ошибки сразу.",
+			Title: "Check a script",
+			Description: "Checks an alias-language script without running anything: syntax, unknown names and " +
+				"functions, the number of arguments, break and return out of place, clearly wrong types, a " +
+				"variable assigned a value of another type. Finds errors in branches that would not run, too. " +
+				"Reports all errors at once.",
 			Command: "check",
 			Slots:   []slot{scriptSlot(), nameSlot()},
 		},
 		{
 			Name:  "plan_script",
-			Title: "План сценария на языке алиасов",
-			Description: "Проверяет сценарий и выполняет его в режиме плана: write и save ничего не записывают, " +
-				"а план показывает, какие файлы и параметры изменились бы. Сценарий работает в песочнице " +
-				"сервера: файлы только внутри разрешённых каталогов, переменные окружения и живые источники — " +
-				"только разрешённые. Выводит то, что напечатал сценарий, и план. С prompt проверяет по плану " +
-				"жёсткие правила промпта.",
+			Title: "Plan an alias-language script",
+			Description: "Checks a script and runs it in plan mode: write, save and print to a file write nothing, " +
+				"and the plan shows which files and parameters would change. The script runs in the server " +
+				"sandbox: files only inside the allowed directories, environment variables and live sources " +
+				"only as allowed. Prints what the script printed and the plan. With prompt, checks the hard " +
+				"rules of the prompt against the plan.",
 			Command:   "plan",
 			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
@@ -397,12 +415,12 @@ func buildTools(live []string) []tool {
 		},
 		{
 			Name:  "request_script",
-			Title: "Заявка на выполнение сценария на языке алиасов",
-			Description: "Проверяет сценарий, строит план в песочнице сервера и создаёт заявку в состоянии " +
-				"«ждёт решения». В заявке сохраняются текст сценария, план и песочница. Сама заявка ничего " +
-				"не выполняет: согласует и выполняет её человек, и перед выполнением план строится заново " +
-				"и должен совпасть с согласованным. С prompt и report в заявку попадают промпт и отчёт, " +
-				"а заявка на план, нарушающий жёсткое правило промпта, не создаётся.",
+			Title: "Request an alias-language script run",
+			Description: "Checks a script, builds the plan in the server sandbox and creates a request in the " +
+				"\"pending\" state. The request stores the script text, the plan and the sandbox. The request " +
+				"itself runs nothing: a human approves and applies it, and before applying the plan is built " +
+				"again and must match the approved one. With prompt and report, the request stores the prompt " +
+				"and the report, and no request is created for a plan that violates a hard rule of the prompt.",
 			Command:   "request",
 			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
@@ -411,12 +429,31 @@ func buildTools(live []string) []tool {
 			Writes:    true,
 		},
 		{
+			Name:  "rank_logs",
+			Title: "Rank a log by severity",
+			Description: "Determines the level of every log line by the rules from config.yaml (logs.rules — " +
+				"regular expressions in order, the first match decides) and shows lines of level min and more " +
+				"important. With summary — a summary: lines per level and the most frequent messages. The log " +
+				"is a file inside the allowed directories.",
+			Command: "logs",
+			Fixed:   []string{"rank"},
+			Slots: []slot{
+				{Name: "file", Kind: slotFile, Required: true, Description: "log file inside the allowed directories"},
+				{Name: "min", Kind: slotParam, Flag: "min",
+					Description: "level below which lines are not shown, for example warning or error " +
+						"(levels are logs.levels; logs.min_level by default)"},
+				{Name: "summary", Kind: slotSwitch, Flag: "summary",
+					Description: "a summary instead of lines: lines per level and frequent messages"},
+				{Name: "top", Kind: slotLimit, Flag: "top", Description: "how many frequent messages to show in the summary"},
+			},
+		},
+		{
 			Name:        "task_status",
-			Title:       "Статус задачи",
-			Description: "Показывает статус и журнал задачи во внешней системе исполнителя.",
+			Title:       "Task status",
+			Description: "Shows the status and log of a task in the executor's external system.",
 			Command:     "status",
 			Slots: []slot{{Name: "task_id", Kind: slotTaskID, Required: true,
-				Description: "идентификатор задачи"}},
+				Description: "task ID"}},
 			Remote: true,
 		},
 	}

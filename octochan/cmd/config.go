@@ -7,11 +7,12 @@ import (
 	"os"
 	"path/filepath"
 
+	"octochan/i18n"
+	"octochan/logs"
 	"octochan/rlm"
 	"octochan/workspace"
 
 	"github.com/spf13/viper"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // logFileName должен совпадать у писателя и у команды logs.
@@ -55,8 +56,6 @@ func initConfig() error {
 	viper.SetDefault("defaults.log_path", fm.LogsDir())
 	viper.SetDefault("defaults.auto_check_status", false)
 	viper.SetDefault("defaults.max_parallel_tasks", 5)
-	viper.SetDefault("defaults.log_max_size", 10)
-	viper.SetDefault("defaults.log_max_backups", 5)
 	viper.SetDefault("defaults.http_timeout", "30s")
 	viper.SetDefault("defaults.module_command_timeout", "10m")
 	viper.SetDefault("defaults.plugin_log_level", "warn")
@@ -74,6 +73,21 @@ func initConfig() error {
 	viper.SetDefault("defaults.smtp_user", "")
 	viper.SetDefault("defaults.smtp_starttls", false)
 	viper.SetDefault("defaults.notify_always", false)
+
+	// Язык справки и сообщений: ru, en (eng) или язык из модуля.
+	viper.SetDefault("lang", i18n.Source)
+
+	// Журнал ochan и ранжирование журналов по уровням важности.
+	viper.SetDefault("logs.max_size", "100MB")
+	viper.SetDefault("logs.prefix", logs.DefaultPrefix)
+	viper.SetDefault("logs.keep", 10)
+	viper.SetDefault("logs.levels", logs.DefaultLevels)
+	viper.SetDefault("logs.default_level", "info")
+	viper.SetDefault("logs.min_level", "warning")
+	viper.SetDefault("logs.rules", logs.DefaultRules)
+
+	// Оболочка: сколько команд помнить между запусками.
+	viper.SetDefault("shell.history_size", 1000)
 
 	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
 	viper.SetDefault("ssl", true)
@@ -127,11 +141,20 @@ func initLogger() error {
 		return fmt.Errorf("не удалось создать директорию логов %s: %w", logPath, err)
 	}
 
-	writer := &lumberjack.Logger{
-		Filename:   filepath.Join(logPath, logFileName),
-		MaxSize:    viper.GetInt("defaults.log_max_size"),
-		MaxBackups: viper.GetInt("defaults.log_max_backups"),
-		Compress:   true,
+	maxSize, err := logs.ParseSize(viper.GetString("logs.max_size"))
+	if err != nil {
+		return fmt.Errorf("logs.max_size: %w", err)
+	}
+	prefix := viper.GetString("logs.prefix")
+	if err := logs.CheckPrefix(prefix); err != nil {
+		return err
+	}
+	writer := &logs.Rotator{
+		Dir:     logPath,
+		Name:    logFileName,
+		MaxSize: maxSize,
+		Prefix:  prefix,
+		Keep:    viper.GetInt("logs.keep"),
 	}
 
 	var out io.Writer = writer

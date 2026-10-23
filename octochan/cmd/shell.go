@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"syscall"
 
+	"octochan/i18n"
 	"octochan/pluginhost"
+	"octochan/workspace"
 
 	"github.com/c-bata/go-prompt"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 var shellCmd = &cobra.Command{
@@ -23,7 +27,64 @@ var shellCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 }
 
+// commandHistory — команды оболочки: прежних запусков и этого.
 var commandHistory []string
+
+// historySecrets — пароли в ссылках и строках подключения. В историю на
+// диске они не попадают: postgres://dba:пароль@db1 становится
+// postgres://dba:***@db1.
+var historySecrets = []struct {
+	re   *regexp.Regexp
+	with string
+}{
+	{regexp.MustCompile(`(://[^/@:\s]+:)[^@\s]+@`), "${1}***@"},
+	{regexp.MustCompile(`(?i)\b(password|passwd|pwd)=([^\s'"]+)`), "${1}=***"},
+}
+
+func redactSecrets(line string) string {
+	for _, s := range historySecrets {
+		line = s.re.ReplaceAllString(line, s.with)
+	}
+	return line
+}
+
+// loadShellHistory читает историю прежних запусков.
+func loadShellHistory() {
+	fm, err := mustFileManager()
+	if err != nil {
+		return
+	}
+	state, err := workspace.LoadState(fm.StatePath())
+	if err != nil {
+		fmt.Println(i18n.Sprintf("внимание: история оболочки недоступна: %v", err))
+		return
+	}
+	commandHistory = state.History
+}
+
+// rememberCommand запоминает команду и сразу пишет её на диск: выход из
+// оболочки — os.Exit, и отложенная запись не успела бы.
+//
+// Строка, начатая с пробела, не запоминается — как в bash с
+// HISTCONTROL=ignorespace: так набирают то, чему не место в истории.
+func rememberCommand(raw, input string) {
+	if strings.HasPrefix(raw, " ") || strings.HasPrefix(input, "!") {
+		return
+	}
+	input = redactSecrets(input)
+	if n := len(commandHistory); n > 0 && commandHistory[n-1] == input {
+		return
+	}
+	commandHistory = append(commandHistory, input)
+
+	fm, err := mustFileManager()
+	if err != nil {
+		return
+	}
+	if err := workspace.AppendHistory(fm.StatePath(), input, viper.GetInt("shell.history_size")); err != nil {
+		fmt.Println(i18n.Sprintf("внимание: история оболочки не сохранена: %v", err))
+	}
+}
 
 func init() {
 	shellCmd.RunE = func(cmd *cobra.Command, _ []string) error {
@@ -64,17 +125,20 @@ func runInteractiveShell(ctx context.Context) error {
 	}()
 
 	if err := startModuleWatcher(shellCtx); err != nil {
-		fmt.Printf("внимание: горячая перезагрузка модулей недоступна: %v\n", err)
+		fmt.Println(i18n.Sprintf("внимание: горячая перезагрузка модулей недоступна: %v", err))
 	}
 
 	startTokenReminder(func(msg string) { fmt.Println("\n" + msg) })
 	defer stopTokenReminder()
 
-	fmt.Println("Добро пожаловать в OctoChan. Введите 'help' для списка команд, 'exit' для выхода.")
+	fmt.Println(i18n.T("Добро пожаловать в OctoChan. Введите 'help' для списка команд, 'exit' для выхода."))
 
+	loadShellHistory()
 	refreshShellPrefix()
 	options := []prompt.Option{
 		prompt.OptionPrefix("ochan> "),
+		// Стрелка вверх достаёт и команды прежних запусков.
+		prompt.OptionHistory(append([]string(nil), commandHistory...)),
 		// В приглашении видна роль: после set role slave легко забыть,
 		// почему команды перестали выполняться.
 		prompt.OptionLivePrefix(func() (string, bool) { return shellPrefix, true }),
@@ -111,8 +175,8 @@ func exitShell(code int) {
 }
 
 // executeShellInput выполняет одну строку оболочки.
-func executeShellInput(ctx context.Context, input string) {
-	input = strings.TrimSpace(input)
+func executeShellInput(ctx context.Context, raw string) {
+	input := strings.TrimSpace(raw)
 	if input == "" {
 		return
 	}
@@ -123,7 +187,7 @@ func executeShellInput(ctx context.Context, input string) {
 
 	switch input {
 	case "exit", "quit":
-		fmt.Println("Goodbye!")
+		fmt.Println(i18n.T("До встречи!"))
 		exitShell(0)
 		return
 	case "!clear", "clr":
@@ -134,13 +198,11 @@ func executeShellInput(ctx context.Context, input string) {
 		return
 	}
 
-	if !strings.HasPrefix(input, "!") {
-		commandHistory = append(commandHistory, input)
-	}
+	rememberCommand(raw, input)
 
 	args, err := splitArgs(input)
 	if err != nil {
-		fmt.Printf("ошибка: %v\n", err)
+		fmt.Printf(i18n.T("ошибка: %v\n"), err)
 		return
 	}
 
@@ -196,7 +258,7 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 					stop.Store(true)
 				}
 				if interrupted {
-					fmt.Println("\nКоманда не остановилась — выход из оболочки")
+					fmt.Println(i18n.T("\nКоманда не остановилась — выход из оболочки"))
 					exitShell(130)
 				}
 				interrupted = true
@@ -216,9 +278,9 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 	rootCmd.SetArgs(args)
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
-			fmt.Println("Прервано")
+			fmt.Println(i18n.T("Прервано"))
 		} else {
-			fmt.Printf("ошибка: %v\n", err)
+			fmt.Printf(i18n.T("ошибка: %v\n"), err)
 		}
 	}
 	return stop.Load()
@@ -278,11 +340,11 @@ func splitArgs(input string) ([]string, error) {
 
 func showCommandHistory() {
 	if len(commandHistory) == 0 {
-		fmt.Println("История пуста")
+		fmt.Println(i18n.T("История пуста"))
 		return
 	}
 
-	fmt.Println("История команд:")
+	fmt.Println(i18n.T("История команд:"))
 	for i, cmd := range commandHistory {
 		fmt.Printf("%3d. %s\n", i+1, cmd)
 	}

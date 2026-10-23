@@ -18,7 +18,9 @@ dwd.exe
 config.yaml
 /reports/
 /snapshots/
-/logs/
+# Журналы, а не пакет logs: каталог с кодом — в git.
+/logs/*.log
+/logs/*.log.gz
 
 # Рабочие файлы
 patched.conf

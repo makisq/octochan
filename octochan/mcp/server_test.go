@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -291,19 +292,28 @@ func TestTableOnlyReadsOrRequests(t *testing.T) {
 	// не должна быть доступна модели — ни сейчас, ни после правки таблицы.
 	forbidden := []string{
 		"apply", "approve", "reject", "rollback", "patch", "tee", "auth", "timer",
-		"!install", "inspect", "srs", "run", "eval", "shell", "if", "else", "logs",
+		"!install", "inspect", "srs", "run", "eval", "shell", "if", "else", "logs", "logs files",
+	}
+
+	// Журнал самого ochan модели не показывается: разрешена только
+	// подкоманда logs rank, и только она.
+	for _, bad := range []tool{{Name: "x", Command: "logs"}, {Name: "x", Command: "logs", Fixed: []string{"files"}},
+		{Name: "x", Command: "logs", Fixed: []string{"--tail=5"}}} {
+		if err := checkTable([]tool{bad}); err == nil {
+			t.Errorf("таблица с %s %v принята", bad.Command, bad.Fixed)
+		}
 	}
 
 	for _, live := range [][]string{nil, {"postgres"}} {
 		for _, tool := range buildTools(live) {
 			for _, bad := range forbidden {
-				if tool.Command == bad {
+				if commandPath(tool) == bad {
 					t.Errorf("инструмент %s вызывает запрещённую команду %s", tool.Name, bad)
 				}
 			}
 			switch {
-			case readCommands[tool.Command] && !tool.Writes:
-			case writeCommands[tool.Command] && tool.Writes:
+			case readCommands[commandPath(tool)] && !tool.Writes:
+			case writeCommands[commandPath(tool)] && tool.Writes:
 			default:
 				t.Errorf("инструмент %s: команда %s вне разрешённых списков", tool.Name, tool.Command)
 			}
@@ -1041,5 +1051,38 @@ func TestOchanRunsAsLLM(t *testing.T) {
 	text, isError := e.callTool("services", map[string]any{})
 	if isError || strings.TrimSpace(text) != "role=llm" {
 		t.Fatalf("ochan запущен не в роли llm: %q", text)
+	}
+}
+
+// rank_logs ранжирует журнал внутри разрешённых каталогов — и ничего
+// больше: файл проверяется песочницей, уровень — шаблоном.
+func TestRankLogsArgv(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_ECHO_STDIN=1"))
+	if err := os.WriteFile(filepath.Join(e.root, "pg.log"), []byte("ERROR: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := e.scriptCall("rank_logs", map[string]any{"file": "pg.log", "min": "error", "summary": true, "top": 3})
+	assertArgv(t, args, "logs", "rank", "--min=error", "--summary", "--top=3", "--", filepath.Join(e.root, "pg.log"))
+
+	e.assertRejected("rank_logs", map[string]any{"file": "/etc/passwd"}, "вне разрешённых каталогов")
+	e.assertRejected("rank_logs", map[string]any{"file": "pg.log", "min": "--tail"}, "недопустимое значение")
+}
+
+// Заголовки и описания инструментов и параметров читает модель, поэтому
+// они, как и протокол, по-английски — при любых настройках сервера.
+func TestToolDescriptionsAreEnglish(t *testing.T) {
+	cyrillic := regexp.MustCompile(`[\p{Cyrillic}]`)
+	for _, live := range [][]string{nil, {"postgres"}} {
+		for _, tool := range buildTools(live) {
+			texts := []string{tool.Title, tool.Description}
+			for _, s := range tool.Slots {
+				texts = append(texts, s.Description)
+			}
+			for _, text := range texts {
+				if text == "" || cyrillic.MatchString(text) {
+					t.Errorf("инструмент %s: описание пустое или не на английском: %q", tool.Name, text)
+				}
+			}
+		}
 	}
 }
