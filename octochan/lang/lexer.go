@@ -14,6 +14,8 @@ type Lexer struct {
 	line  int
 	col   int
 	depth int // глубина вложенности ( и [
+	// braces — глубина ( и [ снаружи каждой открытой {.
+	braces []int
 }
 
 // NewLexer создаёт лексер для исходника src с именем файла file.
@@ -257,8 +259,17 @@ func (l *Lexer) lexOperator(pos Position) (Token, error) {
 	case ']':
 		return simple(TokenRBracket)
 	case '{':
+		// Внутри фигурных скобок переводы строк снова значимы, даже если
+		// сами скобки стоят в круглых: тело функции, переданной
+		// аргументом, — это инструкции по строкам.
+		l.braces = append(l.braces, l.depth)
+		l.depth = 0
 		return simple(TokenLBrace)
 	case '}':
+		if n := len(l.braces); n > 0 {
+			l.depth = l.braces[n-1]
+			l.braces = l.braces[:n-1]
+		}
 		return simple(TokenRBrace)
 	case ',':
 		return simple(TokenComma)
@@ -294,9 +305,13 @@ func (l *Lexer) lexOperator(pos Position) (Token, error) {
 		}
 		return Token{}, l.errorf(pos, "неожиданный символ &")
 	case '=':
-		if l.peek() == '=' {
+		switch l.peek() {
+		case '=':
 			l.advance()
 			return simple(TokenEQ)
+		case '>':
+			l.advance()
+			return simple(TokenFatArrow)
 		}
 		return simple(TokenAssign)
 	case '!':
@@ -312,9 +327,13 @@ func (l *Lexer) lexOperator(pos Position) (Token, error) {
 		}
 		return simple(TokenLT)
 	case '>':
-		if l.peek() == '=' {
+		switch l.peek() {
+		case '=':
 			l.advance()
 			return simple(TokenGE)
+		case '>':
+			l.advance()
+			return simple(TokenCompose)
 		}
 		return simple(TokenGT)
 	}

@@ -16,8 +16,9 @@ import (
 )
 
 // maxCallDepth защищает от бесконечной рекурсии: alias a() { a() }
-// не должен вешать процесс.
-const maxCallDepth = 200
+// не должен вешать процесс. Обычной рекурсии — обходу дерева, счёту по
+// списку — этой глубины хватает с запасом.
+const maxCallDepth = 1000
 
 // RuntimeError — ошибка выполнения с указанием места и цепочки вызовов.
 type RuntimeError struct {
@@ -30,7 +31,16 @@ func (e *RuntimeError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %s", e.Pos, e.Msg)
 	for i := len(e.Stack) - 1; i >= 0; i-- {
-		fmt.Fprintf(&b, "\n  в алиасе %s", e.Stack[i])
+		switch frame := e.Stack[i]; {
+		case frame == "fn":
+			b.WriteString("\n  в функции")
+		case strings.HasPrefix(frame, "fn "):
+			fmt.Fprintf(&b, "\n  в функции %s", strings.TrimPrefix(frame, "fn "))
+		case frame == "eval":
+			b.WriteString("\n  в eval")
+		default:
+			fmt.Fprintf(&b, "\n  в алиасе %s", frame)
+		}
 	}
 	return b.String()
 }
@@ -46,7 +56,12 @@ type scope struct {
 	// inferred — переменные, тип которых задан значением, а не написан:
 	// это нужно только для понятного сообщения об ошибке.
 	inferred map[string]bool
-	parent   *scope
+	// consts — переменные, объявленные через let.
+	consts map[string]bool
+	// frozen — снимок переменных, который видит функция: значения на
+	// момент её создания, и присвоить им нельзя.
+	frozen bool
+	parent *scope
 }
 
 func newScope(parent *scope) *scope {
@@ -54,8 +69,41 @@ func newScope(parent *scope) *scope {
 		vars:     make(map[string]Value),
 		types:    make(map[string]TypeName),
 		inferred: make(map[string]bool),
+		consts:   make(map[string]bool),
 		parent:   parent,
 	}
+}
+
+// owner — область, в которой объявлена переменная.
+func (s *scope) owner(name string) *scope {
+	for cur := s; cur != nil; cur = cur.parent {
+		if _, ok := cur.vars[name]; ok {
+			return cur
+		}
+	}
+	return nil
+}
+
+// capture — снимок видимых переменных для функции. Значения не
+// копируются: словарь, изменённый через put, — тот же словарь; но
+// присвоить переменной снимка функция не может.
+func (s *scope) capture() *scope {
+	flat := newScope(nil)
+	flat.frozen = true
+
+	var chain []*scope
+	for cur := s; cur != nil; cur = cur.parent {
+		chain = append(chain, cur)
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		for name, value := range chain[i].vars {
+			flat.vars[name] = value
+			flat.types[name] = chain[i].types[name]
+			flat.inferred[name] = chain[i].inferred[name]
+			flat.consts[name] = chain[i].consts[name]
+		}
+	}
+	return flat
 }
 
 func (s *scope) lookup(name string) (Value, bool) {
@@ -347,6 +395,9 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 			return in.wrap(node.Pos, err)
 		}
 		env.define(node.Name, node.Declared, value)
+		if node.Const {
+			env.consts[node.Name] = true
+		}
 		return nil
 	}
 
@@ -354,6 +405,13 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 	if !exists {
 		env.define(node.Name, "", value)
 		return nil
+	}
+	if owner := env.owner(node.Name); owner.consts[node.Name] {
+		return in.errorf(node.Pos, "%s объявлена через let, и её значение не меняется; "+
+			"для изменяемой переменной объявите var %s", node.Name, node.Name)
+	} else if owner.frozen {
+		return in.errorf(node.Pos, "%s — переменная снаружи функции: функция видит её значение "+
+			"на момент создания и не меняет его; объявите свою: var %s = …", node.Name, node.Name)
 	}
 	if !declared.Accepts(value) {
 		return in.wrap(node.Pos, reassignError(node.Name, declared, inferred, value))
@@ -512,6 +570,20 @@ func (in *Interpreter) eval(expr Expr, env *scope) (Value, error) {
 
 	case *Index:
 		return in.evalIndex(e, env)
+
+	case *FuncLit:
+		return &FuncValue{
+			Name:       e.Name,
+			Params:     e.Params,
+			ParamTypes: e.ParamTypes,
+			Returns:    e.Returns,
+			Body:       e.Body,
+			Expr:       e.Expr,
+			env:        env.capture(),
+		}, nil
+
+	case *FuncRef:
+		return in.funcRef(e.Target, env)
 	}
 
 	return nil, in.errorf(expr.Position(), "неизвестное выражение %T", expr)
@@ -626,6 +698,9 @@ func (in *Interpreter) evalBinary(e *Binary, env *scope) (Value, error) {
 
 	case TokenPipe:
 		return in.evalPipe(e, env)
+
+	case TokenCompose:
+		return in.evalCompose(e, env)
 	}
 
 	left, err := in.eval(e.Left, env)
@@ -676,6 +751,10 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 
 	switch right := e.Right.(type) {
 	case *Call:
+		fn, err := in.callTarget(right, env)
+		if err != nil {
+			return nil, err
+		}
 		args := make([]Value, 0, len(right.Args)+1)
 		args = append(args, left)
 		for _, arg := range right.Args {
@@ -685,14 +764,29 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 			}
 			args = append(args, value)
 		}
+		if fn != nil {
+			return in.callFunc(fn, args, right.Pos)
+		}
 		return in.dispatch(right.Callee, args, right.Pos)
 
 	case *Ident:
 		// Имя без скобок: a | печать эквивалентно печать(a).
+		fn, err := in.varFunc(right, env)
+		if err != nil {
+			return nil, err
+		}
+		if fn != nil {
+			return in.callFunc(fn, []Value{left}, right.Pos)
+		}
 		return in.dispatch(right, []Value{left}, right.Pos)
 
 	default:
-		return nil, in.errorf(e.Pos, "справа от | должен быть вызов алиаса или встроенной функции")
+		// Справа — выражение, дающее функцию: x | f >> g, x | fn(v) => v * 2.
+		fn, err := in.funcOperand(e.Right, env)
+		if err != nil {
+			return nil, err
+		}
+		return in.callFunc(fn, []Value{left}, e.Pos)
 	}
 }
 
@@ -806,6 +900,10 @@ func (in *Interpreter) evalIndex(e *Index, env *scope) (Value, error) {
 }
 
 func (in *Interpreter) evalCall(e *Call, env *scope) (Value, error) {
+	fn, err := in.callTarget(e, env)
+	if err != nil {
+		return nil, err
+	}
 	args := make([]Value, 0, len(e.Args))
 	for _, arg := range e.Args {
 		value, err := in.eval(arg, env)
@@ -814,7 +912,226 @@ func (in *Interpreter) evalCall(e *Call, env *scope) (Value, error) {
 		}
 		args = append(args, value)
 	}
+	if fn != nil {
+		return in.callFunc(fn, args, e.Pos)
+	}
 	return in.dispatch(e.Callee, args, e.Pos)
+}
+
+// callTarget находит функцию-значение, которую вызывает выражение:
+// вычисленное выражение или переменную с функцией. nil — вызывается
+// алиас или встроенная функция по имени.
+func (in *Interpreter) callTarget(e *Call, env *scope) (*FuncValue, error) {
+	if e.Fn == nil {
+		return in.varFunc(e.Callee, env)
+	}
+	value, err := in.eval(e.Fn, env)
+	if err != nil {
+		return nil, err
+	}
+	fn, ok := value.(*FuncValue)
+	if !ok {
+		return nil, in.errorf(e.Pos, "вызвать можно функцию, получено %s (%s)", value.TypeName(), Display(value))
+	}
+	return fn, nil
+}
+
+// varFunc — функция из переменной с этим именем. Переменная, в которой
+// не функция, вызов не перехватывает: имя остаётся за алиасом или
+// встроенной функцией, как было до функций-значений.
+func (in *Interpreter) varFunc(callee *Ident, env *scope) (*FuncValue, error) {
+	if callee.Module != "" {
+		return nil, nil
+	}
+	value, ok := env.lookup(callee.Name)
+	if !ok {
+		return nil, nil
+	}
+	if fn, ok := value.(*FuncValue); ok {
+		return fn, nil
+	}
+	if _, err := in.registry.Lookup("", callee.Name); err == nil {
+		return nil, nil
+	}
+	if _, ok := in.builtins[callee.Name]; ok {
+		return nil, nil
+	}
+	return nil, in.errorf(callee.Pos, "%s — не функция, а %s (%s)", callee.Name, value.TypeName(), Display(value))
+}
+
+// funcRef — алиас или встроенная функция как значение: fn имя.
+func (in *Interpreter) funcRef(target *Ident, env *scope) (*FuncValue, error) {
+	if target.Module == "" {
+		if value, ok := env.lookup(target.Name); ok {
+			if fn, ok := value.(*FuncValue); ok {
+				return fn, nil
+			}
+			return nil, in.errorf(target.Pos, "%s — не функция, а %s (%s)", target.Name, value.TypeName(), Display(value))
+		}
+	}
+	decl, err := in.registry.Lookup(target.Module, target.Name)
+	if err == nil {
+		return &FuncValue{Decl: decl}, nil
+	}
+	if _, ok := in.builtins[target.Qualified()]; ok {
+		return &FuncValue{Builtin: target.Qualified()}, nil
+	}
+	if target.Module != "" {
+		return nil, in.wrap(target.Pos, err)
+	}
+	return nil, in.errorf(target.Pos, "неизвестная функция %q%s", target.Qualified(), in.suggest(target.Name))
+}
+
+// funcOperand вычисляет операнд, который должен быть функцией: часть
+// композиции или правую часть конвейера. Голое имя алиаса здесь — сама
+// функция, а не её вызов: в f >> g нужны функции, а не их результаты.
+func (in *Interpreter) funcOperand(expr Expr, env *scope) (*FuncValue, error) {
+	if id, ok := expr.(*Ident); ok {
+		return in.funcRef(id, env)
+	}
+	value, err := in.eval(expr, env)
+	if err != nil {
+		return nil, err
+	}
+	fn, ok := value.(*FuncValue)
+	if !ok {
+		return nil, in.errorf(expr.Position(), "ожидалась функция, получено %s (%s)", value.TypeName(), Display(value))
+	}
+	return fn, nil
+}
+
+// evalCompose — f >> g: функция, которая применяет f, а к её результату g.
+func (in *Interpreter) evalCompose(e *Binary, env *scope) (Value, error) {
+	left, err := in.funcOperand(e.Left, env)
+	if err != nil {
+		return nil, err
+	}
+	right, err := in.funcOperand(e.Right, env)
+	if err != nil {
+		return nil, err
+	}
+	return composeFuncs(left, right), nil
+}
+
+// composeFuncs склеивает цепочки, чтобы f >> g >> h была одной цепочкой
+// из трёх шагов, а не вложенной.
+func composeFuncs(fns ...*FuncValue) *FuncValue {
+	var chain []*FuncValue
+	for _, fn := range fns {
+		if fn.Chain != nil {
+			chain = append(chain, fn.Chain...)
+		} else {
+			chain = append(chain, fn)
+		}
+	}
+	return &FuncValue{Chain: chain}
+}
+
+// callFunc вызывает функцию-значение.
+func (in *Interpreter) callFunc(fn *FuncValue, args []Value, pos Position) (Value, error) {
+	switch {
+	case fn.Decl != nil:
+		return in.invoke(fn.Decl, args, pos)
+
+	case fn.Builtin != "":
+		builtin, ok := in.builtins[fn.Builtin]
+		if !ok {
+			return nil, in.errorf(pos, "неизвестная функция %q", fn.Builtin)
+		}
+		if err := builtin.checkArity(len(args)); err != nil {
+			return nil, in.errorf(pos, "%s: %v", fn.Builtin, err)
+		}
+		result, err := builtin.Fn(in, args)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return result, nil
+
+	case fn.Base != nil:
+		all := make([]Value, 0, len(fn.Bound)+len(args))
+		all = append(all, fn.Bound...)
+		all = append(all, args...)
+		return in.callFunc(fn.Base, all, pos)
+
+	case fn.Chain != nil:
+		value, err := in.callFunc(fn.Chain[0], args, pos)
+		if err != nil {
+			return nil, err
+		}
+		for _, step := range fn.Chain[1:] {
+			if value, err = in.callFunc(step, []Value{value}, pos); err != nil {
+				return nil, err
+			}
+		}
+		return value, nil
+	}
+	return in.callLambda(fn, args, pos)
+}
+
+// callLambda выполняет функцию, написанную через fn(…).
+func (in *Interpreter) callLambda(fn *FuncValue, args []Value, pos Position) (Value, error) {
+	frame := "fn"
+	if fn.Name != "" {
+		frame = "fn " + fn.Name
+	}
+	if len(args) != len(fn.Params) {
+		return nil, in.errorf(pos, "функция %s принимает %d %s, передано %d", fn.Text(),
+			len(fn.Params), plural(len(fn.Params), "аргумент", "аргумента", "аргументов"), len(args))
+	}
+	if len(in.stack) >= maxCallDepth {
+		return nil, in.errorf(pos, "слишком глубокая вложенность вызовов (%d); похоже на бесконечную рекурсию", maxCallDepth)
+	}
+	in.stack = append(in.stack, frame)
+	defer func() { in.stack = in.stack[:len(in.stack)-1] }()
+
+	env := newScope(fn.env)
+	if fn.Name != "" {
+		// Под своим именем функция видит саму себя: так работает рекурсия.
+		env.define(fn.Name, TypeFunc, fn)
+		env.consts[fn.Name] = true
+	}
+	for i, param := range fn.Params {
+		declared := fn.ParamTypes[i]
+		if declared != "" {
+			if err := checkType(declared, fmt.Sprintf("параметр %s функции %s", param, fn.Text()), args[i]); err != nil {
+				return nil, in.wrap(pos, err)
+			}
+		}
+		env.define(param, declared, args[i])
+		delete(env.consts, param)
+	}
+
+	var result Value = NullValue{}
+	if fn.Expr != nil {
+		value, err := in.eval(fn.Expr, env)
+		if err != nil {
+			return nil, err
+		}
+		result = value
+	} else {
+		for _, stmt := range fn.Body.Stmts {
+			err := in.execStmt(stmt, env)
+			if err == nil {
+				continue
+			}
+			var ret returnSignal
+			if errors.As(err, &ret) {
+				result = ret.value
+				break
+			}
+			if errors.Is(err, errBreak) || errors.Is(err, errContinue) {
+				return nil, in.errorf(stmt.Position(), "break и continue допустимы только внутри for")
+			}
+			return nil, err
+		}
+	}
+
+	if fn.Returns != "" {
+		if err := checkType(fn.Returns, "результат функции "+fn.Text(), result); err != nil {
+			return nil, in.wrap(pos, err)
+		}
+	}
+	return result, nil
 }
 
 // dispatch вызывает алиас или встроенную функцию с готовыми аргументами.

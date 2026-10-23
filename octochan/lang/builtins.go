@@ -204,8 +204,13 @@ func DefaultBuiltins() map[string]Builtin {
 	}
 
 	list = append(list, moreBuiltins()...)
+	list = append(list, funcBuiltins()...)
+	list = append(list, textBuiltins()...)
 	builtins := make(map[string]Builtin, len(list))
 	for _, b := range list {
+		if _, dup := builtins[b.Name]; dup {
+			panic("встроенная функция объявлена дважды: " + b.Name)
+		}
 		builtins[b.Name] = b
 	}
 	return builtins

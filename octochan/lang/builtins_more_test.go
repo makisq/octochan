@@ -185,9 +185,10 @@ func TestSerialization(t *testing.T) {
 }
 
 func TestEval(t *testing.T) {
-	out := mustRun(t, `alias double(x) { return x * 2 }
-print(eval("2 + 3 * 4"), eval("double(21)"), eval("format(\"%d\", 7)"))`)
-	if strings.TrimSpace(out) != "14 42 7" {
+	out := mustRun(t, `alias len(x) { return 0 }
+print(eval("2 + 3 * 4"), eval("format(\"%d\", 7)"), eval("len([1, 2])"), eval("call(fn(x) => x * 2, 21)"))`)
+	// Алиас len встроенную функцию в eval не перекрывает.
+	if strings.TrimSpace(out) != "14 7 2 42" {
 		t.Fatalf("eval: %q", out)
 	}
 	for src, want := range map[string]string{
@@ -195,6 +196,9 @@ print(eval("2 + 3 * 4"), eval("double(21)"), eval("format(\"%d\", 7)"))`)
 		`eval("1 +")`:     "eval",
 		`eval("nope(1)")`: "неизвестная функция",
 		`eval(5)`:         "нужна строка",
+		// Алиасы из строки заявка не увидела бы.
+		"alias double(x) { return x * 2 }\neval(\"double(21)\")": "неизвестная функция",
+		`eval("fn(x) => x")`: "а не функцию",
 	} {
 		if _, err := run(t, src); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, ожидалось %q", src, err, want)

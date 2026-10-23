@@ -86,7 +86,7 @@ func moreBuiltins() []Builtin {
 		{Name: "from_toml", MinArgs: 1, MaxArgs: 1, Returns: TypeMap,
 			Doc: "разобрать TOML", Fn: builtinFromTOML},
 		{Name: "eval", MinArgs: 1, MaxArgs: 1,
-			Doc: "вычислить выражение языка из строки: eval(\"2 + 3 * 4\"); проверяется перед вычислением", Fn: builtinEval},
+			Doc: "вычислить выражение языка из строки: eval(\"2 + 3 * 4\"); проверяется перед вычислением, алиасы недоступны", Fn: builtinEval},
 		{Name: "fetch", MinArgs: 1, MaxArgs: 2, Returns: TypeString,
 			Doc: "тело ответа HTTP GET: fetch(url[, {\"headers\": {…}, \"timeout\": \"10s\"}]); в песочнице — только хосты из --allow-net",
 			Fn:  builtinFetch},
@@ -681,6 +681,9 @@ func builtinFromTOML(_ *Interpreter, args []Value) (Value, error) {
 // внутри строки не видит, поэтому выражение проверяется здесь, перед
 // вычислением, той же проверкой. Песочница, режим плана и действия — те же,
 // что у сценария: eval — не лазейка.
+//
+// Алиасы в eval недоступны: заявка запоминает алиасы, от которых зависит
+// сценарий, по его тексту, а вызов из строки в этот список не попал бы.
 func builtinEval(in *Interpreter, args []Value) (Value, error) {
 	text, ok := args[0].(StringValue)
 	if !ok {
@@ -697,7 +700,7 @@ func builtinEval(in *Interpreter, args []Value) (Value, error) {
 	if !ok {
 		return nil, errors.New("eval вычисляет одно выражение, без объявлений и инструкций")
 	}
-	if problems := Check(file, in.registry); len(problems) > 0 {
+	if problems := Check(file, NewRegistry()); len(problems) > 0 {
 		return nil, fmt.Errorf("eval: %s", problems[0])
 	}
 	if len(in.stack) >= maxCallDepth {
@@ -705,7 +708,20 @@ func builtinEval(in *Interpreter, args []Value) (Value, error) {
 	}
 	in.stack = append(in.stack, "eval")
 	defer func() { in.stack = in.stack[:len(in.stack)-1] }()
-	return in.eval(stmt.Expr, newScope(nil))
+	// Пустой реестр и при вычислении: алиас с именем встроенной функции
+	// её перекрыл бы.
+	saved := in.registry
+	in.registry = NewRegistry()
+	defer func() { in.registry = saved }()
+
+	value, err := in.eval(stmt.Expr, newScope(nil))
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := value.(*FuncValue); ok {
+		return nil, errors.New("eval возвращает значение, а не функцию")
+	}
+	return value, nil
 }
 
 // ---------------------------------------------------------------------------

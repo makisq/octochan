@@ -249,6 +249,66 @@ func (v StreamValue) Text() string {
 func (StreamValue) Truthy() bool     { return true }
 func (StreamValue) TypeName() string { return "поток" }
 
+// FuncValue — функция как значение: её передают аргументом, кладут в
+// список, возвращают из алиаса и вызывают.
+//
+// Ровно один из видов:
+//   - лямбда: Params и Body или Expr, со снимком переменных env;
+//   - ссылка на алиас (Decl) или встроенную функцию (Builtin);
+//   - частичное применение: Base с первыми аргументами Bound;
+//   - композиция: Chain, применяемая по порядку.
+//
+// Значение передаётся указателем: две функции равны, только если это
+// одна и та же функция.
+type FuncValue struct {
+	Name       string
+	Params     []string
+	ParamTypes []TypeName
+	Returns    TypeName
+	Body       *Block
+	Expr       Expr
+	env        *scope
+
+	Decl    *AliasDecl
+	Builtin string
+
+	Base  *FuncValue
+	Bound []Value
+
+	Chain []*FuncValue
+}
+
+func (f *FuncValue) Text() string {
+	switch {
+	case f.Decl != nil:
+		if f.Decl.Module != "" {
+			return "fn " + f.Decl.Module + "." + f.Decl.Name
+		}
+		return "fn " + f.Decl.Name
+	case f.Builtin != "":
+		return "fn " + f.Builtin
+	case f.Base != nil:
+		parts := []string{f.Base.Text()}
+		for _, v := range f.Bound {
+			parts = append(parts, Display(v))
+		}
+		return "partial(" + strings.Join(parts, ", ") + ")"
+	case f.Chain != nil:
+		parts := make([]string, len(f.Chain))
+		for i, step := range f.Chain {
+			parts[i] = step.Text()
+		}
+		return strings.Join(parts, " >> ")
+	}
+	name := "fn"
+	if f.Name != "" {
+		name = "fn " + f.Name
+	}
+	return name + "(" + strings.Join(f.Params, ", ") + ")"
+}
+func (*FuncValue) Truthy() bool     { return true }
+func (*FuncValue) TypeName() string { return "функция" }
+
 // Display — человекочитаемое представление для печати и отладки.
 func Display(v Value) string {
 	switch val := v.(type) {
@@ -306,8 +366,14 @@ func isInt(v Value) bool {
 	return ok
 }
 
-// equalValues сравнивает значения: числа — численно, остальное — по тексту.
+// equalValues сравнивает значения: числа — численно, функции — по
+// тождеству, остальное — по тексту.
 func equalValues(a, b Value) bool {
+	_, aFunc := a.(*FuncValue)
+	_, bFunc := b.(*FuncValue)
+	if aFunc || bFunc {
+		return a == b
+	}
 	if _, aNull := a.(NullValue); aNull {
 		_, bNull := b.(NullValue)
 		return bNull

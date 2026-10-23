@@ -115,35 +115,8 @@ func (p *Parser) parseAlias() (*AliasDecl, error) {
 	if _, err := p.expect(TokenLParen, "после имени алиаса"); err != nil {
 		return nil, err
 	}
-
-	var (
-		params     []string
-		paramTypes []TypeName
-	)
-	seen := make(map[string]bool)
-	for !p.check(TokenRParen) {
-		paramTok, err := p.expect(TokenIdent, "— имя параметра")
-		if err != nil {
-			return nil, err
-		}
-		if seen[paramTok.Text] {
-			return nil, p.errorf(paramTok.Pos, "параметр %q объявлен дважды", paramTok.Text)
-		}
-		seen[paramTok.Text] = true
-		params = append(params, paramTok.Text)
-
-		declared, err := p.parseOptionalType()
-		if err != nil {
-			return nil, err
-		}
-		paramTypes = append(paramTypes, declared)
-
-		if !p.match(TokenComma) {
-			break
-		}
-	}
-
-	if _, err := p.expect(TokenRParen, "в списке параметров"); err != nil {
+	params, paramTypes, err := p.parseParams()
+	if err != nil {
 		return nil, err
 	}
 
@@ -162,11 +135,50 @@ func (p *Parser) parseAlias() (*AliasDecl, error) {
 	}, nil
 }
 
+// parseParams разбирает параметры после открывающей скобки и закрывающую
+// скобку: имена с необязательными типами.
+func (p *Parser) parseParams() ([]string, []TypeName, error) {
+	var (
+		params     []string
+		paramTypes []TypeName
+	)
+	seen := make(map[string]bool)
+	for !p.check(TokenRParen) {
+		paramTok, err := p.expect(TokenIdent, "— имя параметра")
+		if err != nil {
+			return nil, nil, err
+		}
+		if seen[paramTok.Text] {
+			return nil, nil, p.errorf(paramTok.Pos, "параметр %q объявлен дважды", paramTok.Text)
+		}
+		seen[paramTok.Text] = true
+		params = append(params, paramTok.Text)
+
+		declared, err := p.parseOptionalType()
+		if err != nil {
+			return nil, nil, err
+		}
+		paramTypes = append(paramTypes, declared)
+
+		if !p.match(TokenComma) {
+			break
+		}
+	}
+
+	if _, err := p.expect(TokenRParen, "в списке параметров"); err != nil {
+		return nil, nil, err
+	}
+	return params, paramTypes, nil
+}
+
 // parseOptionalType разбирает необязательную аннотацию `: тип`.
 // Отсутствие аннотации — не ошибка: типы добровольные.
 func (p *Parser) parseOptionalType() (TypeName, error) {
 	if !p.match(TokenColon) {
 		return "", nil
+	}
+	if p.match(TokenFn) {
+		return TypeFunc, nil
 	}
 
 	typeTok, err := p.expect(TokenIdent, "— имя типа после двоеточия")
@@ -237,6 +249,8 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return nil, p.errorf(p.peek().Pos, "алиас можно объявлять только на верхнем уровне файла")
 	case TokenVar:
 		return p.parseVar()
+	case TokenLet:
+		return p.parseLet()
 	}
 
 	// Присваивание: идентификатор, за которым идёт '=' или ': тип ='.
@@ -258,6 +272,7 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		if err != nil {
 			return nil, err
 		}
+		nameFunc(value, nameTok.Text)
 		return &Assign{
 			Pos:      nameTok.Pos,
 			Name:     nameTok.Text,
@@ -305,7 +320,41 @@ func (p *Parser) parseVar() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
+	nameFunc(node.Value, nameTok.Text)
 	return node, p.endStatement()
+}
+
+// parseLet разбирает `let имя[: тип] = значение`: объявление переменной,
+// которой нельзя присвоить новое значение.
+func (p *Parser) parseLet() (Stmt, error) {
+	letTok := p.advance()
+	nameTok, err := p.expect(TokenIdent, "— имя после let")
+	if err != nil {
+		return nil, err
+	}
+	declared, err := p.parseOptionalType()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := p.expect(TokenAssign, "— у let всегда есть значение: let "+nameTok.Text+" = …"); err != nil {
+		return nil, err
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	nameFunc(value, nameTok.Text)
+	return &Assign{Pos: letTok.Pos, Name: nameTok.Text, Declare: true, Declared: declared,
+		Value: value, Const: true}, p.endStatement()
+}
+
+// nameFunc даёт функции, которую сразу присваивают переменной, имя этой
+// переменной: под ним функция видит саму себя и может вызывать себя
+// рекурсивно, а в сообщениях об ошибках видно, какая это функция.
+func nameFunc(value Expr, name string) {
+	if lit, ok := value.(*FuncLit); ok && lit.Name == "" {
+		lit.Name = name
+	}
 }
 
 // endStatement требует, чтобы инструкция завершалась переводом строки,
@@ -465,6 +514,7 @@ func (p *Parser) parseReturn() (Stmt, error) {
 //	== != < <= > >=
 //	|                 конвейер связывает крепче сравнения, чтобы
 //	                  a | b != 0 читалось как (a | b) != 0
+//	>>                композиция: x | f >> g — это x | (f >> g)
 //	+ -
 //	* / %
 //	унарный -
@@ -542,7 +592,7 @@ func (p *Parser) parseComparison() (Expr, error) {
 }
 
 func (p *Parser) parsePipe() (Expr, error) {
-	left, err := p.parseAdditive()
+	left, err := p.parseCompose()
 	if err != nil {
 		return nil, err
 	}
@@ -551,11 +601,31 @@ func (p *Parser) parsePipe() (Expr, error) {
 		opTok := p.advance()
 		p.skipNewlines() // конвейер можно переносить на следующую строку
 
-		right, err := p.parseAdditive()
+		right, err := p.parseCompose()
 		if err != nil {
 			return nil, err
 		}
 		left = &Binary{Pos: opTok.Pos, Op: TokenPipe, Left: left, Right: right}
+	}
+	return left, nil
+}
+
+// parseCompose разбирает композицию f >> g: сначала f, затем g.
+func (p *Parser) parseCompose() (Expr, error) {
+	left, err := p.parseAdditive()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.check(TokenCompose) {
+		opTok := p.advance()
+		p.skipNewlines() // цепочку можно переносить, как и конвейер
+
+		right, err := p.parseAdditive()
+		if err != nil {
+			return nil, err
+		}
+		left = &Binary{Pos: opTok.Pos, Op: TokenCompose, Left: left, Right: right}
 	}
 	return left, nil
 }
@@ -615,13 +685,15 @@ func (p *Parser) parsePostfix() (Expr, error) {
 	for {
 		switch {
 		case p.check(TokenLParen):
-			ident, ok := expr.(*Ident)
-			if !ok {
-				return nil, p.errorf(p.peek().Pos, "вызывать можно только алиас или встроенную функцию")
-			}
+			// Имя — алиас, встроенная функция или переменная с функцией;
+			// любое другое выражение должно дать функцию при выполнении.
+			ident, _ := expr.(*Ident)
 			call, err := p.parseCallArgs(ident)
 			if err != nil {
 				return nil, err
+			}
+			if ident == nil {
+				call.Fn = expr
 			}
 			expr = call
 
@@ -719,6 +791,9 @@ func (p *Parser) parsePrimary() (Expr, error) {
 
 	case TokenLBrace:
 		return p.parseMap()
+
+	case TokenFn:
+		return p.parseFn()
 	}
 
 	return nil, p.errorf(tok.Pos, "неожиданный %s в выражении", tok)
@@ -738,6 +813,51 @@ func (p *Parser) parseIdent() (Expr, error) {
 	}
 
 	return &Ident{Pos: nameTok.Pos, Name: nameTok.Text}, nil
+}
+
+// parseFn разбирает функцию-значение:
+//
+//	fn(x, y: int) { return x + y }   — тело-блок
+//	fn(x) => x * 2                   — тело-выражение
+//	fn(x: int): int => x * 2         — с типом результата
+//	fn upper, fn devops.проверить    — ссылка на алиас или встроенную функцию
+func (p *Parser) parseFn() (Expr, error) {
+	fnTok := p.advance()
+
+	if p.check(TokenIdent) {
+		target, err := p.parseIdent()
+		if err != nil {
+			return nil, err
+		}
+		return &FuncRef{Pos: fnTok.Pos, Target: target.(*Ident)}, nil
+	}
+
+	if _, err := p.expect(TokenLParen, "после fn: параметры функции fn(x) или имя алиаса fn имя"); err != nil {
+		return nil, err
+	}
+	params, paramTypes, err := p.parseParams()
+	if err != nil {
+		return nil, err
+	}
+	lit := &FuncLit{Pos: fnTok.Pos, Params: params, ParamTypes: paramTypes}
+	if lit.Returns, err = p.parseOptionalType(); err != nil {
+		return nil, err
+	}
+
+	if p.match(TokenFatArrow) {
+		p.skipNewlines()
+		if lit.Expr, err = p.parseExpr(); err != nil {
+			return nil, err
+		}
+		return lit, nil
+	}
+	if !p.check(TokenLBrace) {
+		return nil, p.errorf(p.peek().Pos, "после параметров функции ожидалось тело: { … } или => выражение, получено %s", p.peek())
+	}
+	if lit.Body, err = p.parseBlock(); err != nil {
+		return nil, err
+	}
+	return lit, nil
 }
 
 // parseMap разбирает литерал словаря {ключ: значение, ...}.

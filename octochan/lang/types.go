@@ -25,6 +25,7 @@ const (
 	TypeMap    TypeName = "map"
 	TypeConfig TypeName = "config"
 	TypeStream TypeName = "stream"
+	TypeFunc   TypeName = "fn"
 )
 
 // typeAliases позволяет писать имена типов и латиницей, и по-русски:
@@ -52,6 +53,9 @@ var typeAliases = map[string]TypeName{
 	"конфиг":     TypeConfig,
 	"stream":     TypeStream,
 	"поток":      TypeStream,
+	"fn":         TypeFunc,
+	"func":       TypeFunc,
+	"функция":    TypeFunc,
 }
 
 // ParseTypeName распознаёт имя типа.
@@ -99,6 +103,8 @@ func (t TypeName) Russian() string {
 		return "конфиг"
 	case TypeStream:
 		return "поток"
+	case TypeFunc:
+		return "функция"
 	default:
 		return string(t)
 	}
@@ -148,6 +154,9 @@ func (t TypeName) Accepts(v Value) bool {
 	case TypeStream:
 		_, ok := v.(StreamValue)
 		return ok
+	case TypeFunc:
+		_, ok := v.(*FuncValue)
+		return ok
 	}
 	return false
 }
@@ -172,6 +181,8 @@ func typeOf(v Value) TypeName {
 		return TypeConfig
 	case StreamValue:
 		return TypeStream
+	case *FuncValue:
+		return TypeFunc
 	}
 	return TypeAny
 }

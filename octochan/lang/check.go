@@ -140,11 +140,44 @@ func (c *checker) sorted() []Problem {
 type checkScope struct {
 	vars     map[string]TypeName
 	inferred map[string]bool
-	parent   *checkScope
+	consts   map[string]bool
+	// frozen — снимок, который видит функция: присвоить нельзя.
+	frozen bool
+	parent *checkScope
 }
 
 func newCheckScope(parent *checkScope) *checkScope {
-	return &checkScope{vars: make(map[string]TypeName), inferred: make(map[string]bool), parent: parent}
+	return &checkScope{vars: make(map[string]TypeName), inferred: make(map[string]bool),
+		consts: make(map[string]bool), parent: parent}
+}
+
+// owner — область, где объявлена переменная.
+func (s *checkScope) owner(name string) *checkScope {
+	for cur := s; cur != nil; cur = cur.parent {
+		if _, ok := cur.vars[name]; ok {
+			return cur
+		}
+	}
+	return nil
+}
+
+// capture — снимок видимых переменных для тела функции, как при
+// выполнении.
+func (s *checkScope) capture() *checkScope {
+	flat := newCheckScope(nil)
+	flat.frozen = true
+	var chain []*checkScope
+	for cur := s; cur != nil; cur = cur.parent {
+		chain = append(chain, cur)
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		for name, t := range chain[i].vars {
+			flat.vars[name] = t
+			flat.inferred[name] = chain[i].inferred[name]
+			flat.consts[name] = chain[i].consts[name]
+		}
+	}
+	return flat
 }
 
 func (s *checkScope) lookup(name string) (TypeName, bool) {
@@ -286,6 +319,9 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 			c.report(s.Pos, "переменная %s уже объявлена в этой области; чтобы изменить значение, "+
 				"присвойте без var и без типа: %s = …", s.Name, s.Name)
 		}
+		if s.Const {
+			defer func() { scope.consts[s.Name] = true }()
+		}
 		switch {
 		case s.Declared == "":
 			scope.infer(s.Name, actual)
@@ -307,6 +343,15 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 		scope.infer(s.Name, actual)
 		return
 	}
+	if owner := scope.owner(s.Name); owner.consts[s.Name] {
+		c.report(s.Pos, "%s объявлена через let, и её значение не меняется; "+
+			"для изменяемой переменной объявите var %s", s.Name, s.Name)
+		return
+	} else if owner.frozen {
+		c.report(s.Pos, "%s — переменная снаружи функции: функция видит её значение "+
+			"на момент создания и не меняет его; объявите свою: var %s = …", s.Name, s.Name)
+		return
+	}
 	if !compatible(declared, actual) {
 		c.report(s.Pos, "переменная %s: %s, присваивается значение типа %s%s",
 			s.Name, typeOrigin(declared, inferred), actual.Russian(), reassignHint(s.Name, declared, actual))
@@ -316,7 +361,7 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 func (c *checker) forLoop(s *For, scope *checkScope, f flow) {
 	iterable := c.expr(s.Iterable, scope)
 	switch iterable {
-	case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream:
+	case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream, TypeFunc:
 		c.report(s.Pos, "по значению типа %s нельзя пройти циклом", iterable.Russian())
 	}
 
@@ -373,7 +418,7 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		switch operand {
 		case TypeInt, TypeFloat:
 			return operand
-		case TypeList, TypeMap, TypeConfig, TypeStream, typeNull:
+		case TypeList, TypeMap, TypeConfig, TypeStream, TypeFunc, typeNull:
 			c.report(x.Pos, "унарный минус применим только к числу, получено %s", operand.Russian())
 		}
 		return ""
@@ -382,13 +427,30 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		return c.binary(x, scope)
 
 	case *Call:
+		if x.Fn != nil {
+			if t := c.expr(x.Fn, scope); !callable(t) {
+				c.report(x.Pos, "вызвать можно функцию, получено %s", t.Russian())
+			}
+			for _, arg := range x.Args {
+				c.expr(arg, scope)
+			}
+			return ""
+		}
 		return c.call(x.Callee, x.Args, x.Pos, nil, scope)
+
+	case *FuncLit:
+		c.funcLit(x, scope)
+		return TypeFunc
+
+	case *FuncRef:
+		c.funcRef(x.Target, scope)
+		return TypeFunc
 
 	case *Index:
 		target := c.expr(x.Target, scope)
 		c.expr(x.Index, scope)
 		switch target {
-		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, typeNull:
+		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, TypeFunc, typeNull:
 			c.report(x.Pos, "индексировать можно список, словарь или конфиг, получено %s", target.Russian())
 		case TypeConfig:
 			return TypeString
@@ -408,8 +470,13 @@ func (c *checker) infer(e Expr, scope *checkScope) TypeName {
 }
 
 func (c *checker) binary(x *Binary, scope *checkScope) TypeName {
-	if x.Op == TokenPipe {
+	switch x.Op {
+	case TokenPipe:
 		return c.pipe(x, scope)
+	case TokenCompose:
+		c.funcOperand(x.Left, scope)
+		c.funcOperand(x.Right, scope)
+		return TypeFunc
 	}
 
 	left := c.expr(x.Left, scope)
@@ -433,7 +500,7 @@ func (c *checker) binary(x *Binary, scope *checkScope) TypeName {
 	// ("5" - 1 даёт 4), поэтому отвергаются только заведомо нечисловые типы.
 	for _, operand := range []TypeName{left, right} {
 		switch operand {
-		case TypeList, TypeMap, TypeConfig, TypeStream, typeNull:
+		case TypeList, TypeMap, TypeConfig, TypeStream, TypeFunc, typeNull:
 			c.report(x.Pos, "оператор %s неприменим к %s", x.Op, operand.Russian())
 			return ""
 		}
@@ -488,14 +555,89 @@ func (c *checker) pipe(x *Binary, scope *checkScope) TypeName {
 
 	switch right := x.Right.(type) {
 	case *Call:
+		if right.Fn != nil {
+			if t := c.expr(right.Fn, scope); !callable(t) {
+				c.report(right.Pos, "вызвать можно функцию, получено %s", t.Russian())
+			}
+			for _, arg := range right.Args {
+				c.expr(arg, scope)
+			}
+			return ""
+		}
 		return c.call(right.Callee, right.Args, right.Pos, &left, scope)
 	case *Ident:
 		return c.call(right, nil, right.Pos, &left, scope)
 	}
 
-	c.report(x.Pos, "справа от | должен быть вызов алиаса или встроенной функции")
-	c.expr(x.Right, scope)
+	// Справа — выражение, дающее функцию: x | f >> g.
+	if t := c.expr(x.Right, scope); !callable(t) {
+		c.report(x.Pos, "справа от | должен быть вызов алиаса, встроенной функции или функция, получено %s", t.Russian())
+	}
 	return ""
+}
+
+// callable — может ли значение такого типа оказаться функцией.
+func callable(t TypeName) bool {
+	return t == "" || t == TypeAny || t == TypeFunc
+}
+
+// funcLit проверяет тело функции в снимке видимых переменных: как при
+// выполнении, присвоить им нельзя, а под своим именем функция видит себя.
+func (c *checker) funcLit(x *FuncLit, scope *checkScope) {
+	inner := newCheckScope(scope.capture())
+	if x.Name != "" {
+		inner.define(x.Name, TypeFunc)
+		inner.consts[x.Name] = true
+	}
+	for i, param := range x.Params {
+		inner.define(param, x.ParamTypes[i])
+		delete(inner.consts, param)
+	}
+	if x.Expr != nil {
+		if actual := c.expr(x.Expr, inner); x.Returns != "" && !compatible(x.Returns, actual) {
+			c.report(x.Expr.Position(), "результат функции: объявлен тип %s, выражение типа %s",
+				x.Returns.Russian(), actual.Russian())
+		}
+		return
+	}
+	c.stmts(x.Body.Stmts, inner, flow{})
+}
+
+// funcRef проверяет ссылку fn имя: имя должно быть функцией.
+func (c *checker) funcRef(target *Ident, scope *checkScope) {
+	if target.Module == "" {
+		if t, ok := scope.lookup(target.Name); ok {
+			if !callable(t) {
+				c.report(target.Pos, "%s — не функция, а %s", target.Name, t.Russian())
+			}
+			return
+		}
+	}
+	decl, err := c.registry.Lookup(target.Module, target.Name)
+	if err == nil {
+		c.use(decl)
+		return
+	}
+	if _, ok := c.builtins[target.Qualified()]; ok {
+		return
+	}
+	if target.Module != "" || c.registry.declared(target.Name) {
+		c.report(target.Pos, "%v", err)
+		return
+	}
+	c.report(target.Pos, "неизвестная функция %q%s", target.Qualified(), c.suggest(target.Name, scope))
+}
+
+// funcOperand проверяет операнд композиции: голое имя здесь — функция,
+// а не вызов.
+func (c *checker) funcOperand(e Expr, scope *checkScope) {
+	if id, ok := e.(*Ident); ok {
+		c.funcRef(id, scope)
+		return
+	}
+	if t := c.expr(e, scope); !callable(t) {
+		c.report(e.Position(), "оператор >> соединяет функции, получено %s", t.Russian())
+	}
 }
 
 func (c *checker) ident(x *Ident, scope *checkScope) TypeName {
@@ -535,6 +677,21 @@ func (c *checker) call(callee *Ident, args []Expr, pos Position, piped *TypeName
 	}
 	for _, arg := range args {
 		types = append(types, c.expr(arg, scope))
+	}
+
+	// Переменная с функцией перекрывает алиас и встроенную функцию; с
+	// другим значением — нет, как при выполнении.
+	if callee.Module == "" {
+		if t, ok := scope.lookup(callee.Name); ok {
+			if callable(t) {
+				// Функция или то, что станет известно при выполнении.
+				return ""
+			}
+			if _, err := c.registry.Lookup("", callee.Name); err != nil && !c.isBuiltin(callee.Name) {
+				c.report(pos, "%s — не функция, а %s", callee.Name, t.Russian())
+				return ""
+			}
+		}
 	}
 
 	// Порядок разрешения тот же, что у интерпретатора: алиас перекрывает

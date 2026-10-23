@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -241,10 +242,12 @@ func (s *scope) snapshot() *scope {
 	}
 
 	// Идём от внешней области к внутренней, чтобы ближние переменные
-	// затеняли дальние, как при обычном поиске.
+	// затеняли дальние, как при обычном поиске. Копии общие: словарь в
+	// переменной и тот же словарь в снимке функции остаются одним словарём.
+	memo := newCopyMemo()
 	for i := len(chain) - 1; i >= 0; i-- {
 		for name, value := range chain[i].vars {
-			flat.vars[name] = copyValue(value)
+			flat.vars[name] = copyWith(value, memo)
 		}
 		for name, declared := range chain[i].types {
 			flat.types[name] = declared
@@ -252,29 +255,103 @@ func (s *scope) snapshot() *scope {
 		for name, inferred := range chain[i].inferred {
 			flat.inferred[name] = inferred
 		}
+		for name, constant := range chain[i].consts {
+			flat.consts[name] = constant
+		}
 	}
 	return flat
 }
 
 // copyValue делает глубокую копию изменяемых значений.
 func copyValue(v Value) Value {
+	return copyWith(v, newCopyMemo())
+}
+
+// copyMemo — уже скопированное: один словарь, видимый из двух мест,
+// остаётся в копии одним словарём, а функция, лежащая в словаре из
+// собственного снимка, не копируется бесконечно.
+type copyMemo struct {
+	funcs   map[*FuncValue]*FuncValue
+	maps    map[uintptr]MapValue
+	configs map[uintptr]config.ConfigMap
+}
+
+func newCopyMemo() *copyMemo {
+	return &copyMemo{
+		funcs:   make(map[*FuncValue]*FuncValue),
+		maps:    make(map[uintptr]MapValue),
+		configs: make(map[uintptr]config.ConfigMap),
+	}
+}
+
+func copyWith(v Value, copied *copyMemo) Value {
 	switch val := v.(type) {
 	case ListValue:
 		out := make(ListValue, len(val))
 		for i, item := range val {
-			out[i] = copyValue(item)
+			out[i] = copyWith(item, copied)
 		}
 		return out
 
 	case MapValue:
+		key := reflect.ValueOf(val).Pointer()
+		if done, ok := copied.maps[key]; ok && key != 0 {
+			return done
+		}
 		out := make(MapValue, len(val))
-		for key, item := range val {
-			out[key] = copyValue(item)
+		if key != 0 {
+			copied.maps[key] = out
+		}
+		for name, item := range val {
+			out[name] = copyWith(item, copied)
 		}
 		return out
 
+	case *FuncValue:
+		// Итерации parallel for не должны делить словари из снимка
+		// функции: каждая получает свою копию функции целиком.
+		if done, ok := copied.funcs[val]; ok {
+			return done
+		}
+		out := *val
+		copied.funcs[val] = &out
+		if val.env != nil {
+			env := newScope(nil)
+			env.frozen = true
+			for name, item := range val.env.vars {
+				env.vars[name] = copyWith(item, copied)
+				env.types[name] = val.env.types[name]
+				env.inferred[name] = val.env.inferred[name]
+				env.consts[name] = val.env.consts[name]
+			}
+			out.env = env
+		}
+		if val.Base != nil {
+			out.Base = copyWith(val.Base, copied).(*FuncValue)
+		}
+		if val.Bound != nil {
+			out.Bound = make([]Value, len(val.Bound))
+			for i, item := range val.Bound {
+				out.Bound[i] = copyWith(item, copied)
+			}
+		}
+		if val.Chain != nil {
+			out.Chain = make([]*FuncValue, len(val.Chain))
+			for i, step := range val.Chain {
+				out.Chain[i] = copyWith(step, copied).(*FuncValue)
+			}
+		}
+		return &out
+
 	case ConfigValue:
+		key := reflect.ValueOf(val.Data).Pointer()
+		if done, ok := copied.configs[key]; ok && key != 0 {
+			return ConfigValue{Name: val.Name, Data: done, Notes: val.Notes}
+		}
 		data := make(config.ConfigMap, len(val.Data))
+		if key != 0 {
+			copied.configs[key] = data
+		}
 		for section, params := range val.Data {
 			copied := make(map[string]string, len(params))
 			for key, value := range params {

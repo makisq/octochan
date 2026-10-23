@@ -40,6 +40,8 @@ const (
 	TokenTrue
 	TokenFalse
 	TokenNull
+	TokenFn
+	TokenLet
 
 	// Знаки
 	TokenLParen
@@ -65,6 +67,8 @@ const (
 	TokenStar
 	TokenSlash
 	TokenPercent
+	TokenFatArrow
+	TokenCompose
 )
 
 var tokenNames = map[TokenKind]string{
@@ -92,6 +96,8 @@ var tokenNames = map[TokenKind]string{
 	TokenTrue:      "true",
 	TokenFalse:     "false",
 	TokenNull:      "null",
+	TokenFn:        "fn",
+	TokenLet:       "let",
 	TokenLParen:    "(",
 	TokenRParen:    ")",
 	TokenLBrace:    "{",
@@ -115,6 +121,8 @@ var tokenNames = map[TokenKind]string{
 	TokenStar:      "*",
 	TokenSlash:     "/",
 	TokenPercent:   "%",
+	TokenFatArrow:  "=>",
+	TokenCompose:   ">>",
 }
 
 func (k TokenKind) String() string {
@@ -145,6 +153,8 @@ var keywords = map[string]TokenKind{
 	"true":     TokenTrue,
 	"false":    TokenFalse,
 	"null":     TokenNull,
+	"fn":       TokenFn,
+	"let":      TokenLet,
 }
 
 // Position — место в исходном тексте, нужное для внятных сообщений об ошибках.

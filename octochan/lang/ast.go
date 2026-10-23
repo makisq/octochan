@@ -76,11 +76,40 @@ type Binary struct {
 	Right Expr
 }
 
-// Call — вызов алиаса или встроенной функции.
+// Call — вызов алиаса, встроенной функции или функции-значения.
+//
+// Callee — имя: алиас, встроенная функция или переменная с функцией.
+// Fn — вызываемое выражение, когда это не имя: сделать_сумматор(1)(2),
+// функции[0](x). Заполнено ровно одно из двух.
 type Call struct {
 	Pos    Position
 	Callee *Ident
+	Fn     Expr
 	Args   []Expr
+}
+
+// FuncLit — функция-значение: fn(x, y) { … } или fn(x) => выражение.
+//
+// Функция запоминает значения видимых переменных в момент создания
+// (снимок) и не меняет их. Name — имя переменной, которой функцию
+// присвоили при объявлении: под ним она видит саму себя, и так работает
+// рекурсия.
+type FuncLit struct {
+	Pos        Position
+	Name       string
+	Params     []string
+	ParamTypes []TypeName
+	Returns    TypeName
+	// Body — тело-блок; Expr — тело-выражение после =>. Заполнено одно.
+	Body *Block
+	Expr Expr
+}
+
+// FuncRef — ссылка на алиас или встроенную функцию как на значение:
+// fn upper, fn devops.проверить. Без fn голое имя алиаса — это вызов.
+type FuncRef struct {
+	Pos    Position
+	Target *Ident
 }
 
 // Index — обращение по индексу: список[0].
@@ -98,6 +127,8 @@ func (e *Unary) Position() Position   { return e.Pos }
 func (e *Binary) Position() Position  { return e.Pos }
 func (e *Call) Position() Position    { return e.Pos }
 func (e *Index) Position() Position   { return e.Pos }
+func (e *FuncLit) Position() Position { return e.Pos }
+func (e *FuncRef) Position() Position { return e.Pos }
 
 func (*Literal) exprNode() {}
 func (*Ident) exprNode()   {}
@@ -107,6 +138,8 @@ func (*Unary) exprNode()   {}
 func (*Binary) exprNode()  {}
 func (*Call) exprNode()    {}
 func (*Index) exprNode()   {}
+func (*FuncLit) exprNode() {}
+func (*FuncRef) exprNode() {}
 
 // ---------------------------------------------------------------------------
 // Инструкции
@@ -126,7 +159,8 @@ type ExprStmt struct {
 
 // Assign — объявление переменной или присваивание ей.
 //
-// Объявление (Declare) — `var имя: тип = значение`, `var имя = значение`,
+// Объявление (Declare) — `var имя: тип = значение`, `let имя = значение`,
+// `var имя = значение`,
 // `var имя: тип` (нулевое значение типа) и краткое `имя: тип = значение`.
 // Declared — написанный тип; Value пусто только у `var имя: тип`.
 //
@@ -138,6 +172,8 @@ type Assign struct {
 	Declare  bool
 	Declared TypeName
 	Value    Expr
+	// Const — `let имя = значение`: переменная без права на новое значение.
+	Const bool
 }
 
 // Block — последовательность инструкций в фигурных скобках.
