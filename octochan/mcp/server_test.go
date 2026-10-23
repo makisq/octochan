@@ -39,7 +39,9 @@ func fakeOchan() {
 	if text := os.Getenv("FAKE_STDERR"); text != "" {
 		fmt.Fprint(os.Stderr, text)
 	}
-	if text := os.Getenv("FAKE_STDOUT"); text != "" {
+	if os.Getenv("FAKE_PRINT_ROLE") == "1" {
+		fmt.Println("role=" + os.Getenv("OCTOCHAN_ROLE"))
+	} else if text := os.Getenv("FAKE_STDOUT"); text != "" {
 		fmt.Print(text)
 	} else if os.Getenv("FAKE_ECHO_STDIN") == "1" {
 		stdin, _ := io.ReadAll(os.Stdin)
@@ -977,5 +979,16 @@ func TestOneStdinSlotPerTool(t *testing.T) {
 		Slots: []slot{promptSlot(), {Name: "other", Kind: slotText}}}
 	if err := checkTable([]tool{bad}); err == nil {
 		t.Fatal("инструмент с двумя текстами на stdin принят")
+	}
+}
+
+// ochan под сервером работает в роли llm, даже если в окружении сервера
+// задана другая роль.
+func TestOchanRunsAsLLM(t *testing.T) {
+	t.Setenv("OCTOCHAN_ROLE", "master")
+	e := newEnv(t, withFakeEnv("FAKE_PRINT_ROLE=1"))
+	text, isError := e.callTool("services", map[string]any{})
+	if isError || strings.TrimSpace(text) != "role=llm" {
+		t.Fatalf("ochan запущен не в роли llm: %q", text)
 	}
 }

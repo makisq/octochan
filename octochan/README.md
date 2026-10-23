@@ -15,6 +15,7 @@ go build -o ochan .
 ```
 config       движок: разбор, нормализация, сравнение, план        зависимостей нет
 fp           формальный промпт: разбор, проверки, протокол        зависимостей нет
+rbac         роли, права, история переключений                    x/crypto
 pluginhost   хост подключаемых модулей команд                     зависимостей нет
 scenario     сценарий и реестр исполнителей      -> config
 lang         язык алиасов                        -> config
@@ -105,6 +106,9 @@ ochan apply scenario.yaml             выполнить сценарий
 ochan apply scenario.yaml --wait
 ochan check сценарий.ochan            проверить сценарий, не выполняя
 ochan fp check задача.fp              проверить формальный промпт
+ochan role                            текущая роль и история
+ochan set role slave                  переключиться на роль
+ochan back role                       вернуться к прошлой роли
 ochan plan сценарий.ochan             что сценарий изменил бы
 ochan services                        кто какие сервисы исполняет
 ochan status <task_id>
@@ -641,6 +645,100 @@ fp:
 Через сервер MCP модель получает протокол первым — в `instructions` при
 подключении — и проверяет промпт инструментом `check_prompt` до того, как
 что-либо строить.
+
+## Роли
+
+После установки есть две роли:
+
+| Роль | Права | |
+|---|---|---|
+| `master` | `all` — всё | первая и высшая; на своём компьютере ты master |
+| `llm` | `read`, `plan`, `request` | для нейросетей: читать, планировать, оформлять заявки |
+
+Остальные роли создаёт master. Право — группа, `all` или имя отдельной
+команды:
+
+| Группа | Команды |
+|---|---|
+| `read` | aliases, check, diff, else, find, fp, history, if, logs, modules, print, requests, services, stats, status, validate |
+| `plan` | plan |
+| `request` | request |
+| `approve` | approve, reject |
+| `apply` | apply, eval, patch, rollback, run, srs, tee |
+| `install` | !install, inspect |
+| `auth` | auth, timer |
+| `admin` | role create, role delete, role grant, role revoke, role update |
+
+`help`, `role`, `role list`, `set role`, `back role` доступны любой роли:
+без них нельзя узнать, кто ты, и вернуться обратно.
+
+```
+ochan role create slave --allow read,plan
+ochan role create Dan --allow read,plan,request,approve --nlogin dan --npsw
+ochan role grant slave approve
+ochan role revoke slave approve
+ochan role update master --npsw
+ochan role update slave --nlogin dan --npsw --rename worker
+ochan role delete worker
+ochan role list
+```
+
+```
+$ ochan set role slave
+Роль: slave
+$ ochan apply --request 3ff2
+ошибка: роль slave не может выполнять apply: нужно право apply
+```
+
+### back role
+
+`back role` возвращает к роли, которая была текущей до последнего
+переключения. Два возврата подряд приводят туда же, откуда начали:
+
+```
+ochan set role slave     # master -> slave
+ochan back role          # slave  -> master
+ochan back role          # master -> slave
+ochan back role master   # к конкретной роли из истории
+```
+
+Логин и пароль `back role` не спрашивает: в роль уже входили. Поэтому,
+зайдя мастером и переключившись проверить роль слейва, к master
+возвращаешься без пароля. Если у роли сменили логин или пароль, она уходит
+из истории, и вернуться в неё можно только через `set role` со входом.
+
+### Логин и пароль
+
+Если у роли задан логин или пароль, `set role` их спрашивает. Пароль
+вводится без эха (не на терминале — одной строкой из stdin), задаётся и
+меняется через `--npsw`, логин — через `--nlogin`, снимаются через
+`--drop-psw` и `--drop-login`.
+
+Хранилище — двоичный файл `~/.octochan/roles.bin` с правами 0600 и
+контрольной суммой. Логин и пароль в нём хранятся только как соль и хеш
+argon2id, открытым текстом — нигде. Испорченный файл — ошибка, а не тихий
+откат к master без паролей.
+
+### Роль llm и сервер MCP
+
+`ochan-mcp` запускает `ochan` с `OCTOCHAN_ROLE=llm`: что бы ни было
+текущей ролью пользователя, нейросеть работает в своей. Это второй рубеж
+за закрытой таблицей инструментов: даже при ошибке в таблице `ochan`
+откажет в выполнении сам.
+
+Потолок `llm` — `read`, `plan`, `request`. Выдать ей `apply`, `approve`,
+`admin` и прочее нельзя и master: нейросеть предлагает, решает человек.
+Окружением можно задать только роль без логина и пароля, иначе
+`OCTOCHAN_ROLE=master` обходил бы пароль master.
+
+### Чем роли являются и чем нет
+
+Локально роли — защита от ошибки и граница для нейросети, а не от
+владельца компьютера: кто может удалить `~/.octochan`, тот вернёт роли
+к исходным. Границей против других людей они станут в серверном режиме,
+где хранилище ролей лежит у сервера, а подключаются к нему по сети
+(следующий шаг: `ochan serve`, вход по логину и паролю, параметры
+`ssl` — шифрование вкл/выкл — и `tls` — версия и сертификаты).
 
 ## Модули команд
 

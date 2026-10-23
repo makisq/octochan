@@ -14,6 +14,9 @@ import (
 	"unicode/utf8"
 )
 
+// llmRole — роль, в которой сервер запускает ochan.
+const llmRole = "OCTOCHAN_ROLE=llm"
+
 // runner запускает ochan.
 type runner struct {
 	// binary — путь к исполняемому файлу ochan.
@@ -48,7 +51,11 @@ func (r *runner) run(ctx context.Context, args []string, stdin string) outcome {
 
 	cmd := exec.CommandContext(ctx, r.binary, args...)
 	cmd.Dir = r.dir
-	cmd.Env = append(os.Environ(), r.env...)
+	// ochan работает в роли llm, что бы ни было текущей ролью пользователя
+	// и что бы ни стояло в окружении сервера: из повторяющихся переменных
+	// действует последняя. Права роли проверяет сам ochan — это второй
+	// рубеж за закрытой таблицей инструментов.
+	cmd.Env = append(append(os.Environ(), llmRole), r.env...)
 	cmd.Stdin = nil
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)

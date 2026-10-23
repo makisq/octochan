@@ -44,6 +44,10 @@ func init() {
 	}
 	helpCmd.RunE = runHelp
 
+	// Права проверяются перед каждой командой — и в командной строке,
+	// и в оболочке: там каждая строка тоже проходит через rootCmd.
+	rootCmd.PersistentPreRunE = authorize
+
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"путь до конфига (по умолчанию ~/.octochan/config.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false,
@@ -80,6 +84,9 @@ func init() {
 		aliasesCmd,
 		checkCmd,
 		fpCmd,
+		roleCmd,
+		setCmd,
+		backCmd,
 		planCmd,
 		historyCmd,
 		rollbackCmd,

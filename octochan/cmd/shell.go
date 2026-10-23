@@ -72,8 +72,12 @@ func runInteractiveShell(ctx context.Context) error {
 
 	fmt.Println("Добро пожаловать в OctoChan. Введите 'help' для списка команд, 'exit' для выхода.")
 
+	refreshShellPrefix()
 	options := []prompt.Option{
 		prompt.OptionPrefix("ochan> "),
+		// В приглашении видна роль: после set role slave легко забыть,
+		// почему команды перестали выполняться.
+		prompt.OptionLivePrefix(func() (string, bool) { return shellPrefix, true }),
 		prompt.OptionTitle("OctoChan Interactive Shell"),
 		prompt.OptionAddKeyBind(prompt.KeyBind{
 			Key: prompt.ControlD,
@@ -143,6 +147,26 @@ func executeShellInput(ctx context.Context, input string) {
 	if terminated := runShellCommand(ctx, args); terminated {
 		exitShell(143)
 	}
+	refreshShellPrefix()
+}
+
+// shellPrefix — приглашение оболочки с текущей ролью.
+var shellPrefix = "ochan> "
+
+// refreshShellPrefix перечитывает роль после каждой команды, а не на
+// каждое нажатие клавиши: приглашение перерисовывается часто.
+func refreshShellPrefix() {
+	store, _, err := loadRoles()
+	if err != nil {
+		shellPrefix = "ochan> "
+		return
+	}
+	role, _, err := activeRole(store)
+	if err != nil {
+		shellPrefix = "ochan> "
+		return
+	}
+	shellPrefix = fmt.Sprintf("ochan[%s]> ", role.Name)
 }
 
 // runShellCommand выполняет одну команду в собственном контексте и
