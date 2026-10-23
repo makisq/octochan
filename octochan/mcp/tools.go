@@ -233,8 +233,8 @@ func changesNotOverride(positional []string) error {
 		return nil
 	}
 	if second := positional[1]; strings.Contains(second[1:], "=") {
-		return slotError("changes", "%s содержит «=», и ochan примет его за переопределение "+
-			"параметра сценария; уберите «=» из пути или параметров ссылки", second)
+		return slotError("changes", "%s contains \"=\", and ochan would take it for a scenario parameter override; "+
+			"remove \"=\" from the path or the link parameters", second)
 	}
 	return nil
 }
@@ -480,7 +480,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
-		return nil, "", fmt.Errorf("неизвестные параметры: %s", strings.Join(unknown, ", "))
+		return nil, "", fmt.Errorf("unknown parameters: %s", strings.Join(unknown, ", "))
 	}
 
 	command := append([]string{t.Command}, t.Fixed...)
@@ -497,7 +497,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 		raw, present := args[s.Name]
 		if !present || raw == nil {
 			if s.Required {
-				return nil, "", slotError(s.Name, "обязательный параметр не задан")
+				return nil, "", slotError(s.Name, "a required parameter is missing")
 			}
 			continue
 		}

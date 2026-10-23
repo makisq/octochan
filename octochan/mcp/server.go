@@ -112,7 +112,7 @@ func (s *server) serve(ctx context.Context, in io.Reader) error {
 		switch {
 		case tooLong:
 			s.write(errorResponse(nil, codeInvalidRequest,
-				fmt.Sprintf("сообщение длиннее %d байт отброшено", maxMessage)))
+				fmt.Sprintf("a message longer than %d bytes was dropped", maxMessage)))
 		case len(bytes.TrimSpace(line)) > 0:
 			s.dispatch(ctx, line)
 		}
@@ -163,7 +163,7 @@ func (s *server) dispatch(ctx context.Context, line []byte) {
 	if trimmed[0] == '[' {
 		var batch []json.RawMessage
 		if err := json.Unmarshal(trimmed, &batch); err != nil || len(batch) == 0 {
-			s.write(errorResponse(nil, codeInvalidRequest, "некорректный пакет JSON-RPC"))
+			s.write(errorResponse(nil, codeInvalidRequest, "malformed JSON-RPC batch"))
 			return
 		}
 		// Пакет обрабатывается целиком в одной горутине: ответы на него
@@ -186,7 +186,7 @@ func (s *server) dispatch(ctx context.Context, line []byte) {
 
 	var msg message
 	if err := json.Unmarshal(trimmed, &msg); err != nil {
-		s.write(errorResponse(nil, codeParseError, "некорректный JSON: "+err.Error()))
+		s.write(errorResponse(nil, codeParseError, "malformed JSON: "+err.Error()))
 		return
 	}
 
@@ -213,24 +213,24 @@ func (s *server) dispatch(ctx context.Context, line []byte) {
 func (s *server) handle(ctx context.Context, raw json.RawMessage) *response {
 	var msg message
 	if err := json.Unmarshal(raw, &msg); err != nil {
-		return errorResponse(nil, codeParseError, "некорректный JSON: "+err.Error())
+		return errorResponse(nil, codeParseError, "malformed JSON: "+err.Error())
 	}
 
 	// Ответы клиента на наши запросы: мы запросов не шлём, читать нечего.
 	if msg.Method == "" {
 		if len(msg.ID) == 0 {
-			return errorResponse(nil, codeInvalidRequest, "нет поля method")
+			return errorResponse(nil, codeInvalidRequest, "the method field is missing")
 		}
 		return nil
 	}
 
 	notification := len(msg.ID) == 0
 	if !notification && string(msg.ID) == "null" {
-		return errorResponse(nil, codeInvalidRequest, "идентификатор запроса не может быть null")
+		return errorResponse(nil, codeInvalidRequest, "a request id cannot be null")
 	}
 
 	if notification {
-		s.notification(msg)
+		s.notification(ctx, msg)
 		return nil
 	}
 
@@ -244,11 +244,11 @@ func (s *server) handle(ctx context.Context, raw json.RawMessage) *response {
 	case "tools/call":
 		return s.callTool(ctx, msg)
 	default:
-		return errorResponse(msg.ID, codeMethodNotFound, "метод не поддерживается: "+msg.Method)
+		return errorResponse(msg.ID, codeMethodNotFound, "method not supported: "+msg.Method)
 	}
 }
 
-func (s *server) notification(msg message) {
+func (s *server) notification(ctx context.Context, msg message) {
 	if msg.Method != "notifications/cancelled" {
 		return
 	}
@@ -261,7 +261,7 @@ func (s *server) notification(msg message) {
 	}
 
 	s.mu.Lock()
-	cancel, ok := s.running[idKey(params.RequestID)]
+	cancel, ok := s.running[callKey(ctx, params.RequestID)]
 	s.mu.Unlock()
 	if ok {
 		s.logger.Printf("отмена вызова %s: %s", params.RequestID, params.Reason)
@@ -362,12 +362,12 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(msg.Params, &params); err != nil {
-		return errorResponse(msg.ID, codeInvalidParams, "некорректные параметры tools/call: "+err.Error())
+		return errorResponse(msg.ID, codeInvalidParams, "malformed tools/call params: "+err.Error())
 	}
 
 	t, ok := s.byName[params.Name]
 	if !ok {
-		return errorResponse(msg.ID, codeInvalidParams, "неизвестный инструмент: "+params.Name)
+		return errorResponse(msg.ID, codeInvalidParams, "unknown tool: "+params.Name)
 	}
 	if params.Arguments == nil {
 		params.Arguments = map[string]any{}
@@ -378,10 +378,10 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 	args, stdin, err := t.argv(s.box, params.Arguments)
 	if err != nil {
 		s.logger.Printf("%s: отказ: %v", t.Name, err)
-		return toolResult(msg.ID, "Вызов отклонён до запуска: "+err.Error(), true)
+		return toolResult(msg.ID, "The call was rejected before it ran: "+err.Error(), true)
 	}
 
-	key := idKey(msg.ID)
+	key := callKey(ctx, msg.ID)
 	callCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
 	s.running[key] = cancel
@@ -444,6 +444,20 @@ func errorResponse(id json.RawMessage, code int, text string) *response {
 		id = json.RawMessage("null")
 	}
 	return &response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: text}}
+}
+
+type sessionKey struct{}
+
+// withSession помечает вызовы сессией HTTP. Идентификаторы запросов у
+// разных клиентов совпадают («1», «2»…), и отмена вызова одним клиентом не
+// должна отменять вызов другого.
+func withSession(ctx context.Context, session string) context.Context {
+	return context.WithValue(ctx, sessionKey{}, session)
+}
+
+func callKey(ctx context.Context, id json.RawMessage) string {
+	session, _ := ctx.Value(sessionKey{}).(string)
+	return session + "\x00" + idKey(id)
 }
 
 // idKey приводит идентификатор к виду, пригодному для сравнения:

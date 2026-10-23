@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "ochan-mcp-token",
+      "description": "ochan-mcp access token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "octochan": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:ochan-mcp-token}"
+      }
+    }
+  }
+}

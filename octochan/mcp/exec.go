@@ -55,7 +55,12 @@ func (r *runner) run(ctx context.Context, args []string, stdin string) outcome {
 	// и что бы ни стояло в окружении сервера: из повторяющихся переменных
 	// действует последняя. Права роли проверяет сам ochan — это второй
 	// рубеж за закрытой таблицей инструментов.
-	cmd.Env = append(append(os.Environ(), llmRole), r.env...)
+	cmd.Env = append(os.Environ(), llmRole)
+	if client := clientAddr(ctx); client != "" {
+		// Адрес удалённого клиента — в журнал аудита ochan.
+		cmd.Env = append(cmd.Env, "OCTOCHAN_REMOTE_ADDR=mcp "+client)
+	}
+	cmd.Env = append(cmd.Env, r.env...)
 	cmd.Stdin = nil
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
@@ -111,7 +116,7 @@ func (r *runner) text(result outcome) (string, bool) {
 
 	switch {
 	case result.timedOut:
-		fmt.Fprintf(&b, "Превышено время выполнения (%s): команда остановлена.\n", r.timeout)
+		fmt.Fprintf(&b, "Time limit exceeded (%s): the command was stopped.\n", r.timeout)
 		writeSection(&b, result.stderr)
 		writeSection(&b, result.stdout)
 		return r.limit(b.String()), true
@@ -120,7 +125,7 @@ func (r *runner) text(result outcome) (string, bool) {
 		writeSection(&b, result.stderr)
 		writeSection(&b, result.stdout)
 		if b.Len() == 0 {
-			fmt.Fprintf(&b, "ochan завершился с кодом %d без сообщения.\n", result.code)
+			fmt.Fprintf(&b, "ochan exited with code %d and no message.\n", result.code)
 		}
 		return r.limit(b.String()), true
 	}
@@ -128,7 +133,7 @@ func (r *runner) text(result outcome) (string, bool) {
 	writeSection(&b, result.stdout)
 	writeSection(&b, result.stderr)
 	if b.Len() == 0 {
-		b.WriteString("Команда выполнена, вывода нет.\n")
+		b.WriteString("The command succeeded with no output.\n")
 	}
 	return r.limit(b.String()), false
 }
@@ -154,7 +159,7 @@ func (r *runner) limit(text string) string {
 	for cut > 0 && !utf8.RuneStart(text[cut]) {
 		cut--
 	}
-	return text[:cut] + fmt.Sprintf("\n… вывод обрезан: показано %d из %d байт\n", cut, len(text))
+	return text[:cut] + fmt.Sprintf("\n… output truncated: %d of %d bytes shown\n", cut, len(text))
 }
 
 // findOchan ищет исполняемый файл ochan: явно указанный, рядом с сервером

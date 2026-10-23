@@ -205,10 +205,10 @@ func (b *sandbox) inside(path string) bool {
 // раскрываются до проверки, иначе ссылка внутри каталога вела бы наружу.
 func (b *sandbox) resolve(name, value string, mustExist bool) (string, error) {
 	if value == "" {
-		return "", slotError(name, "пустой путь")
+		return "", slotError(name, "empty path")
 	}
 	if strings.ContainsRune(value, 0) {
-		return "", slotError(name, "путь содержит нулевой символ")
+		return "", slotError(name, "the path contains a NUL character")
 	}
 
 	path := value
@@ -221,28 +221,28 @@ func (b *sandbox) resolve(name, value string, mustExist bool) (string, error) {
 	if mustExist {
 		resolved, err := filepath.EvalSymlinks(path)
 		if err != nil {
-			return "", slotError(name, "файл %s не найден", value)
+			return "", slotError(name, "file %s not found", value)
 		}
 		info, err := os.Stat(resolved)
 		if err != nil {
-			return "", slotError(name, "файл %s недоступен", value)
+			return "", slotError(name, "file %s is not accessible", value)
 		}
 		// Только обычные файлы: каталог, устройство или канал на месте
 		// конфига — либо ошибка, либо зависание при чтении.
 		if !info.Mode().IsRegular() {
-			return "", slotError(name, "%s — не обычный файл", value)
+			return "", slotError(name, "%s is not a regular file", value)
 		}
 		real = resolved
 	} else {
 		dir, err := filepath.EvalSymlinks(filepath.Dir(path))
 		if err != nil {
-			return "", slotError(name, "каталог для %s не существует", value)
+			return "", slotError(name, "the directory for %s does not exist", value)
 		}
 		real = filepath.Join(dir, filepath.Base(path))
 	}
 
 	if !b.inside(real) {
-		return "", slotError(name, "%s вне разрешённых каталогов (%s)",
+		return "", slotError(name, "%s is outside the allowed directories (%s)",
 			value, strings.Join(b.roots, ", "))
 	}
 	return real, nil
@@ -254,10 +254,10 @@ func (b *sandbox) source(name, value string) (string, error) {
 		scheme = strings.ToLower(scheme)
 		if !b.liveAllow[scheme] {
 			if len(b.liveAllow) == 0 {
-				return "", slotError(name, "живые источники отключены; "+
-					"сервер нужно запустить с --allow-live %s", scheme)
+				return "", slotError(name, "live sources are disabled; "+
+					"the server must be started with --allow-live %s", scheme)
 			}
-			return "", slotError(name, "схема %s не разрешена, разрешены: %s",
+			return "", slotError(name, "scheme %s is not allowed; allowed: %s",
 				scheme, strings.Join(b.liveSchemes(), ", "))
 		}
 		return value, nil
@@ -268,7 +268,7 @@ func (b *sandbox) source(name, value string) (string, error) {
 // newDoc проверяет путь нового документа.
 func (b *sandbox) newDoc(name, value string) (string, error) {
 	if !strings.EqualFold(filepath.Ext(value), ".docx") {
-		return "", slotError(name, "документ должен иметь расширение .docx")
+		return "", slotError(name, "the document must have the .docx extension")
 	}
 	path, err := b.resolve(name, value, false)
 	if err != nil {
@@ -278,9 +278,9 @@ func (b *sandbox) newDoc(name, value string) (string, error) {
 	// не делает. Модель может ошибиться с именем, и тогда пропал бы чужой
 	// документ.
 	if _, err := os.Lstat(path); err == nil {
-		return "", slotError(name, "файл %s уже существует, перезапись запрещена", value)
+		return "", slotError(name, "file %s already exists, overwriting is not allowed", value)
 	} else if !os.IsNotExist(err) {
-		return "", slotError(name, "файл %s недоступен", value)
+		return "", slotError(name, "file %s is not accessible", value)
 	}
 	return path, nil
 }
@@ -291,7 +291,7 @@ func (b *sandbox) fill(s slot, raw any) ([]string, error) {
 	case slotSwitch:
 		on, ok := raw.(bool)
 		if !ok {
-			return nil, slotError(s.Name, "ожидается true или false")
+			return nil, slotError(s.Name, "true or false expected")
 		}
 		if !on {
 			return nil, nil
@@ -301,7 +301,7 @@ func (b *sandbox) fill(s slot, raw any) ([]string, error) {
 	case slotLimit:
 		number, ok := raw.(float64)
 		if !ok || number != float64(int(number)) || number < 1 || number > maxLimit {
-			return nil, slotError(s.Name, "ожидается целое число от 1 до %d", maxLimit)
+			return nil, slotError(s.Name, "an integer from 1 to %d expected", maxLimit)
 		}
 		return withFlag(s, strconv.Itoa(int(number))), nil
 
@@ -311,7 +311,7 @@ func (b *sandbox) fill(s slot, raw any) ([]string, error) {
 
 	text, ok := raw.(string)
 	if !ok {
-		return nil, slotError(s.Name, "ожидается строка")
+		return nil, slotError(s.Name, "a string expected")
 	}
 
 	var (
@@ -326,17 +326,17 @@ func (b *sandbox) fill(s slot, raw any) ([]string, error) {
 	case slotNewDoc:
 		value, err = b.newDoc(s.Name, text)
 	case slotParam:
-		value, err = matched(s.Name, text, paramPattern, "латинские буквы, цифры, _ . -")
+		value, err = matched(s.Name, text, paramPattern, "latin letters, digits, _ . -")
 	case slotID:
-		value, err = matched(s.Name, strings.ToLower(text), idPattern, "шестнадцатеричные цифры")
+		value, err = matched(s.Name, strings.ToLower(text), idPattern, "hexadecimal digits")
 	case slotTaskID:
-		value, err = matched(s.Name, text, taskIDPattern, "латинские буквы, цифры, _ -")
+		value, err = matched(s.Name, text, taskIDPattern, "latin letters, digits, _ -")
 	case slotPackage:
-		value, err = matched(s.Name, text, packagePattern, "буквы, цифры, _ . -")
+		value, err = matched(s.Name, text, packagePattern, "letters, digits, _ . -")
 	case slotName:
-		value, err = matched(s.Name, text, namePattern, "буквы, цифры, _ . -")
+		value, err = matched(s.Name, text, namePattern, "letters, digits, _ . -")
 	default:
-		err = slotError(s.Name, "неизвестный тип слота")
+		err = slotError(s.Name, "unknown slot type")
 	}
 	if err != nil {
 		return nil, err
@@ -353,7 +353,7 @@ func withFlag(s slot, value string) []string {
 
 func matched(name, value string, pattern *regexp.Regexp, allowed string) (string, error) {
 	if !pattern.MatchString(value) {
-		return "", slotError(name, "недопустимое значение %q, разрешены: %s", value, allowed)
+		return "", slotError(name, "invalid value %q; allowed: %s", value, allowed)
 	}
 	return value, nil
 }
@@ -368,15 +368,15 @@ func stdinSlot(kind slotKind) bool { return kind == slotScript || kind == slotTe
 func scriptText(name string, raw any) (string, error) {
 	text, ok := raw.(string)
 	if !ok {
-		return "", slotError(name, "ожидается текст строкой")
+		return "", slotError(name, "text expected as a string")
 	}
 	switch {
 	case strings.TrimSpace(text) == "":
-		return "", slotError(name, "пустой текст")
+		return "", slotError(name, "empty text")
 	case len(text) > maxScript:
-		return "", slotError(name, "текст длиннее %d КиБ", maxScript>>10)
+		return "", slotError(name, "the text is longer than %d KiB", maxScript>>10)
 	case strings.ContainsRune(text, 0) || !utf8.ValidString(text):
-		return "", slotError(name, "текст содержит недопустимые символы")
+		return "", slotError(name, "the text contains invalid characters")
 	}
 	return text, nil
 }
@@ -388,13 +388,13 @@ func scriptText(name string, raw any) (string, error) {
 func overrides(name string, raw any) ([]string, error) {
 	object, ok := raw.(map[string]any)
 	if !ok {
-		return nil, slotError(name, "ожидается объект {параметр: значение}")
+		return nil, slotError(name, "an object {parameter: value} expected")
 	}
 
 	keys := make([]string, 0, len(object))
 	for key := range object {
 		if !overrideKey.MatchString(key) {
-			return nil, slotError(name, "недопустимое имя параметра %q", key)
+			return nil, slotError(name, "invalid parameter name %q", key)
 		}
 		keys = append(keys, key)
 	}
@@ -411,10 +411,10 @@ func overrides(name string, raw any) ([]string, error) {
 		case float64:
 			value = strconv.FormatFloat(v, 'f', -1, 64)
 		default:
-			return nil, slotError(name, "значение %s должно быть строкой, числом или true/false", key)
+			return nil, slotError(name, "value %s must be a string, a number or true/false", key)
 		}
 		if strings.ContainsRune(value, 0) || !utf8.ValidString(value) {
-			return nil, slotError(name, "значение %s содержит недопустимые символы", key)
+			return nil, slotError(name, "value %s contains invalid characters", key)
 		}
 		args = append(args, key+"="+value)
 	}
