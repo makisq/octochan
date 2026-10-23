@@ -285,6 +285,10 @@ func (l *Lexer) lexOperator(pos Position) (Token, error) {
 	case '+':
 		return simple(TokenPlus)
 	case '-':
+		if l.peek() == '>' {
+			l.advance()
+			return simple(TokenArrow)
+		}
 		return simple(TokenMinus)
 	case '*':
 		return simple(TokenStar)

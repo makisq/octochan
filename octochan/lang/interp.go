@@ -701,6 +701,9 @@ func (in *Interpreter) evalBinary(e *Binary, env *scope) (Value, error) {
 
 	case TokenCompose:
 		return in.evalCompose(e, env)
+
+	case TokenArrow:
+		return in.evalArrow(e, env)
 	}
 
 	left, err := in.eval(e.Left, env)
@@ -765,7 +768,7 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 			args = append(args, value)
 		}
 		if fn != nil {
-			return in.callFunc(fn, args, right.Pos)
+			return in.callValue(fn, args, right.Pos)
 		}
 		return in.dispatch(right.Callee, args, right.Pos)
 
@@ -776,7 +779,7 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 			return nil, err
 		}
 		if fn != nil {
-			return in.callFunc(fn, []Value{left}, right.Pos)
+			return in.callValue(fn, []Value{left}, right.Pos)
 		}
 		return in.dispatch(right, []Value{left}, right.Pos)
 
@@ -786,7 +789,7 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 		if err != nil {
 			return nil, err
 		}
-		return in.callFunc(fn, []Value{left}, e.Pos)
+		return in.callValue(fn, []Value{left}, e.Pos)
 	}
 }
 
@@ -913,15 +916,80 @@ func (in *Interpreter) evalCall(e *Call, env *scope) (Value, error) {
 		args = append(args, value)
 	}
 	if fn != nil {
-		return in.callFunc(fn, args, e.Pos)
+		return in.callValue(fn, args, e.Pos)
 	}
 	return in.dispatch(e.Callee, args, e.Pos)
 }
 
-// callTarget находит функцию-значение, которую вызывает выражение:
-// вычисленное выражение или переменную с функцией. nil — вызывается
-// алиас или встроенная функция по имени.
-func (in *Interpreter) callTarget(e *Call, env *scope) (*FuncValue, error) {
+// isCallable — значение, которое можно вызвать: функция, морфизм или
+// функтор.
+func isCallable(v Value) bool {
+	switch v.(type) {
+	case *FuncValue, *MorphValue, *FunctorValue:
+		return true
+	}
+	return false
+}
+
+// callValue вызывает функцию, применяет морфизм или функтор.
+func (in *Interpreter) callValue(target Value, args []Value, pos Position) (Value, error) {
+	switch t := target.(type) {
+	case *FuncValue:
+		return in.callFunc(t, args, pos)
+
+	case *MorphValue:
+		if len(args) != 1 {
+			return nil, in.errorf(pos, "морфизм применяется к одному конфигу: m(c), передано %d", len(args))
+		}
+		c, err := objectOf(in, args[0])
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		out, err := in.applyMorph(t, c)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return out, nil
+
+	case *FunctorValue:
+		if len(args) < 1 || len(args) > 2 {
+			return nil, in.errorf(pos, "функтор применяется к конфигу F(c) или к морфизму F(m[, c]), передано %d", len(args))
+		}
+		if m, ok := args[0].(*MorphValue); ok {
+			var at *ConfigValue
+			if len(args) == 2 {
+				c, err := objectOf(in, args[1])
+				if err != nil {
+					return nil, in.wrap(pos, err)
+				}
+				at = &c
+			}
+			out, err := in.functorMorph(t, m, at)
+			if err != nil {
+				return nil, in.wrap(pos, err)
+			}
+			return out, nil
+		}
+		if len(args) == 2 {
+			return nil, in.errorf(pos, "второй аргумент функтора — объект для морфизма: F(m, c)")
+		}
+		c, err := objectOf(in, args[0])
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		out, err := in.functorObject(t, c)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return out, nil
+	}
+	return nil, in.errorf(pos, "вызвать можно функцию, морфизм или функтор, получено %s (%s)", target.TypeName(), Display(target))
+}
+
+// callTarget находит значение, которое вызывает выражение: вычисленное
+// выражение или переменную с функцией, морфизмом, функтором. nil —
+// вызывается алиас или встроенная функция по имени.
+func (in *Interpreter) callTarget(e *Call, env *scope) (Value, error) {
 	if e.Fn == nil {
 		return in.varFunc(e.Callee, env)
 	}
@@ -929,17 +997,16 @@ func (in *Interpreter) callTarget(e *Call, env *scope) (*FuncValue, error) {
 	if err != nil {
 		return nil, err
 	}
-	fn, ok := value.(*FuncValue)
-	if !ok {
-		return nil, in.errorf(e.Pos, "вызвать можно функцию, получено %s (%s)", value.TypeName(), Display(value))
+	if !isCallable(value) {
+		return nil, in.errorf(e.Pos, "вызвать можно функцию, морфизм или функтор, получено %s (%s)", value.TypeName(), Display(value))
 	}
-	return fn, nil
+	return value, nil
 }
 
-// varFunc — функция из переменной с этим именем. Переменная, в которой
-// не функция, вызов не перехватывает: имя остаётся за алиасом или
-// встроенной функцией, как было до функций-значений.
-func (in *Interpreter) varFunc(callee *Ident, env *scope) (*FuncValue, error) {
+// varFunc — то, что лежит в переменной с этим именем, если это можно
+// вызвать. Переменная с другим значением вызов не перехватывает: имя
+// остаётся за алиасом или встроенной функцией, как было до функций-значений.
+func (in *Interpreter) varFunc(callee *Ident, env *scope) (Value, error) {
 	if callee.Module != "" {
 		return nil, nil
 	}
@@ -947,8 +1014,8 @@ func (in *Interpreter) varFunc(callee *Ident, env *scope) (*FuncValue, error) {
 	if !ok {
 		return nil, nil
 	}
-	if fn, ok := value.(*FuncValue); ok {
-		return fn, nil
+	if isCallable(value) {
+		return value, nil
 	}
 	if _, err := in.registry.Lookup("", callee.Name); err == nil {
 		return nil, nil
@@ -959,12 +1026,13 @@ func (in *Interpreter) varFunc(callee *Ident, env *scope) (*FuncValue, error) {
 	return nil, in.errorf(callee.Pos, "%s — не функция, а %s (%s)", callee.Name, value.TypeName(), Display(value))
 }
 
-// funcRef — алиас или встроенная функция как значение: fn имя.
-func (in *Interpreter) funcRef(target *Ident, env *scope) (*FuncValue, error) {
+// funcRef — алиас или встроенная функция как значение: fn имя. Имя
+// переменной даёт то, что в ней, если это можно вызвать.
+func (in *Interpreter) funcRef(target *Ident, env *scope) (Value, error) {
 	if target.Module == "" {
 		if value, ok := env.lookup(target.Name); ok {
-			if fn, ok := value.(*FuncValue); ok {
-				return fn, nil
+			if isCallable(value) {
+				return value, nil
 			}
 			return nil, in.errorf(target.Pos, "%s — не функция, а %s (%s)", target.Name, value.TypeName(), Display(value))
 		}
@@ -985,7 +1053,7 @@ func (in *Interpreter) funcRef(target *Ident, env *scope) (*FuncValue, error) {
 // funcOperand вычисляет операнд, который должен быть функцией: часть
 // композиции или правую часть конвейера. Голое имя алиаса здесь — сама
 // функция, а не её вызов: в f >> g нужны функции, а не их результаты.
-func (in *Interpreter) funcOperand(expr Expr, env *scope) (*FuncValue, error) {
+func (in *Interpreter) funcOperand(expr Expr, env *scope) (Value, error) {
 	if id, ok := expr.(*Ident); ok {
 		return in.funcRef(id, env)
 	}
@@ -993,14 +1061,16 @@ func (in *Interpreter) funcOperand(expr Expr, env *scope) (*FuncValue, error) {
 	if err != nil {
 		return nil, err
 	}
-	fn, ok := value.(*FuncValue)
-	if !ok {
-		return nil, in.errorf(expr.Position(), "ожидалась функция, получено %s (%s)", value.TypeName(), Display(value))
+	if !isCallable(value) {
+		return nil, in.errorf(expr.Position(), "ожидалась функция, морфизм или функтор, получено %s (%s)",
+			value.TypeName(), Display(value))
 	}
-	return fn, nil
+	return value, nil
 }
 
-// evalCompose — f >> g: функция, которая применяет f, а к её результату g.
+// evalCompose — f >> g: сначала f, потом g. Для функций — функция, для
+// морфизмов — морфизм со склейкой и проверкой стыковки, для функторов —
+// функтор. id() нейтрален для всех трёх.
 func (in *Interpreter) evalCompose(e *Binary, env *scope) (Value, error) {
 	left, err := in.funcOperand(e.Left, env)
 	if err != nil {
@@ -1010,7 +1080,67 @@ func (in *Interpreter) evalCompose(e *Binary, env *scope) (Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	return composeFuncs(left, right), nil
+	out, err := compose(left, right)
+	if err != nil {
+		return nil, in.wrap(e.Pos, err)
+	}
+	return out, nil
+}
+
+// evalArrow — a -> b: морфизм, переводящий конфиг a в конфиг b.
+func (in *Interpreter) evalArrow(e *Binary, env *scope) (Value, error) {
+	var objects [2]ConfigValue
+	for i, operand := range []Expr{e.Left, e.Right} {
+		value, err := in.eval(operand, env)
+		if err != nil {
+			return nil, err
+		}
+		if objects[i], err = objectOf(in, value); err != nil {
+			return nil, in.errorf(operand.Position(), "-> соединяет конфиги: %v", err)
+		}
+	}
+	return deltaBetween(objects[0], objects[1]), nil
+}
+
+// compose склеивает два вызываемых значения.
+func compose(left, right Value) (Value, error) {
+	if left == Value(identity) {
+		return right, nil
+	}
+	if right == Value(identity) {
+		return left, nil
+	}
+	lf, lFunctor := left.(*FunctorValue)
+	rf, rFunctor := right.(*FunctorValue)
+	switch {
+	case lFunctor && rFunctor:
+		var chain []*FunctorValue
+		for _, f := range []*FunctorValue{lf, rf} {
+			if f.chain != nil {
+				chain = append(chain, f.chain...)
+			} else {
+				chain = append(chain, f)
+			}
+		}
+		return &FunctorValue{chain: chain}, nil
+	case lFunctor || rFunctor:
+		return nil, fmt.Errorf("функтор композируется только с функтором, получено %s и %s", left.TypeName(), right.TypeName())
+	}
+
+	_, lMorph := left.(*MorphValue)
+	_, rMorph := right.(*MorphValue)
+	if lMorph || rMorph {
+		a, err := morphArg(">>", left)
+		if err != nil {
+			return nil, err
+		}
+		b, err := morphArg(">>", right)
+		if err != nil {
+			return nil, err
+		}
+		return composeMorph(a, b)
+	}
+	return composeFuncs(left.(*FuncValue), right.(*FuncValue)), nil
 }
 
 // composeFuncs склеивает цепочки, чтобы f >> g >> h была одной цепочкой

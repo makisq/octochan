@@ -343,6 +343,39 @@ func copyWith(v Value, copied *copyMemo) Value {
 		}
 		return &out
 
+	case *MorphValue:
+		// Дельта неизменна; морфизм-функция несёт функцию со снимком.
+		if val.isDelta() {
+			return val
+		}
+		out := *val
+		if val.fn != nil {
+			out.fn = copyWith(val.fn, copied).(*FuncValue)
+		}
+		if val.chain != nil {
+			out.chain = make([]*MorphValue, len(val.chain))
+			for i, step := range val.chain {
+				out.chain[i] = copyWith(step, copied).(*MorphValue)
+			}
+		}
+		return &out
+
+	case *FunctorValue:
+		out := *val
+		if val.objFn != nil {
+			out.objFn = copyWith(val.objFn, copied).(*FuncValue)
+		}
+		if val.morphFn != nil {
+			out.morphFn = copyWith(val.morphFn, copied).(*FuncValue)
+		}
+		if val.chain != nil {
+			out.chain = make([]*FunctorValue, len(val.chain))
+			for i, step := range val.chain {
+				out.chain[i] = copyWith(step, copied).(*FunctorValue)
+			}
+		}
+		return &out
+
 	case ConfigValue:
 		key := reflect.ValueOf(val.Data).Pointer()
 		if done, ok := copied.configs[key]; ok && key != 0 {

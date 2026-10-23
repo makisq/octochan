@@ -69,6 +69,7 @@ const (
 	TokenPercent
 	TokenFatArrow
 	TokenCompose
+	TokenArrow
 )
 
 var tokenNames = map[TokenKind]string{
@@ -123,6 +124,7 @@ var tokenNames = map[TokenKind]string{
 	TokenPercent:   "%",
 	TokenFatArrow:  "=>",
 	TokenCompose:   ">>",
+	TokenArrow:     "->",
 }
 
 func (k TokenKind) String() string {

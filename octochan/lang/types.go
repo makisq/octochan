@@ -15,17 +15,19 @@ import (
 type TypeName string
 
 const (
-	TypeAny    TypeName = "any"
-	TypeInt    TypeName = "int"
-	TypeFloat  TypeName = "float"
-	TypeNumber TypeName = "number"
-	TypeString TypeName = "string"
-	TypeBool   TypeName = "bool"
-	TypeList   TypeName = "list"
-	TypeMap    TypeName = "map"
-	TypeConfig TypeName = "config"
-	TypeStream TypeName = "stream"
-	TypeFunc   TypeName = "fn"
+	TypeAny     TypeName = "any"
+	TypeInt     TypeName = "int"
+	TypeFloat   TypeName = "float"
+	TypeNumber  TypeName = "number"
+	TypeString  TypeName = "string"
+	TypeBool    TypeName = "bool"
+	TypeList    TypeName = "list"
+	TypeMap     TypeName = "map"
+	TypeConfig  TypeName = "config"
+	TypeStream  TypeName = "stream"
+	TypeFunc    TypeName = "fn"
+	TypeMorph   TypeName = "morph"
+	TypeFunctor TypeName = "functor"
 )
 
 // typeAliases позволяет писать имена типов и латиницей, и по-русски:
@@ -56,6 +58,10 @@ var typeAliases = map[string]TypeName{
 	"fn":         TypeFunc,
 	"func":       TypeFunc,
 	"функция":    TypeFunc,
+	"morph":      TypeMorph,
+	"морфизм":    TypeMorph,
+	"functor":    TypeFunctor,
+	"функтор":    TypeFunctor,
 }
 
 // ParseTypeName распознаёт имя типа.
@@ -105,6 +111,10 @@ func (t TypeName) Russian() string {
 		return "поток"
 	case TypeFunc:
 		return "функция"
+	case TypeMorph:
+		return "морфизм"
+	case TypeFunctor:
+		return "функтор"
 	default:
 		return string(t)
 	}
@@ -157,6 +167,12 @@ func (t TypeName) Accepts(v Value) bool {
 	case TypeFunc:
 		_, ok := v.(*FuncValue)
 		return ok
+	case TypeMorph:
+		_, ok := v.(*MorphValue)
+		return ok
+	case TypeFunctor:
+		_, ok := v.(*FunctorValue)
+		return ok
 	}
 	return false
 }
@@ -183,6 +199,10 @@ func typeOf(v Value) TypeName {
 		return TypeStream
 	case *FuncValue:
 		return TypeFunc
+	case *MorphValue:
+		return TypeMorph
+	case *FunctorValue:
+		return TypeFunctor
 	}
 	return TypeAny
 }

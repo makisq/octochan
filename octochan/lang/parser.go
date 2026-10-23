@@ -515,6 +515,7 @@ func (p *Parser) parseReturn() (Stmt, error) {
 //	|                 конвейер связывает крепче сравнения, чтобы
 //	                  a | b != 0 читалось как (a | b) != 0
 //	>>                композиция: x | f >> g — это x | (f >> g)
+//	->                морфизм между конфигами: a -> b >> b -> c
 //	+ -
 //	* / %
 //	унарный -
@@ -612,7 +613,7 @@ func (p *Parser) parsePipe() (Expr, error) {
 
 // parseCompose разбирает композицию f >> g: сначала f, затем g.
 func (p *Parser) parseCompose() (Expr, error) {
-	left, err := p.parseAdditive()
+	left, err := p.parseArrow()
 	if err != nil {
 		return nil, err
 	}
@@ -621,7 +622,7 @@ func (p *Parser) parseCompose() (Expr, error) {
 		opTok := p.advance()
 		p.skipNewlines() // цепочку можно переносить, как и конвейер
 
-		right, err := p.parseAdditive()
+		right, err := p.parseArrow()
 		if err != nil {
 			return nil, err
 		}
@@ -813,6 +814,27 @@ func (p *Parser) parseIdent() (Expr, error) {
 	}
 
 	return &Ident{Pos: nameTok.Pos, Name: nameTok.Text}, nil
+}
+
+// parseArrow разбирает морфизм a -> b. Стрелка не цепляется: a -> b -> c
+// — это две стрелки, и они соединяются композицией.
+func (p *Parser) parseArrow() (Expr, error) {
+	left, err := p.parseAdditive()
+	if err != nil {
+		return nil, err
+	}
+	if !p.check(TokenArrow) {
+		return left, nil
+	}
+	opTok := p.advance()
+	right, err := p.parseAdditive()
+	if err != nil {
+		return nil, err
+	}
+	if p.check(TokenArrow) {
+		return nil, p.errorf(p.peek().Pos, "a -> b -> c — это две стрелки; соедините их композицией: (a -> b) >> (b -> c)")
+	}
+	return &Binary{Pos: opTok.Pos, Op: TokenArrow, Left: left, Right: right}, nil
 }
 
 // parseFn разбирает функцию-значение:

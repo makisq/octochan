@@ -369,9 +369,15 @@ func isInt(v Value) bool {
 // equalValues сравнивает значения: числа — численно, функции — по
 // тождеству, остальное — по тексту.
 func equalValues(a, b Value) bool {
-	_, aFunc := a.(*FuncValue)
-	_, bFunc := b.(*FuncValue)
-	if aFunc || bFunc {
+	// Дельты равны, если требуют и меняют одно и то же; функции, морфизмы-
+	// функции и функторы — только сами себе.
+	if am, ok := a.(*MorphValue); ok {
+		if bm, ok := b.(*MorphValue); ok && am.isDelta() && bm.isDelta() {
+			return sameDelta(am, bm)
+		}
+		return a == b
+	}
+	if isCallable(a) || isCallable(b) {
 		return a == b
 	}
 	if _, aNull := a.(NullValue); aNull {

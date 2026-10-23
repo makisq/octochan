@@ -361,7 +361,7 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 func (c *checker) forLoop(s *For, scope *checkScope, f flow) {
 	iterable := c.expr(s.Iterable, scope)
 	switch iterable {
-	case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream, TypeFunc:
+	case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream, TypeFunc, TypeMorph, TypeFunctor:
 		c.report(s.Pos, "по значению типа %s нельзя пройти циклом", iterable.Russian())
 	}
 
@@ -418,7 +418,7 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		switch operand {
 		case TypeInt, TypeFloat:
 			return operand
-		case TypeList, TypeMap, TypeConfig, TypeStream, TypeFunc, typeNull:
+		case TypeList, TypeMap, TypeConfig, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
 			c.report(x.Pos, "унарный минус применим только к числу, получено %s", operand.Russian())
 		}
 		return ""
@@ -443,14 +443,16 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		return TypeFunc
 
 	case *FuncRef:
-		c.funcRef(x.Target, scope)
+		if t := c.funcRef(x.Target, scope); t != "" && t != TypeAny {
+			return t
+		}
 		return TypeFunc
 
 	case *Index:
 		target := c.expr(x.Target, scope)
 		c.expr(x.Index, scope)
 		switch target {
-		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, TypeFunc, typeNull:
+		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
 			c.report(x.Pos, "индексировать можно список, словарь или конфиг, получено %s", target.Russian())
 		case TypeConfig:
 			return TypeString
@@ -474,9 +476,15 @@ func (c *checker) binary(x *Binary, scope *checkScope) TypeName {
 	case TokenPipe:
 		return c.pipe(x, scope)
 	case TokenCompose:
-		c.funcOperand(x.Left, scope)
-		c.funcOperand(x.Right, scope)
-		return TypeFunc
+		return composedType(x.Pos, c.funcOperand(x.Left, scope), c.funcOperand(x.Right, scope), c)
+	case TokenArrow:
+		for _, operand := range []Expr{x.Left, x.Right} {
+			switch t := c.expr(operand, scope); t {
+			case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeList, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
+				c.report(operand.Position(), "-> соединяет конфиги, получено %s", t.Russian())
+			}
+		}
+		return TypeMorph
 	}
 
 	left := c.expr(x.Left, scope)
@@ -500,7 +508,7 @@ func (c *checker) binary(x *Binary, scope *checkScope) TypeName {
 	// ("5" - 1 даёт 4), поэтому отвергаются только заведомо нечисловые типы.
 	for _, operand := range []TypeName{left, right} {
 		switch operand {
-		case TypeList, TypeMap, TypeConfig, TypeStream, TypeFunc, typeNull:
+		case TypeList, TypeMap, TypeConfig, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
 			c.report(x.Pos, "оператор %s неприменим к %s", x.Op, operand.Russian())
 			return ""
 		}
@@ -576,9 +584,32 @@ func (c *checker) pipe(x *Binary, scope *checkScope) TypeName {
 	return ""
 }
 
-// callable — может ли значение такого типа оказаться функцией.
+// callable — может ли значение такого типа оказаться функцией, морфизмом
+// или функтором.
 func callable(t TypeName) bool {
-	return t == "" || t == TypeAny || t == TypeFunc
+	switch t {
+	case "", TypeAny, TypeFunc, TypeMorph, TypeFunctor:
+		return true
+	}
+	return false
+}
+
+// composedType — тип f >> g: функтор с функтором, морфизм с морфизмом или
+// функцией, функция с функцией.
+func composedType(pos Position, left, right TypeName, c *checker) TypeName {
+	switch {
+	case left == TypeFunctor && right == TypeFunctor:
+		return TypeFunctor
+	case left == TypeFunctor && right != "" && right != TypeAny,
+		right == TypeFunctor && left != "" && left != TypeAny:
+		c.report(pos, "функтор композируется только с функтором, получено %s и %s", left.Russian(), right.Russian())
+		return ""
+	case left == TypeMorph || right == TypeMorph:
+		return TypeMorph
+	case left == TypeFunc && right == TypeFunc:
+		return TypeFunc
+	}
+	return ""
 }
 
 // funcLit проверяет тело функции в снимке видимых переменных: как при
@@ -603,41 +634,44 @@ func (c *checker) funcLit(x *FuncLit, scope *checkScope) {
 	c.stmts(x.Body.Stmts, inner, flow{})
 }
 
-// funcRef проверяет ссылку fn имя: имя должно быть функцией.
-func (c *checker) funcRef(target *Ident, scope *checkScope) {
+// funcRef проверяет ссылку fn имя: имя должно быть тем, что вызывают.
+// Возвращает тип значения.
+func (c *checker) funcRef(target *Ident, scope *checkScope) TypeName {
 	if target.Module == "" {
 		if t, ok := scope.lookup(target.Name); ok {
 			if !callable(t) {
 				c.report(target.Pos, "%s — не функция, а %s", target.Name, t.Russian())
 			}
-			return
+			return t
 		}
 	}
 	decl, err := c.registry.Lookup(target.Module, target.Name)
 	if err == nil {
 		c.use(decl)
-		return
+		return TypeFunc
 	}
 	if _, ok := c.builtins[target.Qualified()]; ok {
-		return
+		return TypeFunc
 	}
 	if target.Module != "" || c.registry.declared(target.Name) {
 		c.report(target.Pos, "%v", err)
-		return
+		return ""
 	}
 	c.report(target.Pos, "неизвестная функция %q%s", target.Qualified(), c.suggest(target.Name, scope))
+	return ""
 }
 
-// funcOperand проверяет операнд композиции: голое имя здесь — функция,
-// а не вызов.
-func (c *checker) funcOperand(e Expr, scope *checkScope) {
+// funcOperand проверяет операнд композиции и возвращает его тип: голое
+// имя здесь — функция, а не вызов.
+func (c *checker) funcOperand(e Expr, scope *checkScope) TypeName {
 	if id, ok := e.(*Ident); ok {
-		c.funcRef(id, scope)
-		return
+		return c.funcRef(id, scope)
 	}
-	if t := c.expr(e, scope); !callable(t) {
-		c.report(e.Position(), "оператор >> соединяет функции, получено %s", t.Russian())
+	t := c.expr(e, scope)
+	if !callable(t) {
+		c.report(e.Position(), "оператор >> соединяет функции, морфизмы или функторы, получено %s", t.Russian())
 	}
+	return t
 }
 
 func (c *checker) ident(x *Ident, scope *checkScope) TypeName {
@@ -683,6 +717,9 @@ func (c *checker) call(callee *Ident, args []Expr, pos Position, piped *TypeName
 	// другим значением — нет, как при выполнении.
 	if callee.Module == "" {
 		if t, ok := scope.lookup(callee.Name); ok {
+			if t == TypeMorph {
+				return TypeConfig
+			}
 			if callable(t) {
 				// Функция или то, что станет известно при выполнении.
 				return ""

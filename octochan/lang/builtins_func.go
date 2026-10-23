@@ -43,13 +43,13 @@ func funcBuiltins() []Builtin {
 // одной опечаткой в границе.
 const maxRange = 1_000_000
 
-func funcArg(name string, v Value) (*FuncValue, error) {
-	fn, ok := v.(*FuncValue)
-	if !ok {
+// funcArg — аргумент, который вызывают: функция, морфизм или функтор.
+func funcArg(name string, v Value) (Value, error) {
+	if !isCallable(v) {
 		return nil, fmt.Errorf("%s: нужна функция — fn(x) => …, fn имя или переменная с функцией; получено %s (%s)",
 			name, v.TypeName(), Display(v))
 	}
-	return fn, nil
+	return v, nil
 }
 
 // items — элементы, по которым идёт функция высшего порядка: те же, что
@@ -77,7 +77,7 @@ func builtinEach(in *Interpreter, args []Value) (Value, error) {
 	}
 	out := make(ListValue, 0, len(items))
 	for _, item := range items {
-		value, err := in.callFunc(fn, []Value{item}, Position{})
+		value, err := in.callValue(fn, []Value{item}, Position{})
 		if err != nil {
 			return nil, err
 		}
@@ -97,7 +97,7 @@ func builtinFilter(in *Interpreter, args []Value) (Value, error) {
 	}
 	out := ListValue{}
 	for _, item := range items {
-		keep, err := in.callFunc(fn, []Value{item}, Position{})
+		keep, err := in.callValue(fn, []Value{item}, Position{})
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +119,7 @@ func builtinReduce(in *Interpreter, args []Value) (Value, error) {
 	}
 	acc := args[2]
 	for _, item := range items {
-		if acc, err = in.callFunc(fn, []Value{acc, item}, Position{}); err != nil {
+		if acc, err = in.callValue(fn, []Value{acc, item}, Position{}); err != nil {
 			return nil, err
 		}
 	}
@@ -139,7 +139,7 @@ func builtinSort(in *Interpreter, args []Value) (Value, error) {
 		}
 		keys = make([]Value, len(items))
 		for i, item := range items {
-			if keys[i], err = in.callFunc(fn, []Value{item}, Position{}); err != nil {
+			if keys[i], err = in.callValue(fn, []Value{item}, Position{}); err != nil {
 				return nil, err
 			}
 		}
@@ -172,27 +172,32 @@ func builtinCall(in *Interpreter, args []Value) (Value, error) {
 	if err != nil {
 		return nil, err
 	}
-	return in.callFunc(fn, args[1:], Position{})
+	return in.callValue(fn, args[1:], Position{})
 }
 
 func builtinPartial(_ *Interpreter, args []Value) (Value, error) {
-	fn, err := funcArg("partial", args[0])
-	if err != nil {
-		return nil, err
+	fn, ok := args[0].(*FuncValue)
+	if !ok {
+		return nil, fmt.Errorf("partial: нужна функция, получено %s (%s)", args[0].TypeName(), Display(args[0]))
 	}
 	return &FuncValue{Base: fn, Bound: append([]Value(nil), args[1:]...)}, nil
 }
 
 func builtinCompose(_ *Interpreter, args []Value) (Value, error) {
-	fns := make([]*FuncValue, len(args))
-	for i, arg := range args {
-		fn, err := funcArg("compose", arg)
+	out, err := funcArg("compose", args[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, arg := range args[1:] {
+		next, err := funcArg("compose", arg)
 		if err != nil {
 			return nil, err
 		}
-		fns[i] = fn
+		if out, err = compose(out, next); err != nil {
+			return nil, err
+		}
 	}
-	return composeFuncs(fns...), nil
+	return out, nil
 }
 
 // identity — общая тождественная функция: id() == id().
