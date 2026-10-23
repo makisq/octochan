@@ -1,0 +1,12 @@
+{
+  "Минималистичный оркестратор для командной строки и CI": "Minimalistischer Orchestrator für Kommandozeile und CI",
+  "Сравнить две конфигурации": "Zwei Konfigurationen vergleichen",
+  "Показать, что произойдёт, ничего не делая": "Zeigen, was passieren würde, ohne etwas zu tun",
+  "Создать заявку на изменение из плана": "Änderungsantrag aus dem Plan erstellen",
+  "Согласовать заявку": "Antrag genehmigen",
+  "Отклонить заявку": "Antrag ablehnen",
+  "Показать журнал операций": "Operationsprotokoll anzeigen",
+  "Показать языки: текущий, встроенные и из модулей": "Sprachen anzeigen: aktuelle, eingebaute und aus Modulen",
+  "Доступные команды:": "Verfügbare Befehle:",
+  "ошибка: %v\n": "Fehler: %v\n"
+}

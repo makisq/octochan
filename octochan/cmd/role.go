@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"octochan/i18n"
 	"octochan/rbac"
 
 	"github.com/spf13/cobra"
@@ -136,7 +137,7 @@ func authorize(cmd *cobra.Command, _ []string) error {
 	if role.Allows(key) {
 		return nil
 	}
-	return fmt.Errorf("роль %s не может выполнять %s: нужно право %s", role.Name,
+	return i18n.Errorf("роль %s не может выполнять %s: нужно право %s", role.Name,
 		strings.ReplaceAll(key, ".", " "), requiredPerm(key))
 }
 

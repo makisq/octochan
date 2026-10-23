@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"octochan/i18n"
 	"octochan/pluginhost"
 
 	"github.com/spf13/cobra"
@@ -87,6 +88,7 @@ func init() {
 		checkCmd,
 		fpCmd,
 		roleCmd,
+		langCmd,
 		setCmd,
 		backCmd,
 		serveCmd,
@@ -129,16 +131,18 @@ func Execute() int {
 	// раньше, чем отрабатывают инициализаторы из OnInitialize, поэтому
 	// прежняя схема не давала вызвать ни одну команду плагина.
 	loadModules()
+	// Язык — после модулей: язык может прийти из модуля.
+	applyLanguage()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
-			fmt.Fprintln(os.Stderr, "\nПрервано пользователем")
+			fmt.Fprintln(os.Stderr, i18n.T("\nПрервано пользователем"))
 			return 130
 		}
-		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
+		fmt.Fprintf(os.Stderr, i18n.T("ошибка: %v\n"), err)
 		return 1
 	}
 	return 0
@@ -158,7 +162,7 @@ func runHelp(cmd *cobra.Command, args []string) error {
 		return target.Help()
 	}
 
-	cmd.Println("Доступные команды:")
+	cmd.Println(i18n.T("Доступные команды:"))
 	cmd.Println("------------------")
 	for _, subCmd := range rootCmd.Commands() {
 		if subCmd.Hidden {
@@ -167,7 +171,7 @@ func runHelp(cmd *cobra.Command, args []string) error {
 		cmd.Printf("%-24s %s\n", subCmd.Name(), subCmd.Short)
 		if subCmd.Example != "" {
 			for _, line := range strings.Split(subCmd.Example, "\n") {
-				cmd.Printf("%-24s Пример: %s\n", "", line)
+				cmd.Printf(i18n.T("%-24s Пример: %s\n"), "", line)
 			}
 		}
 	}

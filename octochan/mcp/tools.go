@@ -37,11 +37,24 @@ type tool struct {
 	check func(positional []string) error
 }
 
-// readCommands — команды ochan, которые ничего не меняют.
+// readCommands — команды ochan, которые ничего не меняют. У команды
+// с подкомандами разрешается подкоманда, а не вся команда: logs rank
+// ранжирует журнал внутри разрешённых каталогов, а голый logs показал
+// бы журнал самого ochan.
 var readCommands = map[string]bool{
 	"diff": true, "validate": true, "find": true, "stats": true, "print": true,
 	"plan": true, "services": true, "aliases": true, "modules": true,
-	"history": true, "requests": true, "status": true, "check": true, "fp": true,
+	"history": true, "requests": true, "status": true, "check": true,
+	"fp check": true, "fp protocol": true, "logs rank": true,
+}
+
+// commandPath — команда ochan с подкомандой, если первая из постоянных
+// частей — не флаг: fp check, logs rank.
+func commandPath(t tool) string {
+	if len(t.Fixed) > 0 && !strings.HasPrefix(t.Fixed[0], "-") {
+		return t.Command + " " + t.Fixed[0]
+	}
+	return t.Command
 }
 
 // writeCommands — единственное, что сервер может создать: заявку в
@@ -63,11 +76,11 @@ func checkTable(tools []tool) error {
 		}
 		seen[t.Name] = true
 
-		switch {
-		case readCommands[t.Command] && !t.Writes:
-		case writeCommands[t.Command] && t.Writes:
+		switch path := commandPath(t); {
+		case readCommands[path] && !t.Writes:
+		case writeCommands[path] && t.Writes:
 		default:
-			return fmt.Errorf("инструмент %s: команда ochan %q не разрешена", t.Name, t.Command)
+			return fmt.Errorf("инструмент %s: команда ochan %q не разрешена", t.Name, path)
 		}
 
 		if err := checkScriptTool(t); err != nil {
@@ -409,6 +422,25 @@ func buildTools(live []string) []tool {
 			Bundle:    true,
 			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), docSlot()},
 			Writes:    true,
+		},
+		{
+			Name:  "rank_logs",
+			Title: "Ранжировать журнал по уровням важности",
+			Description: "Определяет уровень каждой строки журнала по правилам из config.yaml (logs.rules — " +
+				"регулярные выражения по порядку, первое совпадение решает) и показывает строки уровня min и " +
+				"важнее. С summary — сводка: число строк по уровням и самые частые сообщения. Журнал — файл " +
+				"внутри разрешённых каталогов.",
+			Command: "logs",
+			Fixed:   []string{"rank"},
+			Slots: []slot{
+				{Name: "file", Kind: slotFile, Required: true, Description: "журнал внутри разрешённых каталогов"},
+				{Name: "min", Kind: slotParam, Flag: "min",
+					Description: "уровень, ниже которого строки не показываются, например warning или error " +
+						"(уровни — logs.levels; по умолчанию logs.min_level)"},
+				{Name: "summary", Kind: slotSwitch, Flag: "summary",
+					Description: "сводка вместо строк: число строк по уровням и частые сообщения"},
+				{Name: "top", Kind: slotLimit, Flag: "top", Description: "сколько частых сообщений показать в сводке"},
+			},
 		},
 		{
 			Name:        "task_status",

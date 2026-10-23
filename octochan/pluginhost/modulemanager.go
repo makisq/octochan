@@ -52,6 +52,23 @@ type CommandModule interface {
 	Version() string
 }
 
+// Language — язык, на который модуль переводит ochan: код для lang в
+// config.yaml, название и словарь «русский текст → перевод».
+type Language struct {
+	Code    string
+	Name    string
+	Entries map[string]string
+	// Module — имя модуля, который принёс язык; заполняет хост.
+	Module string
+}
+
+// Translator реализует модуль языка. Модулю команд реализовывать его не
+// нужно: хост спрашивает языки у каждого модуля, и модуль без языка
+// отвечает «нет».
+type Translator interface {
+	Translations() []Language
+}
+
 // CommandPlugin связывает CommandModule с go-plugin.
 type CommandPlugin struct {
 	plugin.NetRPCUnsupportedPlugin
@@ -114,6 +131,18 @@ func (s *CommandGRPCServer) Name(_ context.Context, _ *Empty) (*NameResponse, er
 
 func (s *CommandGRPCServer) Version(_ context.Context, _ *Empty) (*VersionResponse, error) {
 	return &VersionResponse{Version: s.Impl.Version()}, nil
+}
+
+func (s *CommandGRPCServer) GetTranslations(_ context.Context, _ *Empty) (*TranslationsResponse, error) {
+	resp := &TranslationsResponse{}
+	translator, ok := s.Impl.(Translator)
+	if !ok {
+		return resp, nil
+	}
+	for _, lang := range translator.Translations() {
+		resp.Languages = append(resp.Languages, &Translation{Code: lang.Code, Name: lang.Name, Entries: lang.Entries})
+	}
+	return resp, nil
 }
 
 func (s *CommandGRPCServer) Init(_ context.Context, cfg *Config) (*Empty, error) {
@@ -401,6 +430,27 @@ func protocolError(err error) error {
 	return unwrapGRPCError(err)
 }
 
+// Translations спрашивает у модуля его языки. Модуль, собранный до
+// появления языков, отвечает Unimplemented: языков у него нет, и это не
+// ошибка.
+func (c *CommandGRPCClient) Translations() ([]Language, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := c.Client.GetTranslations(ctx, &Empty{})
+	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.Unimplemented {
+			return nil, nil
+		}
+		return nil, unwrapGRPCError(err)
+	}
+	var out []Language
+	for _, t := range resp.GetLanguages() {
+		out = append(out, Language{Code: t.GetCode(), Name: t.GetName(), Entries: t.GetEntries()})
+	}
+	return out, nil
+}
+
 func (c *CommandGRPCClient) Version() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -417,11 +467,12 @@ func (c *CommandGRPCClient) Version() string {
 // ---------------------------------------------------------------------------
 
 type loadedModule struct {
-	name     string
-	version  string
-	path     string
-	client   *plugin.Client
-	commands []*cobra.Command
+	name      string
+	version   string
+	path      string
+	client    *plugin.Client
+	commands  []*cobra.Command
+	languages []Language
 }
 
 // ModuleManager владеет процессами плагинов и их командами.
@@ -565,6 +616,19 @@ func (m *ModuleManager) LoadModule(path string) error {
 
 	commands := module.GetCommands()
 
+	// Языки спрашиваются при загрузке, как и команды: модуль языка — такой
+	// же модуль, и после !install он работает со следующего запуска.
+	var languages []Language
+	if translator, ok := module.(interface{ Translations() ([]Language, error) }); ok {
+		languages, err = translator.Translations()
+		if err != nil {
+			return fmt.Errorf("модуль %s: языки: %w", name, err)
+		}
+		for i := range languages {
+			languages[i].Module = name
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -582,11 +646,12 @@ func (m *ModuleManager) LoadModule(path string) error {
 	}
 
 	m.modules[absPath] = &loadedModule{
-		name:     name,
-		version:  module.Version(),
-		path:     absPath,
-		client:   client,
-		commands: commands,
+		name:      name,
+		version:   module.Version(),
+		path:      absPath,
+		client:    client,
+		commands:  commands,
+		languages: languages,
 	}
 	// Владение процессом перешло менеджеру: гасить его будет Cleanup.
 	adopted = true
@@ -682,6 +747,24 @@ func (m *ModuleManager) GetCommands() []*cobra.Command {
 		commands = append(commands, m.modules[path].commands...)
 	}
 	return commands
+}
+
+// Languages возвращает языки всех модулей в порядке путей модулей.
+func (m *ModuleManager) Languages() []Language {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	paths := make([]string, 0, len(m.modules))
+	for path := range m.modules {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	var out []Language
+	for _, path := range paths {
+		out = append(out, m.modules[path].languages...)
+	}
+	return out
 }
 
 // ModuleInfo — краткие сведения о загруженном модуле.
