@@ -26,11 +26,11 @@ func historyStore() (*workspace.History, error) {
 func record(cmd *cobra.Command, entry *workspace.Entry) {
 	store, err := historyStore()
 	if err != nil {
-		cmd.PrintErrf("⚠️ история недоступна: %v\n", err)
+		cmd.PrintErrf("внимание: история недоступна: %v\n", err)
 		return
 	}
 	if err := store.Append(entry); err != nil {
-		cmd.PrintErrf("⚠️ не удалось записать историю: %v\n", err)
+		cmd.PrintErrf("внимание: не удалось записать историю: %v\n", err)
 	}
 }
 
@@ -63,14 +63,14 @@ var historyCmd = &cobra.Command{
 			marker := " "
 			switch {
 			case entry.Reverted():
-				marker = "↩"
+				marker = "-"
 			case entry.Reversible:
-				marker = "•"
+				marker = "+"
 			}
 			cmd.Printf("%s %s\n", marker, entry.Describe())
 		}
 
-		cmd.Println("\n• обратимо, ↩ уже отменено")
+		cmd.Println("\n+ обратимо, - уже отменено")
 		return nil
 	},
 }
@@ -172,10 +172,10 @@ var rollbackCmd = &cobra.Command{
 		record(cmd, revert)
 
 		if err := store.MarkReverted(entry, revert.ID); err != nil {
-			cmd.PrintErrf("⚠️ файл восстановлен, но пометить запись не удалось: %v\n", err)
+			cmd.PrintErrf("внимание: файл восстановлен, но пометить запись не удалось: %v\n", err)
 		}
 
-		cmd.Printf("✅ %s восстановлен из записи %s (откат записан как %s)\n",
+		cmd.Printf("%s восстановлен из записи %s (откат записан как %s)\n",
 			entry.Target, entry.ID, revert.ID)
 		return nil
 	},

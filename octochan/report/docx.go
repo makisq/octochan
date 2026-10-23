@@ -25,6 +25,9 @@ type Document struct {
 	Fields   []Field
 	Plan     *config.Plan
 	Comments []string
+	// Listing — текст сценария, если согласуют сценарий на языке алиасов:
+	// подписывают не только план, но и то, что его породило.
+	Listing string
 }
 
 // Field — строка сводной таблицы в шапке документа.
@@ -114,6 +117,15 @@ func documentXML(doc Document) string {
 		}
 	}
 
+	if doc.Listing != "" {
+		b.WriteString(paragraph(""))
+		b.WriteString(heading("Текст сценария", 26))
+		// Строка на абзац: перевод строки внутри w:t Word показывает пробелом.
+		for _, line := range strings.Split(strings.TrimRight(doc.Listing, "\n"), "\n") {
+			b.WriteString(codeParagraph(strings.TrimRight(line, "\r")))
+		}
+	}
+
 	if len(doc.Comments) > 0 {
 		b.WriteString(paragraph(""))
 		b.WriteString(heading("Комментарии", 26))
@@ -155,7 +167,7 @@ func changeValue(change config.Change) string {
 		return change.To
 	case config.ChangeRemove:
 		return "было: " + change.From
-	case config.ChangeTask:
+	case config.ChangeTask, config.ChangeWrite:
 		return change.Detail
 	default:
 		return fmt.Sprintf("%s → %s", change.From, change.To)
@@ -171,6 +183,13 @@ func heading(text string, halfPoints int) string {
 
 func paragraph(text string) string {
 	return fmt.Sprintf(`<w:p><w:r><w:t xml:space="preserve">%s</w:t></w:r></w:p>`, escape(text))
+}
+
+// codeParagraph — строка кода моноширинным шрифтом без отступов между строками.
+func codeParagraph(text string) string {
+	return fmt.Sprintf(`<w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr>`+
+		`<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:cs="Consolas"/><w:sz w:val="18"/></w:rPr>`+
+		`<w:t xml:space="preserve">%s</w:t></w:r></w:p>`, escape(text))
 }
 
 // table строит таблицу с рамками; пустой header означает таблицу без шапки.

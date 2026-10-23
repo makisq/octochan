@@ -25,7 +25,7 @@ var statusCmd = &cobra.Command{
 			return err
 		}
 
-		cmd.Printf("\n📊 Статус задачи %s\n", taskID)
+		cmd.Printf("\nСтатус задачи %s\n", taskID)
 		cmd.Println("----------------------------")
 		printField(cmd, status, "status", "Состояние")
 		printField(cmd, status, "created_at", "Создана")
@@ -39,7 +39,7 @@ var statusCmd = &cobra.Command{
 			return nil
 		}
 
-		cmd.Println("\n📝 Логи выполнения:")
+		cmd.Println("\nЛоги выполнения:")
 		for _, event := range events {
 			cmd.Printf("[%v] %v - %v\n", event["timestamp"], event["level"], event["message"])
 		}

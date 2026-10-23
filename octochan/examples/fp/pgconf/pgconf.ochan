@@ -1,0 +1,14 @@
+# Скилл @pgconf: правка параметров конфигурации PostgreSQL.
+# Установка: скопировать каталог pgconf в ~/.octochan/modules/.
+# Версия и описание — в package.yaml рядом.
+
+# задать параметр конфига
+alias set_param(c: config, name: string, value: string) {
+    put(c, name, value)
+    return c
+}
+
+# записать конфиг в файл
+alias store(c: config, path: string) {
+    return save(c, path)
+}

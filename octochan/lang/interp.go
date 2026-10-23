@@ -97,6 +97,15 @@ type Interpreter struct {
 	out      io.Writer
 	ctx      context.Context
 
+	// sandbox непуст, если встроенным функциям доступно не всё.
+	sandbox *Sandbox
+	// dir — каталог для относительных путей; пусто — текущий.
+	dir string
+	// dry непуст в режиме плана: записи попадают сюда, а не на диск.
+	dry *overlay
+	// effects — действия сценария за пределами интерпретатора.
+	effects []Effect
+
 	stack []string
 }
 
@@ -443,6 +452,14 @@ func (in *Interpreter) suggest(name string) string {
 		candidates = append(candidates, builtin)
 	}
 	candidates = append(candidates, in.registry.Names()...)
+	return suggestName(name, candidates)
+}
+
+// suggestName выбирает среди кандидатов самое похожее имя.
+func suggestName(name string, candidates []string) string {
+	// Кандидаты сортируются, чтобы при равном расстоянии подсказка не
+	// зависела от порядка обхода map.
+	sort.Strings(candidates)
 
 	var best string
 	bestDistance := 3 // не подсказываем при слишком далёких именах

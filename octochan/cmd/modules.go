@@ -37,7 +37,7 @@ func loadModules() {
 
 		if err := pluginhost.GetModuleManager().LoadModulesFromDir(fm.ModulesDir()); err != nil {
 			log.Printf("ошибки при загрузке модулей: %v", err)
-			fmt.Fprintf(os.Stderr, "⚠️ Часть модулей не загружена: %v\n", err)
+			fmt.Fprintf(os.Stderr, "внимание: часть модулей не загружена: %v\n", err)
 		}
 
 		registerModuleCommands()
@@ -171,15 +171,15 @@ func reloadModule(path string, out func(string)) {
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		mm.UnloadModule(path)
-		out(fmt.Sprintf("🔌 Модуль выгружен: %s", filepath.Base(path)))
+		out(fmt.Sprintf("Модуль выгружен: %s", filepath.Base(path)))
 		return
 	}
 
 	if err := mm.LoadModule(path); err != nil {
-		out(fmt.Sprintf("⚠️ Модуль %s не перезагружен: %v", filepath.Base(path), err))
+		out(fmt.Sprintf("внимание: модуль %s не перезагружен: %v", filepath.Base(path), err))
 		return
 	}
-	out(fmt.Sprintf("🔄 Модуль перезагружен: %s", filepath.Base(path)))
+	out(fmt.Sprintf("Модуль перезагружен: %s", filepath.Base(path)))
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ var installCmd = &cobra.Command{
 		}
 
 		registerModuleCommands()
-		cmd.Printf("✅ Модуль %s установлен и загружен\n", filepath.Base(modulePath))
+		cmd.Printf("Модуль %s установлен и загружен\n", filepath.Base(modulePath))
 		return nil
 	},
 }
@@ -317,7 +317,7 @@ var inspectCmd = &cobra.Command{
 
 		commands := inspector.GetCommands()
 		if len(commands) == 0 {
-			cmd.Println("⚠️ Модуль не предоставляет команд")
+			cmd.Println("Модуль не предоставляет команд")
 			return nil
 		}
 

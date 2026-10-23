@@ -41,6 +41,10 @@ func fakeOchan() {
 	}
 	if text := os.Getenv("FAKE_STDOUT"); text != "" {
 		fmt.Print(text)
+	} else if os.Getenv("FAKE_ECHO_STDIN") == "1" {
+		stdin, _ := io.ReadAll(os.Stdin)
+		data, _ := json.Marshal(map[string]any{"args": os.Args[1:], "stdin": string(stdin)})
+		fmt.Println(string(data))
 	} else {
 		data, _ := json.Marshal(os.Args[1:])
 		fmt.Println(string(data))
@@ -521,12 +525,12 @@ func TestSlotValidation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFailureIsToolError(t *testing.T) {
-	e := newEnv(t, withFakeEnv("FAKE_EXIT=1", "FAKE_STDERR=❌ файл повреждён", "FAKE_STDOUT=частичный вывод"))
+	e := newEnv(t, withFakeEnv("FAKE_EXIT=1", "FAKE_STDERR=ошибка: файл повреждён", "FAKE_STDOUT=частичный вывод"))
 	text, isError := e.callTool("validate", map[string]any{"source": "a.conf"})
 	if !isError {
 		t.Fatal("ненулевой код возврата не помечен как ошибка")
 	}
-	if !strings.HasPrefix(text, "❌ файл повреждён") || !strings.Contains(text, "частичный вывод") {
+	if !strings.HasPrefix(text, "ошибка: файл повреждён") || !strings.Contains(text, "частичный вывод") {
 		t.Errorf("ошибка должна идти первой, за ней вывод: %q", text)
 	}
 }
@@ -534,7 +538,7 @@ func TestFailureIsToolError(t *testing.T) {
 func TestWarningsKeptOnSuccess(t *testing.T) {
 	// Замечание «параметр ждёт перезапуска» приходит в stderr, но для
 	// модели оно так же важно, как сам результат.
-	e := newEnv(t, withFakeEnv("FAKE_STDERR=⚠️ shared_buffers ждёт перезапуска", "FAKE_STDOUT=различий нет"))
+	e := newEnv(t, withFakeEnv("FAKE_STDERR=внимание: shared_buffers ждёт перезапуска", "FAKE_STDOUT=различий нет"))
 	text, isError := e.callTool("validate", map[string]any{"source": "a.conf"})
 	if isError {
 		t.Fatalf("успешный вызов помечен как ошибка: %q", text)
@@ -774,5 +778,204 @@ func TestMaskSecrets(t *testing.T) {
 		if got := maskSecrets(input); got != want {
 			t.Errorf("maskSecrets(%q) = %q, ожидалось %q", input, got, want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Сценарии на языке алиасов
+// ---------------------------------------------------------------------------
+
+// scriptCall вызывает инструмент со сценарием и возвращает аргументы ochan
+// и то, что он получил на stdin.
+func (e *testEnv) scriptCall(name string, args map[string]any) ([]string, string) {
+	e.t.Helper()
+	text, isError := e.callTool(name, args)
+	if isError {
+		e.t.Fatalf("%s: вызов отклонён: %s", name, text)
+	}
+	var got struct {
+		Args  []string `json:"args"`
+		Stdin string   `json:"stdin"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &got); err != nil {
+		e.t.Fatalf("ochan не запускался или вывел не то: %q", text)
+	}
+	return got.Args, got.Stdin
+}
+
+func TestScriptToolsArgv(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_ECHO_STDIN=1"))
+	script := "c = config(\"a.conf\")\nprint(c[\"max_connections\"])\n"
+
+	// Текст сценария идёт на stdin, а в командной строке только «-»:
+	// её видно в списке процессов, и сценарию там не место.
+	args, stdin := e.scriptCall("check_script", map[string]any{"script": script})
+	assertArgv(t, args, "check", "--", "-")
+	if stdin != script {
+		t.Errorf("check: на stdin %q", stdin)
+	}
+
+	args, stdin = e.scriptCall("plan_script", map[string]any{"script": script})
+	assertArgv(t, args, "plan", "--script", "--sandbox", "--root="+e.root, "--", "-")
+	if stdin != script {
+		t.Errorf("plan: на stdin %q", stdin)
+	}
+
+	doc := filepath.Join(e.root, "заявка.docx")
+	args, stdin = e.scriptCall("request_script", map[string]any{
+		"script": script, "name": "поднять_лимит.ochan", "doc": "заявка.docx"})
+	assertArgv(t, args, "request", "--script", "--sandbox", "--root="+e.root,
+		"--name=поднять_лимит.ochan", "--doc="+doc, "--", "-")
+	if stdin != script {
+		t.Errorf("request: на stdin %q", stdin)
+	}
+}
+
+// Песочница ochan получает ровно то, что разрешено серверу: те же
+// каталоги, те же схемы, те же переменные окружения.
+func TestScriptSandboxMirrorsServer(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	box, err := newSandbox([]string{first, second}, []string{"postgres"}, "PGPASSWORD", "APP_ENV")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tools := buildTools(box.liveSchemes())
+	byName := make(map[string]*tool)
+	for i := range tools {
+		byName[tools[i].Name] = &tools[i]
+	}
+
+	args, _, err := byName["plan_script"].argv(box, map[string]any{"script": "print(1)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertArgv(t, args, "plan", "--script", "--sandbox",
+		"--root="+box.roots[0], "--root="+box.roots[1],
+		"--allow-live=postgres", "--allow-env=APP_ENV", "--allow-env=PGPASSWORD", "--", "-")
+
+	// check только читает текст: песочница ему не нужна.
+	args, _, err = byName["check_script"].argv(box, map[string]any{"script": "print(1)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertArgv(t, args, "check", "--", "-")
+}
+
+func TestScriptValidation(t *testing.T) {
+	e := newEnv(t)
+	cases := []struct {
+		value  any
+		reason string
+	}{
+		{"", "пустой текст"},
+		{"  \n\t", "пустой текст"},
+		{42, "ожидается текст строкой"},
+		{"print(1)\x00", "недопустимые символы"},
+		{strings.Repeat("#", maxScript+1), "длиннее"},
+	}
+	for _, tc := range cases {
+		e.assertRejected("plan_script", map[string]any{"script": tc.value}, tc.reason)
+	}
+
+	// Через JSON некорректный UTF-8 не приходит — декодер заменяет его
+	// на U+FFFD, — поэтому проверка вызывается напрямую.
+	if _, err := scriptText("script", "\xff\xfe"); err == nil || !strings.Contains(err.Error(), "недопустимые символы") {
+		t.Errorf("некорректный UTF-8 принят: %v", err)
+	}
+	e.assertRejected("plan_script", map[string]any{}, "обязательный параметр не задан")
+	for _, name := range []string{"../x.ochan", "a/b", "-x", "имя с пробелом"} {
+		e.assertRejected("plan_script", map[string]any{"script": "print(1)", "name": name}, "недопустимое значение")
+	}
+	e.assertRejected("plan_script", map[string]any{"script": "print(1)", "root": "/"}, "неизвестные параметры: root")
+}
+
+func TestScriptToolsRequireSandbox(t *testing.T) {
+	cases := map[string]tool{
+		"план без песочницы": {Name: "x", Command: "plan", Fixed: []string{"--script"},
+			Slots: []slot{scriptSlot()}},
+		"заявка без --script": {Name: "x", Command: "request", Writes: true, Sandboxed: true,
+			Slots: []slot{scriptSlot()}},
+		"сценарий в чужой команде": {Name: "x", Command: "diff", Fixed: []string{"--script"}, Sandboxed: true,
+			Slots: []slot{scriptSlot()}},
+		"check с выполнением": {Name: "x", Command: "check", Fixed: []string{"--script"},
+			Slots: []slot{scriptSlot()}},
+		"песочница без сценария": {Name: "x", Command: "plan", Sandboxed: true},
+	}
+	for name, bad := range cases {
+		if err := checkTable([]tool{bad}); err == nil {
+			t.Errorf("%s: таблица принята", name)
+		}
+	}
+}
+
+func TestSandboxRejectsBadEnvName(t *testing.T) {
+	for _, name := range []string{"A=B", "1ABC", "A B", "-x"} {
+		if _, err := newSandbox([]string{t.TempDir()}, nil, name); err == nil {
+			t.Errorf("переменная %q принята", name)
+		}
+	}
+}
+
+func TestInstructionsDescribeScriptSandbox(t *testing.T) {
+	e := newEnv(t)
+	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
+	for _, want := range []string{"check_script", "plan_script", "request_script", "переменные окружения недоступны"} {
+		if !strings.Contains(r.Result.Instructions, want) {
+			t.Errorf("в инструкциях нет %q: %s", want, r.Result.Instructions)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Протокол и формальный промпт
+// ---------------------------------------------------------------------------
+
+func TestPromptToolsArgv(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_ECHO_STDIN=1"))
+	prompt := "goal: tuned\nclasses:\n  Goal : \"tuned\"\n"
+
+	args, stdin := e.scriptCall("check_prompt", map[string]any{"prompt": prompt, "name": "задача.fp"})
+	assertArgv(t, args, "fp", "check", "--name=задача.fp", "--", "-")
+	if stdin != prompt {
+		t.Errorf("на stdin %q", stdin)
+	}
+
+	args, stdin = e.scriptCall("protocol", map[string]any{})
+	assertArgv(t, args, "fp", "protocol")
+	if stdin != "" {
+		t.Errorf("протоколу stdin не нужен, получено %q", stdin)
+	}
+
+	e.assertRejected("check_prompt", map[string]any{"prompt": ""}, "пустой текст")
+}
+
+// Модель получает протокол первым — в instructions при подключении.
+func TestInstructionsCarryProtocol(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_STDOUT=# Протокол ochan\nПервым делом check_prompt.\n"))
+	e.srv.loadProtocol(context.Background())
+
+	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
+	if !strings.Contains(r.Result.Instructions, "прочитайте протокол ниже") ||
+		!strings.HasSuffix(r.Result.Instructions, "# Протокол ochan\nПервым делом check_prompt.\n") {
+		t.Fatalf("протокола нет в instructions: %q", r.Result.Instructions)
+	}
+}
+
+func TestMissingProtocolIsSaid(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_EXIT=1", "FAKE_STDERR=unknown command fp"))
+	e.srv.loadProtocol(context.Background())
+
+	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
+	if !strings.Contains(r.Result.Instructions, "Протокол формального промпта недоступен") {
+		t.Fatalf("о недоступном протоколе не сказано: %q", r.Result.Instructions)
+	}
+}
+
+func TestOneStdinSlotPerTool(t *testing.T) {
+	bad := tool{Name: "x", Command: "fp", Fixed: []string{"check"},
+		Slots: []slot{promptSlot(), {Name: "other", Kind: slotText}}}
+	if err := checkTable([]tool{bad}); err == nil {
+		t.Fatal("инструмент с двумя текстами на stdin принят")
 	}
 }

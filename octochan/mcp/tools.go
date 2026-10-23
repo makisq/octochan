@@ -17,6 +17,11 @@ type tool struct {
 	// Fixed — флаги, которые передаются всегда.
 	Fixed []string
 	Slots []slot
+	// Sandboxed — к команде добавляются флаги песочницы ochan с теми же
+	// каталогами, схемами и переменными окружения, что у сервера.
+	// Обязательно для инструментов, которые выполняют сценарий, пусть
+	// и в режиме плана: чтение файлов в нём настоящее.
+	Sandboxed bool
 	// Writes — инструмент что-то создаёт (заявку, документ).
 	Writes bool
 	// Remote — инструмент ходит во внешнюю систему независимо от
@@ -31,7 +36,7 @@ type tool struct {
 var readCommands = map[string]bool{
 	"diff": true, "validate": true, "find": true, "stats": true, "print": true,
 	"plan": true, "services": true, "aliases": true, "modules": true,
-	"history": true, "requests": true, "status": true,
+	"history": true, "requests": true, "status": true, "check": true, "fp": true,
 }
 
 // writeCommands — единственное, что сервер может создать: заявку в
@@ -59,8 +64,56 @@ func checkTable(tools []tool) error {
 		default:
 			return fmt.Errorf("инструмент %s: команда ochan %q не разрешена", t.Name, t.Command)
 		}
+
+		if err := checkScriptTool(t); err != nil {
+			return err
+		}
+
+		// stdin у ochan один: два текста в одном вызове перемешались бы.
+		stdin := 0
+		for _, s := range t.Slots {
+			if stdinSlot(s.Kind) {
+				stdin++
+			}
+		}
+		if stdin > 1 {
+			return fmt.Errorf("инструмент %s: через stdin передаётся только один текст", t.Name)
+		}
 	}
 	return nil
+}
+
+// checkScriptTool проверяет инструменты, принимающие сценарий.
+//
+// check только читает текст. plan и request выполняют сценарий в режиме
+// плана, а чтение файлов, окружения и живых источников в нём настоящее:
+// без песочницы модель прочитала бы через план что угодно. Поэтому такой
+// инструмент обязан запускать ochan в песочнице и с --script, иначе ochan
+// примет текст на stdin за сценарий исполнителя.
+func checkScriptTool(t tool) error {
+	hasScript := false
+	for _, s := range t.Slots {
+		if s.Kind == slotScript {
+			hasScript = true
+		}
+	}
+	scriptFlag := false
+	for _, flag := range t.Fixed {
+		if flag == "--script" {
+			scriptFlag = true
+		}
+	}
+
+	switch {
+	case !hasScript && !scriptFlag && !t.Sandboxed:
+		return nil
+	case t.Command == "check" && hasScript && !scriptFlag:
+		return nil
+	case hasScript && scriptFlag && t.Sandboxed && (t.Command == "plan" || t.Command == "request"):
+		return nil
+	}
+	return fmt.Errorf("инструмент %s: сценарий выполняется только командами plan и request "+
+		"с --script и в песочнице", t.Name)
 }
 
 // Описания слотов, которые повторяются в нескольких инструментах.
@@ -80,6 +133,22 @@ func scenarioSlot() slot {
 func overridesSlot() slot {
 	return slot{Name: "overrides", Kind: slotOverrides,
 		Description: "переопределения параметров сценария: {\"параметр\": \"значение\"}"}
+}
+
+func scriptSlot() slot {
+	return slot{Name: "script", Kind: slotScript, Required: true,
+		Description: "текст сценария на языке алиасов ochan; встроенные функции и алиасы перечисляет инструмент aliases"}
+}
+
+func promptSlot() slot {
+	return slot{Name: "prompt", Kind: slotText, Required: true,
+		Description: "текст формального промпта; язык описан в протоколе (инструмент protocol). " +
+			"Отчёт report: дописывается к промпту и проверяется вместе с ним"}
+}
+
+func nameSlot() slot {
+	return slot{Name: "name", Kind: slotName, Flag: "name",
+		Description: "имя сценария, например поднять_лимит.ochan: оно попадёт в сообщения об ошибках, план и заявку"}
 }
 
 func docSlot() slot {
@@ -184,7 +253,7 @@ func buildTools(live []string) []tool {
 		{
 			Name:        "aliases",
 			Title:       "Алиасы и встроенные функции",
-			Description: "Перечисляет алиасы и встроенные функции языка ochan: библиотеку навыков. Только список, без выполнения.",
+			Description: "Перечисляет алиасы и встроенные функции языка ochan: библиотеку навыков с версиями пакетов. Только список, без выполнения.",
 			Command:     "aliases",
 			Slots: []slot{{Name: "package", Kind: slotPackage,
 				Description: "показать только этот пакет алиасов"}},
@@ -238,6 +307,59 @@ func buildTools(live []string) []tool {
 			Remote:  true,
 		},
 		{
+			Name:  "protocol",
+			Title: "Протокол",
+			Description: "Протокол работы с ochan: кто модель здесь, язык формального промпта, отказы и цикл " +
+				"работы. Его же сервер отдаёт в instructions при подключении; инструмент — для клиентов, " +
+				"которые instructions не показывают модели.",
+			Command: "fp",
+			Fixed:   []string{"protocol"},
+		},
+		{
+			Name:  "check_prompt",
+			Title: "Проверить формальный промпт",
+			Description: "Детерминированная проверка до модели: текст принадлежит языку (⊥syn), слова однозначны " +
+				"(⊥ambig), знания хватает — Req(P) ⊆ K (⊥undef), жёсткие правила совместны (⊥conflict). " +
+				"Скиллы сверяются с библиотекой пакетов алиасов. С разделом report: проверяет и отчёт.",
+			Command: "fp",
+			Fixed:   []string{"check"},
+			Slots:   []slot{promptSlot(), nameSlot()},
+		},
+		{
+			Name:  "check_script",
+			Title: "Проверить сценарий",
+			Description: "Проверяет сценарий на языке алиасов, ничего не выполняя: синтаксис, неизвестные " +
+				"имена и функции, число аргументов, break и return не на своём месте, явно неверные типы. " +
+				"Находит ошибки и в ветках, которые при выполнении не сработали бы. Сообщает все ошибки сразу.",
+			Command: "check",
+			Slots:   []slot{scriptSlot(), nameSlot()},
+		},
+		{
+			Name:  "plan_script",
+			Title: "План сценария на языке алиасов",
+			Description: "Проверяет сценарий и выполняет его в режиме плана: write и save ничего не записывают, " +
+				"а план показывает, какие файлы и параметры изменились бы. Сценарий работает в песочнице " +
+				"сервера: файлы только внутри разрешённых каталогов, переменные окружения и живые источники — " +
+				"только разрешённые. Выводит то, что напечатал сценарий, и план.",
+			Command:   "plan",
+			Fixed:     []string{"--script"},
+			Sandboxed: true,
+			Slots:     []slot{scriptSlot(), nameSlot()},
+		},
+		{
+			Name:  "request_script",
+			Title: "Заявка на выполнение сценария на языке алиасов",
+			Description: "Проверяет сценарий, строит план в песочнице сервера и создаёт заявку в состоянии " +
+				"«ждёт решения». В заявке сохраняются текст сценария, план и песочница. Сама заявка ничего " +
+				"не выполняет: согласует и выполняет её человек, и перед выполнением план строится заново " +
+				"и должен совпасть с согласованным.",
+			Command:   "request",
+			Fixed:     []string{"--script"},
+			Sandboxed: true,
+			Slots:     []slot{scriptSlot(), nameSlot(), docSlot()},
+			Writes:    true,
+		},
+		{
 			Name:        "task_status",
 			Title:       "Статус задачи",
 			Description: "Показывает статус и журнал задачи во внешней системе исполнителя.",
@@ -249,12 +371,14 @@ func buildTools(live []string) []tool {
 	}
 }
 
-// argv проверяет аргументы вызова и строит командную строку ochan.
+// argv проверяет аргументы вызова и строит командную строку ochan и то,
+// что пойдёт ему на stdin.
 //
-// Порядок фиксирован: подкоманда, постоянные флаги, флаги из слотов, затем
-// «--» и позиционные аргументы. После «--» ochan не читает флаги, поэтому
-// значение слота не может стать флагом, даже если начинается с дефиса.
-func (t *tool) argv(box *sandbox, args map[string]any) ([]string, error) {
+// Порядок фиксирован: подкоманда, постоянные флаги, флаги песочницы, флаги
+// из слотов, затем «--» и позиционные аргументы. После «--» ochan не читает
+// флаги, поэтому значение слота не может стать флагом, даже если
+// начинается с дефиса.
+func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error) {
 	known := make(map[string]bool, len(t.Slots))
 	for _, s := range t.Slots {
 		known[s.Name] = true
@@ -268,24 +392,40 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, error) {
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
-		return nil, fmt.Errorf("неизвестные параметры: %s", strings.Join(unknown, ", "))
+		return nil, "", fmt.Errorf("неизвестные параметры: %s", strings.Join(unknown, ", "))
 	}
 
 	command := append([]string{t.Command}, t.Fixed...)
-	var positional []string
+	if t.Sandboxed {
+		command = append(command, box.ochanFlags()...)
+	}
+	var (
+		positional []string
+		stdin      string
+	)
 
 	for _, s := range t.Slots {
 		raw, present := args[s.Name]
 		if !present || raw == nil {
 			if s.Required {
-				return nil, slotError(s.Name, "обязательный параметр не задан")
+				return nil, "", slotError(s.Name, "обязательный параметр не задан")
 			}
+			continue
+		}
+
+		if stdinSlot(s.Kind) {
+			text, err := scriptText(s.Name, raw)
+			if err != nil {
+				return nil, "", err
+			}
+			stdin = text
+			positional = append(positional, "-")
 			continue
 		}
 
 		values, err := box.fill(s, raw)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		if s.Flag != "" {
 			command = append(command, values...)
@@ -296,7 +436,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, error) {
 
 	if t.check != nil {
 		if err := t.check(positional); err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 
@@ -304,7 +444,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, error) {
 		command = append(command, "--")
 		command = append(command, positional...)
 	}
-	return command, nil
+	return command, stdin, nil
 }
 
 // schema описывает входные параметры инструмента в JSON Schema.
@@ -333,6 +473,13 @@ func (t *tool) schema() map[string]any {
 		case slotTaskID:
 			property["type"] = "string"
 			property["pattern"] = taskIDPattern.String()
+		case slotName:
+			property["type"] = "string"
+			property["pattern"] = namePattern.String()
+		case slotScript, slotText:
+			property["type"] = "string"
+			property["minLength"] = 1
+			property["maxLength"] = maxScript
 		default:
 			property["type"] = "string"
 		}
@@ -357,6 +504,11 @@ func (t *tool) openWorld(liveEnabled bool) bool {
 	}
 	if !liveEnabled {
 		return false
+	}
+	// Сценарий, который выполняется хотя бы в режиме плана, может читать
+	// разрешённые живые источники.
+	if t.Sandboxed {
+		return true
 	}
 	for _, s := range t.Slots {
 		if s.Kind == slotSource {

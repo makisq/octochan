@@ -43,6 +43,15 @@ const (
 	slotSwitch
 	// slotOverrides — переопределения параметров сценария key=value.
 	slotOverrides
+	// slotName — имя сценария для сообщений, плана и заявки.
+	slotName
+	// slotText — текст формального промпта. Как и сценарий, идёт ochan
+	// через stdin, но ничего не выполняет: его только проверяют.
+	slotText
+	// slotScript — текст сценария на языке алиасов. Передаётся ochan
+	// через stdin, а не аргументом: сценарий бывает длинным, и в командной
+	// строке ему не место — её видно в списке процессов.
+	slotScript
 )
 
 // slot — именованное место, которое заполняет модель.
@@ -63,10 +72,16 @@ var (
 	idPattern      = regexp.MustCompile(`^[0-9a-f]{1,32}$`)
 	taskIDPattern  = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_\-]{0,63}$`)
 	packagePattern = regexp.MustCompile(`^[\p{L}\p{N}_][\p{L}\p{N}_.\-]{0,63}$`)
+	namePattern    = packagePattern
 	overrideKey    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]{0,63}$`)
+	envPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 )
 
 const maxLimit = 1000
+
+// maxScript — предел длины сценария. Сценарии пишутся под задачу и
+// занимают десятки строк; предел отсекает мусор, а не настоящие сценарии.
+const maxScript = 256 << 10
 
 // errSlot — ошибка заполнения слота. Текст адресован модели: по нему она
 // должна понять, что исправить, не гадая.
@@ -85,16 +100,27 @@ func slotError(name, format string, args ...any) error {
 type sandbox struct {
 	roots     []string
 	liveAllow map[string]bool
+	// env — переменные окружения, которые разрешено читать сценариям.
+	env []string
 }
 
 // newSandbox проверяет корни и приводит их к реальным путям: иначе
 // сравнение с путём, прошедшим через EvalSymlinks, давало бы ложные отказы.
-func newSandbox(roots, live []string) (*sandbox, error) {
+func newSandbox(roots, live []string, env ...string) (*sandbox, error) {
 	if len(roots) == 0 {
 		return nil, errors.New("не задан ни один разрешённый каталог")
 	}
 
 	box := &sandbox{liveAllow: make(map[string]bool, len(live))}
+	for _, name := range env {
+		if name = strings.TrimSpace(name); name != "" {
+			if !envPattern.MatchString(name) {
+				return nil, fmt.Errorf("недопустимое имя переменной окружения %q", name)
+			}
+			box.env = append(box.env, name)
+		}
+	}
+	sort.Strings(box.env)
 	for _, root := range roots {
 		abs, err := filepath.Abs(root)
 		if err != nil {
@@ -121,6 +147,25 @@ func newSandbox(roots, live []string) (*sandbox, error) {
 		}
 	}
 	return box, nil
+}
+
+// ochanFlags — та же песочница в виде флагов ochan.
+//
+// Сценарий выполняет ochan, а не сервер, поэтому проверять пути внутри
+// сценария серверу нечем: он передаёт свои ограничения интерпретатору,
+// и встроенные функции языка проверяют их сами — при каждом обращении.
+func (b *sandbox) ochanFlags() []string {
+	flags := []string{"--sandbox"}
+	for _, root := range b.roots {
+		flags = append(flags, "--root="+root)
+	}
+	for _, scheme := range b.liveSchemes() {
+		flags = append(flags, "--allow-live="+scheme)
+	}
+	for _, name := range b.env {
+		flags = append(flags, "--allow-env="+name)
+	}
+	return flags
 }
 
 // liveSchemes возвращает разрешённые схемы живых источников по порядку.
@@ -282,6 +327,8 @@ func (b *sandbox) fill(s slot, raw any) ([]string, error) {
 		value, err = matched(s.Name, text, taskIDPattern, "латинские буквы, цифры, _ -")
 	case slotPackage:
 		value, err = matched(s.Name, text, packagePattern, "буквы, цифры, _ . -")
+	case slotName:
+		value, err = matched(s.Name, text, namePattern, "буквы, цифры, _ . -")
 	default:
 		err = slotError(s.Name, "неизвестный тип слота")
 	}
@@ -303,6 +350,29 @@ func matched(name, value string, pattern *regexp.Regexp, allowed string) (string
 		return "", slotError(name, "недопустимое значение %q, разрешены: %s", value, allowed)
 	}
 	return value, nil
+}
+
+// stdinSlot сообщает, что значение слота передаётся ochan через stdin.
+func stdinSlot(kind slotKind) bool { return kind == slotScript || kind == slotText }
+
+// scriptText проверяет текст сценария.
+//
+// Сам сценарий проверяет ochan: разбор, имена, типы. Здесь отсекается то,
+// что до ochan доходить не должно вовсе.
+func scriptText(name string, raw any) (string, error) {
+	text, ok := raw.(string)
+	if !ok {
+		return "", slotError(name, "ожидается текст строкой")
+	}
+	switch {
+	case strings.TrimSpace(text) == "":
+		return "", slotError(name, "пустой текст")
+	case len(text) > maxScript:
+		return "", slotError(name, "текст длиннее %d КиБ", maxScript>>10)
+	case strings.ContainsRune(text, 0) || !utf8.ValidString(text):
+		return "", slotError(name, "текст содержит недопустимые символы")
+	}
+	return text, nil
 }
 
 // overrides превращает объект в аргументы key=value.

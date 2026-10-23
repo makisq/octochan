@@ -23,6 +23,10 @@ var (
 
 // aliases возвращает реестр алиасов и ошибки, накопленные при загрузке.
 //
+// Каждый вызов получает свою копию: сценарий регистрирует в реестре свои
+// алиасы, и в интерактивной оболочке второй запуск того же файла иначе
+// упал бы на «алиас объявлен дважды».
+//
 // Источники:
 //
 //	~/.octochan/aliases/*.ochan        алиасы пользователя, без префикса
@@ -72,36 +76,53 @@ func aliases() (*lang.Registry, []error) {
 		}
 	})
 
-	return aliasRegistry, aliasLoadErrs
+	return aliasRegistry.Clone(), aliasLoadErrs
 }
 
 // reportAliasErrors печатает проблемы загрузки, не прерывая работу:
 // один сломанный пакет не должен блокировать остальные.
 func reportAliasErrors(cmd *cobra.Command, errs []error) {
 	for _, err := range errs {
-		cmd.PrintErrf("⚠️ алиасы: %v\n", err)
+		cmd.PrintErrf("внимание: алиасы: %v\n", err)
 	}
 }
 
+var runOpts scriptOptions
+
 var runCmd = &cobra.Command{
-	Use:   "run <файл.ochan | алиас> [аргументы...]",
+	Use:   "run <файл.ochan | алиас | -> [аргументы...]",
 	Short: "Выполнить сценарий или алиас",
 	Args:  cobra.MinimumNArgs(1),
-	Long: "Если первый аргумент — существующий файл, выполняется он.\n" +
+	Long: "Если первый аргумент — существующий файл или «-» (stdin), выполняется он.\n" +
 		"Иначе имя трактуется как алиас, а остальные аргументы — как его параметры.\n" +
-		"Числа распознаются автоматически, всё остальное передаётся строкой.",
+		"Числа распознаются автоматически, всё остальное передаётся строкой.\n\n" +
+		"Что сценарий изменил бы, не выполняя его: ochan plan файл.ochan.",
 	Example: "ochan run сценарий.ochan\n" +
 		"ochan run синхронизировать prod.conf test.conf\n" +
-		"ochan run --eval 'diff(\"a.conf\", \"b.conf\")'",
+		"ochan run --sandbox --root ./configs сценарий.ochan",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		box, err := runOpts.build()
+		if err != nil {
+			return err
+		}
+
 		registry, errs := aliases()
 		reportAliasErrors(cmd, errs)
 
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
+		interp.SetSandbox(box)
 
 		target := args[0]
-		if config.FileExists(target) {
-			return runScriptFile(interp, registry, target)
+		if target == "-" || config.FileExists(target) {
+			src, err := runOpts.source(target)
+			if err != nil {
+				return err
+			}
+			file, err := prepareScript(registry, src, false)
+			if err != nil {
+				return err
+			}
+			return interp.RunFile(file)
 		}
 
 		values := make([]lang.Value, 0, len(args)-1)
@@ -117,14 +138,23 @@ var runCmd = &cobra.Command{
 	},
 }
 
-// runScriptFile выполняет файл: сначала регистрирует объявленные в нём
-// алиасы, затем выполняет инструкции верхнего уровня.
-func runScriptFile(interp *lang.Interpreter, registry *lang.Registry, path string) error {
-	file, err := registry.LoadFile("", path)
-	if err != nil {
-		return err
+// prepareScript разбирает сценарий и регистрирует объявленные в нём
+// алиасы. Перед планом сценарий проверяется целиком.
+func prepareScript(registry *lang.Registry, src source, check bool) (*lang.File, error) {
+	if check {
+		return loadScript(registry, src)
 	}
-	return interp.RunFile(file)
+
+	file, err := lang.Parse(src.Name, src.Content)
+	if err != nil {
+		return nil, err
+	}
+	for _, decl := range file.Aliases {
+		if err := registry.Add("", decl); err != nil {
+			return nil, err
+		}
+	}
+	return file, nil
 }
 
 func printResult(cmd *cobra.Command, result lang.Value) error {
@@ -213,6 +243,14 @@ var aliasesCmd = &cobra.Command{
 				title := "Алиасы пользователя"
 				if info.Module != "" {
 					title = "Пакет " + info.Module
+					if pkg, ok := registry.Package(info.Module); ok {
+						title += " " + pkg.Version
+						if pkg.Description != "" {
+							title += " — " + pkg.Description
+						}
+					} else {
+						title += " (без версии)"
+					}
 				}
 				cmd.Printf("\n%s\n", title)
 			}
@@ -247,4 +285,5 @@ var aliasesCmd = &cobra.Command{
 
 func init() {
 	evalCmd.Flags().StringVarP(&evalExpr, "expr", "e", "", "выражение для вычисления")
+	runOpts.register(runCmd)
 }

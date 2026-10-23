@@ -24,3 +24,6 @@ config.yaml
 patched.conf
 diff_report_*.txt
 snapshot_*.json
+ochan-mcp
+ochan-mcp.exe
+mcp/octochan-mcp

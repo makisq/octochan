@@ -1,9 +1,7 @@
 package lang
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"octochan/config"
@@ -20,6 +18,9 @@ type Builtin struct {
 	MinArgs int
 	MaxArgs int
 	Doc     string
+	// Returns — тип результата, если он не зависит от аргументов. Нужен
+	// проверке до выполнения; пустое значение — «узнаем при выполнении».
+	Returns TypeName
 	Fn      func(in *Interpreter, args []Value) (Value, error)
 }
 
@@ -51,47 +52,47 @@ func (b Builtin) Signature() string {
 func DefaultBuiltins() map[string]Builtin {
 	list := []Builtin{
 		{
-			Name: "diff", MinArgs: 2, MaxArgs: 2,
+			Name: "diff", MinArgs: 2, MaxArgs: 2, Returns: TypeInt,
 			Doc: "количество расхождений между двумя конфигами",
 			Fn:  builtinDiff,
 		},
 		{
-			Name: "diff_list", MinArgs: 2, MaxArgs: 2,
+			Name: "diff_list", MinArgs: 2, MaxArgs: 2, Returns: TypeList,
 			Doc: "список имён расходящихся параметров",
 			Fn:  builtinDiffList,
 		},
 		{
-			Name: "read", MinArgs: 1, MaxArgs: 1,
+			Name: "read", MinArgs: 1, MaxArgs: 1, Returns: TypeString,
 			Doc: "содержимое файла",
 			Fn:  builtinRead,
 		},
 		{
-			Name: "write", MinArgs: 2, MaxArgs: 2,
+			Name: "write", MinArgs: 2, MaxArgs: 2, Returns: TypeInt,
 			Doc: "записать текст в файл",
 			Fn:  builtinWrite,
 		},
 		{
-			Name: "exists", MinArgs: 1, MaxArgs: 1,
+			Name: "exists", MinArgs: 1, MaxArgs: 1, Returns: TypeBool,
 			Doc: "существует ли файл",
 			Fn:  builtinExists,
 		},
 		{
-			Name: "param", MinArgs: 2, MaxArgs: 3,
+			Name: "param", MinArgs: 2, MaxArgs: 3, Returns: TypeString,
 			Doc: "значение параметра конфига: param(файл, имя) или param(файл, секция, имя)",
 			Fn:  builtinParam,
 		},
 		{
-			Name: "params", MinArgs: 1, MaxArgs: 1,
+			Name: "params", MinArgs: 1, MaxArgs: 1, Returns: TypeInt,
 			Doc: "количество параметров в конфиге",
 			Fn:  builtinParams,
 		},
 		{
-			Name: "validate", MinArgs: 1, MaxArgs: 1,
+			Name: "validate", MinArgs: 1, MaxArgs: 1, Returns: TypeInt,
 			Doc: "проверить конфиг, вернуть число параметров",
 			Fn:  builtinValidate,
 		},
 		{
-			Name: "print", MinArgs: 0, MaxArgs: -1,
+			Name: "print", MinArgs: 0, MaxArgs: -1, Returns: TypeString,
 			Doc: "напечатать значения",
 			Fn:  builtinPrint,
 		},
@@ -101,32 +102,32 @@ func DefaultBuiltins() map[string]Builtin {
 			Fn:  builtinFail,
 		},
 		{
-			Name: "len", MinArgs: 1, MaxArgs: 1,
+			Name: "len", MinArgs: 1, MaxArgs: 1, Returns: TypeInt,
 			Doc: "длина списка или строки",
 			Fn:  builtinLen,
 		},
 		{
-			Name: "lines", MinArgs: 1, MaxArgs: 1,
+			Name: "lines", MinArgs: 1, MaxArgs: 1, Returns: TypeList,
 			Doc: "разбить текст на список строк",
 			Fn:  builtinLines,
 		},
 		{
-			Name: "join", MinArgs: 1, MaxArgs: 2,
+			Name: "join", MinArgs: 1, MaxArgs: 2, Returns: TypeString,
 			Doc: "склеить список в строку",
 			Fn:  builtinJoin,
 		},
 		{
-			Name: "str", MinArgs: 1, MaxArgs: 1,
+			Name: "str", MinArgs: 1, MaxArgs: 1, Returns: TypeString,
 			Doc: "привести к строке",
 			Fn:  builtinStr,
 		},
 		{
-			Name: "int", MinArgs: 1, MaxArgs: 1,
+			Name: "int", MinArgs: 1, MaxArgs: 1, Returns: TypeInt,
 			Doc: "привести к целому",
 			Fn:  builtinInt,
 		},
 		{
-			Name: "list", MinArgs: 0, MaxArgs: -1,
+			Name: "list", MinArgs: 0, MaxArgs: -1, Returns: TypeList,
 			Doc: "собрать список из аргументов",
 			Fn:  builtinList,
 		},
@@ -136,32 +137,32 @@ func DefaultBuiltins() map[string]Builtin {
 			Fn:  builtinEnv,
 		},
 		{
-			Name: "normalize", MinArgs: 1, MaxArgs: 1,
+			Name: "normalize", MinArgs: 1, MaxArgs: 1, Returns: TypeString,
 			Doc: "каноническая форма значения конфига: normalize(\"8GB\") == normalize(\"8192MB\")",
 			Fn:  builtinNormalize,
 		},
 		{
-			Name: "config", MinArgs: 1, MaxArgs: 2,
+			Name: "config", MinArgs: 1, MaxArgs: 2, Returns: TypeConfig,
 			Doc: "разобрать источник один раз: файл, текст или postgres://user@host/db",
 			Fn:  builtinConfig,
 		},
 		{
-			Name: "map", MinArgs: 0, MaxArgs: -1,
+			Name: "map", MinArgs: 0, MaxArgs: -1, Returns: TypeMap,
 			Doc: "собрать словарь из пар ключ, значение",
 			Fn:  builtinMap,
 		},
 		{
-			Name: "keys", MinArgs: 1, MaxArgs: 1,
+			Name: "keys", MinArgs: 1, MaxArgs: 1, Returns: TypeList,
 			Doc: "ключи словаря или имена параметров конфига",
 			Fn:  builtinKeys,
 		},
 		{
-			Name: "values", MinArgs: 1, MaxArgs: 1,
+			Name: "values", MinArgs: 1, MaxArgs: 1, Returns: TypeList,
 			Doc: "значения словаря или конфига",
 			Fn:  builtinValues,
 		},
 		{
-			Name: "has", MinArgs: 2, MaxArgs: 2,
+			Name: "has", MinArgs: 2, MaxArgs: 2, Returns: TypeBool,
 			Doc: "есть ли ключ в словаре или параметр в конфиге",
 			Fn:  builtinHas,
 		},
@@ -181,7 +182,7 @@ func DefaultBuiltins() map[string]Builtin {
 			Fn:  builtinMerge,
 		},
 		{
-			Name: "save", MinArgs: 2, MaxArgs: 2,
+			Name: "save", MinArgs: 2, MaxArgs: 2, Returns: TypeInt,
 			Doc: "записать конфиг в файл",
 			Fn:  builtinSave,
 		},
@@ -203,11 +204,11 @@ func DefaultBuiltins() map[string]Builtin {
 // Готовый ConfigValue проходит без повторного разбора — ради этого он
 // и заведён: сценарий из трёх обращений к одному файлу раньше парсил его
 // трижды.
-func configOf(v Value) (ConfigValue, error) {
-	return configOfCtx(context.Background(), v, config.SourceOptions{})
+func (in *Interpreter) configOf(v Value) (ConfigValue, error) {
+	return in.configWith(v, config.SourceOptions{})
 }
 
-func configOfCtx(ctx context.Context, v Value, opts config.SourceOptions) (ConfigValue, error) {
+func (in *Interpreter) configWith(v Value, opts config.SourceOptions) (ConfigValue, error) {
 	if cfg, ok := v.(ConfigValue); ok {
 		return cfg, nil
 	}
@@ -219,15 +220,15 @@ func configOfCtx(ctx context.Context, v Value, opts config.SourceOptions) (Confi
 
 	// Ссылка на живой источник: postgres://user@host:5432/db и что угодно
 	// другое, что зарегистрирует свою схему.
-	if config.SourceScheme(string(s)) != "" {
-		loaded, err := config.LoadConfigFrom(ctx, string(s), opts)
+	if scheme := config.SourceScheme(string(s)); scheme != "" {
+		loaded, err := in.loadLive(string(s), scheme, opts)
 		if err != nil {
 			return ConfigValue{}, err
 		}
 		return ConfigValue{Name: loaded.Name, Data: loaded.Data, Notes: loaded.Notes}, nil
 	}
 
-	text, name, err := textOf(v)
+	text, name, err := in.textOf(v)
 	if err != nil {
 		return ConfigValue{}, err
 	}
@@ -240,7 +241,7 @@ func configOfCtx(ctx context.Context, v Value, opts config.SourceOptions) (Confi
 }
 
 // textOf возвращает текст и человекочитаемое имя источника.
-func textOf(v Value) (string, string, error) {
+func (in *Interpreter) textOf(v Value) (string, string, error) {
 	s, ok := v.(StringValue)
 	if !ok {
 		return "", "", fmt.Errorf("ожидался путь к файлу или текст, получено %s", v.TypeName())
@@ -253,7 +254,7 @@ func textOf(v Value) (string, string, error) {
 		return path, "текст", nil
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := in.readFile(path)
 	if err != nil {
 		return "", "", fmt.Errorf("не удалось прочитать %s: %w", path, err)
 	}
@@ -275,7 +276,7 @@ func builtinConfig(in *Interpreter, args []Value) (Value, error) {
 		}
 	}
 
-	cfg, err := configOfCtx(in.Context(), args[0], opts)
+	cfg, err := in.configWith(args[0], opts)
 	if err != nil {
 		return nil, err
 	}
@@ -283,21 +284,21 @@ func builtinConfig(in *Interpreter, args []Value) (Value, error) {
 	// Замечания источника показываем сразу: параметр, ждущий перезапуска,
 	// меняет смысл всего сравнения.
 	for _, note := range cfg.Notes {
-		fmt.Fprintf(in.Out(), "⚠️ %s\n", note)
+		fmt.Fprintf(in.Out(), "внимание: %s\n", note)
 	}
 	return cfg, nil
 }
 
-func builtinDiff(_ *Interpreter, args []Value) (Value, error) {
-	left, right, err := twoConfigs(args)
+func builtinDiff(in *Interpreter, args []Value) (Value, error) {
+	left, right, err := in.twoConfigs(args)
 	if err != nil {
 		return nil, err
 	}
 	return IntValue(config.CompareConfigs(left.Data, right.Data, left.Name, right.Name).Len()), nil
 }
 
-func builtinDiffList(_ *Interpreter, args []Value) (Value, error) {
-	left, right, err := twoConfigs(args)
+func builtinDiffList(in *Interpreter, args []Value) (Value, error) {
+	left, right, err := in.twoConfigs(args)
 	if err != nil {
 		return nil, err
 	}
@@ -310,20 +311,20 @@ func builtinDiffList(_ *Interpreter, args []Value) (Value, error) {
 	return names, nil
 }
 
-func twoConfigs(args []Value) (ConfigValue, ConfigValue, error) {
-	left, err := configOf(args[0])
+func (in *Interpreter) twoConfigs(args []Value) (ConfigValue, ConfigValue, error) {
+	left, err := in.configOf(args[0])
 	if err != nil {
 		return ConfigValue{}, ConfigValue{}, err
 	}
-	right, err := configOf(args[1])
+	right, err := in.configOf(args[1])
 	if err != nil {
 		return ConfigValue{}, ConfigValue{}, err
 	}
 	return left, right, nil
 }
 
-func builtinParam(_ *Interpreter, args []Value) (Value, error) {
-	cfg, err := configOf(args[0])
+func builtinParam(in *Interpreter, args []Value) (Value, error) {
+	cfg, err := in.configOf(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -340,16 +341,16 @@ func builtinParam(_ *Interpreter, args []Value) (Value, error) {
 	return StringValue(value), nil
 }
 
-func builtinParams(_ *Interpreter, args []Value) (Value, error) {
-	cfg, err := configOf(args[0])
+func builtinParams(in *Interpreter, args []Value) (Value, error) {
+	cfg, err := in.configOf(args[0])
 	if err != nil {
 		return nil, err
 	}
 	return IntValue(cfg.Params()), nil
 }
 
-func builtinValidate(_ *Interpreter, args []Value) (Value, error) {
-	cfg, err := configOf(args[0])
+func builtinValidate(in *Interpreter, args []Value) (Value, error) {
+	cfg, err := in.configOf(args[0])
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +491,7 @@ func builtinPut(_ *Interpreter, args []Value) (Value, error) {
 	}
 }
 
-func builtinMerge(_ *Interpreter, args []Value) (Value, error) {
+func builtinMerge(in *Interpreter, args []Value) (Value, error) {
 	switch left := args[0].(type) {
 	case MapValue:
 		right, ok := args[1].(MapValue)
@@ -508,7 +509,7 @@ func builtinMerge(_ *Interpreter, args []Value) (Value, error) {
 		return merged, nil
 
 	case ConfigValue:
-		right, err := configOf(args[1])
+		right, err := in.configOf(args[1])
 		if err != nil {
 			return nil, err
 		}
@@ -534,15 +535,15 @@ func builtinMerge(_ *Interpreter, args []Value) (Value, error) {
 	}
 }
 
-func builtinSave(_ *Interpreter, args []Value) (Value, error) {
-	cfg, err := configOf(args[0])
+func builtinSave(in *Interpreter, args []Value) (Value, error) {
+	cfg, err := in.configOf(args[0])
 	if err != nil {
 		return nil, err
 	}
 
 	path := args[1].Text()
-	if err := config.SaveConfig(cfg.Data, path); err != nil {
-		return nil, err
+	if err := in.writeFile(EffectSave, path, []byte(config.FormatConfig(cfg.Data))); err != nil {
+		return nil, fmt.Errorf("не удалось записать конфиг %s: %w", path, err)
 	}
 	return IntValue(cfg.Params()), nil
 }
@@ -559,26 +560,30 @@ func stringList(items []string) ListValue {
 // Файлы
 // ---------------------------------------------------------------------------
 
-func builtinRead(_ *Interpreter, args []Value) (Value, error) {
-	data, err := os.ReadFile(args[0].Text())
+func builtinRead(in *Interpreter, args []Value) (Value, error) {
+	data, err := in.readFile(args[0].Text())
 	if err != nil {
 		return nil, fmt.Errorf("не удалось прочитать %s: %w", args[0].Text(), err)
 	}
 	return StringValue(data), nil
 }
 
-func builtinWrite(_ *Interpreter, args []Value) (Value, error) {
+func builtinWrite(in *Interpreter, args []Value) (Value, error) {
 	path := args[0].Text()
 	content := args[1].Text()
 
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := in.writeFile(EffectWrite, path, []byte(content)); err != nil {
 		return nil, fmt.Errorf("не удалось записать %s: %w", path, err)
 	}
 	return IntValue(len(content)), nil
 }
 
-func builtinExists(_ *Interpreter, args []Value) (Value, error) {
-	return BoolValue(config.FileExists(args[0].Text())), nil
+func builtinExists(in *Interpreter, args []Value) (Value, error) {
+	exists, err := in.fileExists(args[0].Text())
+	if err != nil {
+		return nil, err
+	}
+	return BoolValue(exists), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -680,8 +685,11 @@ func builtinList(_ *Interpreter, args []Value) (Value, error) {
 	return items, nil
 }
 
-func builtinEnv(_ *Interpreter, args []Value) (Value, error) {
-	value, ok := os.LookupEnv(args[0].Text())
+func builtinEnv(in *Interpreter, args []Value) (Value, error) {
+	value, ok, err := in.lookupEnv(args[0].Text())
+	if err != nil {
+		return nil, err
+	}
 	if ok {
 		return StringValue(value), nil
 	}

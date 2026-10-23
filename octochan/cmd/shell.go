@@ -64,13 +64,13 @@ func runInteractiveShell(ctx context.Context) error {
 	}()
 
 	if err := startModuleWatcher(shellCtx); err != nil {
-		fmt.Printf("⚠️ Горячая перезагрузка модулей недоступна: %v\n", err)
+		fmt.Printf("внимание: горячая перезагрузка модулей недоступна: %v\n", err)
 	}
 
 	startTokenReminder(func(msg string) { fmt.Println("\n" + msg) })
 	defer stopTokenReminder()
 
-	fmt.Println("🐙 Добро пожаловать в OctoChan! Введите 'help' для списка команд, 'exit' для выхода.")
+	fmt.Println("Добро пожаловать в OctoChan. Введите 'help' для списка команд, 'exit' для выхода.")
 
 	options := []prompt.Option{
 		prompt.OptionPrefix("ochan> "),
@@ -119,7 +119,7 @@ func executeShellInput(ctx context.Context, input string) {
 
 	switch input {
 	case "exit", "quit":
-		fmt.Println("Goodbye! 👋")
+		fmt.Println("Goodbye!")
 		exitShell(0)
 		return
 	case "!clear", "clr":
@@ -136,7 +136,7 @@ func executeShellInput(ctx context.Context, input string) {
 
 	args, err := splitArgs(input)
 	if err != nil {
-		fmt.Printf("❌ %v\n", err)
+		fmt.Printf("ошибка: %v\n", err)
 		return
 	}
 
@@ -172,7 +172,7 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 					stop.Store(true)
 				}
 				if interrupted {
-					fmt.Println("\n⚠️ Команда не остановилась — выход из оболочки")
+					fmt.Println("\nКоманда не остановилась — выход из оболочки")
 					exitShell(130)
 				}
 				interrupted = true
@@ -192,9 +192,9 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 	rootCmd.SetArgs(args)
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
-			fmt.Println("⚠️ Прервано")
+			fmt.Println("Прервано")
 		} else {
-			fmt.Printf("❌ %v\n", err)
+			fmt.Printf("ошибка: %v\n", err)
 		}
 	}
 	return stop.Load()

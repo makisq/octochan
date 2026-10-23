@@ -45,7 +45,7 @@ var authCmd = &cobra.Command{
 			return err
 		}
 
-		cmd.Printf("✅ Токен сохранён: %s\n", fm.TokenFilePath())
+		cmd.Printf("Токен сохранён: %s\n", fm.TokenFilePath())
 		return nil
 	},
 }
@@ -154,7 +154,7 @@ func startTokenReminder(out func(string)) {
 
 		select {
 		case <-warn.C:
-			out("⚠️ Токен станет недействителен примерно через " +
+			out("Внимание: токен станет недействителен примерно через " +
 				(lifetime - warnAfter).String() + ". Обновите его командой 'auth'.")
 		case <-stop:
 			return
@@ -162,7 +162,7 @@ func startTokenReminder(out func(string)) {
 
 		select {
 		case <-expire.C:
-			out("⚠️ Время жизни токена истекло. Обновите его командой 'auth'.")
+			out("Внимание: время жизни токена истекло. Обновите его командой 'auth'.")
 		case <-stop:
 		}
 	}()

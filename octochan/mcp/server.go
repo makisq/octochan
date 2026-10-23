@@ -66,6 +66,10 @@ type server struct {
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
 	calls   sync.WaitGroup
+
+	// protocol — текст протокола формального промпта. Модель получает его
+	// первым: в instructions при подключении.
+	protocol string
 }
 
 func newServer(box *sandbox, run *runner, out io.Writer, logger *log.Logger) (*server, error) {
@@ -298,6 +302,21 @@ func (s *server) initialize(msg message) *response {
 	})
 }
 
+// loadProtocol берёт текст протокола у ochan.
+//
+// Протокол живёт в ochan, рядом с проверкой языка, а не копией здесь:
+// иначе модель читала бы одно, а проверка требовала бы другого. Без
+// протокола сервер работает, но говорит об этом в журнале и в instructions.
+func (s *server) loadProtocol(ctx context.Context) {
+	result := s.runner.run(ctx, []string{"fp", "protocol"}, "")
+	if result.code != 0 || strings.TrimSpace(result.stdout) == "" {
+		s.logger.Printf("протокол недоступен: ochan fp protocol завершился с кодом %d: %s",
+			result.code, strings.TrimSpace(result.stderr))
+		return
+	}
+	s.protocol = result.stdout
+}
+
 func (s *server) instructions() string {
 	text := "Сервер даёт доступ к octochan на чтение, планирование и создание заявок. " +
 		"Выполнить изменение через этот сервер нельзя: заявку согласует и выполняет человек " +
@@ -306,7 +325,20 @@ func (s *server) instructions() string {
 	if live := s.box.liveSchemes(); len(live) > 0 {
 		text += " Живые источники разрешены: " + strings.Join(live, ", ") + "."
 	}
-	return text
+	text += " Сценарии на языке алиасов: сначала check_script, затем plan_script, затем request_script. " +
+		"Сценарий выполняется в песочнице: файлы только внутри тех же каталогов"
+	if len(s.box.env) > 0 {
+		text += ", переменные окружения только " + strings.Join(s.box.env, ", ")
+	} else {
+		text += ", переменные окружения недоступны"
+	}
+	text += "."
+
+	if s.protocol == "" {
+		return text + " Протокол формального промпта недоступен: ochan не отдал его при запуске сервера."
+	}
+	return text + " Прежде чем отвечать оператору, прочитайте протокол ниже: он определяет, как вы здесь работаете.\n\n" +
+		s.protocol
 }
 
 func (s *server) listTools(msg message) *response {
@@ -337,7 +369,7 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 
 	// Ошибка в аргументах — результат с isError, а не ошибка протокола:
 	// так её видит модель и может исправить вызов сама.
-	args, err := t.argv(s.box, params.Arguments)
+	args, stdin, err := t.argv(s.box, params.Arguments)
 	if err != nil {
 		s.logger.Printf("%s: отказ: %v", t.Name, err)
 		return toolResult(msg.ID, "Вызов отклонён до запуска: "+err.Error(), true)
@@ -356,9 +388,13 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 	}()
 
 	started := time.Now()
-	outcome := s.runner.run(callCtx, args)
-	s.logger.Printf("%s: ochan %s → код %d за %s", t.Name, maskSecrets(strings.Join(args, " ")),
-		outcome.code, time.Since(started).Round(time.Millisecond))
+	outcome := s.runner.run(callCtx, args, stdin)
+	script := ""
+	if stdin != "" {
+		script = fmt.Sprintf(" (сценарий %d байт)", len(stdin))
+	}
+	s.logger.Printf("%s: ochan %s%s → код %d за %s", t.Name, maskSecrets(strings.Join(args, " ")),
+		script, outcome.code, time.Since(started).Round(time.Millisecond))
 
 	// Отменённый вызов остаётся без ответа: так требует протокол, клиент
 	// его уже не ждёт.
