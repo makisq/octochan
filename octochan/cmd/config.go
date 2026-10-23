@@ -60,7 +60,8 @@ func initConfig() error {
 	viper.SetDefault("defaults.module_command_timeout", "10m")
 	viper.SetDefault("defaults.plugin_log_level", "warn")
 	viper.SetDefault("defaults.allow_unverified_modules", false)
-	viper.SetDefault("defaults.token_timer_enabled", true)
+	// Напоминание о смене токена RLM — по желанию: ochan timer on.
+	viper.SetDefault("defaults.token_timer_enabled", false)
 	viper.SetDefault("defaults.token_lifetime", "20m")
 
 	// Почта. Пароль сюда не кладётся никогда — он читается из переменной

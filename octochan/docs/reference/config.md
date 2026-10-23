@@ -17,8 +17,8 @@
 | `api_url` | `""` | адрес API исполнителя RLM; без него сценарии RLM не планируются и не выполняются |
 | `http_timeout` | `30s` | предел одного запроса к API |
 | `auto_check_status` | `false` | `true` — `apply` всегда ждёт завершения задач, как с `--wait` |
-| `token_timer_enabled` | `true` | напоминать о смене токена API (`ochan timer on\|off`) |
-| `token_lifetime` | `20m` | время жизни токена для напоминания |
+| `token_timer_enabled` | `false` | напоминать в оболочке о смене токена API (`ochan timer on\|off`); только для токена, сохранённого `ochan auth` |
+| `token_lifetime` | `20m` | время жизни токена для напоминания, от его сохранения |
 | `max_parallel_tasks` | `5` | одновременных итераций `parallel for` |
 | `scenario_path` | `~/.octochan/scenarios` | куда `ochan srs` сохраняет сценарии |
 | `log_path` | `~/.octochan/logs` | каталог журнала ochan |
