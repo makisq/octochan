@@ -2,6 +2,7 @@ package lang
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -74,12 +75,34 @@ func (p *Parser) parseFile(name string) (*File, error) {
 			return file, nil
 		}
 
-		if p.check(TokenAlias) {
+		switch p.peek().Kind {
+		case TokenAlias:
 			decl, err := p.parseAlias()
 			if err != nil {
 				return nil, err
 			}
 			file.Aliases = append(file.Aliases, decl)
+			continue
+		case TokenRecord:
+			decl, err := p.parseRecord()
+			if err != nil {
+				return nil, err
+			}
+			file.Records = append(file.Records, decl)
+			continue
+		case TokenInterface:
+			decl, err := p.parseInterface()
+			if err != nil {
+				return nil, err
+			}
+			file.Interfaces = append(file.Interfaces, decl)
+			continue
+		case TokenImport:
+			decl, err := p.parseImport()
+			if err != nil {
+				return nil, err
+			}
+			file.Imports = append(file.Imports, decl)
 			continue
 		}
 
@@ -186,11 +209,138 @@ func (p *Parser) parseOptionalType() (TypeName, error) {
 		return "", err
 	}
 
-	declared, err := ParseTypeName(typeTok.Text)
-	if err != nil {
-		return "", p.errorf(typeTok.Pos, "%v", err)
+	if declared, err := ParseTypeName(typeTok.Text); err == nil {
+		return declared, nil
 	}
-	return declared, nil
+	// Своё имя — запись или интерфейс, в том числе из пакета: пакет.Тип.
+	// Есть ли такой тип, решает проверка: объявление может стоять ниже.
+	name := typeTok.Text
+	if p.match(TokenDot) {
+		memberTok, err := p.expect(TokenIdent, "после точки — имя типа из пакета")
+		if err != nil {
+			return "", err
+		}
+		name += "." + memberTok.Text
+	}
+	return TypeName(name), nil
+}
+
+// parseRecord разбирает record Имя { поле[: тип][ = значение] … }.
+func (p *Parser) parseRecord() (*RecordDecl, error) {
+	recTok := p.advance()
+	nameTok, err := p.expect(TokenIdent, "— имя записи")
+	if err != nil {
+		return nil, err
+	}
+	decl := &RecordDecl{Pos: recTok.Pos, Name: nameTok.Text, Doc: p.docComment(recTok.Pos.Line)}
+	err = p.parseMembers("записи "+nameTok.Text, func() error {
+		fieldTok, err := p.expect(TokenIdent, "— имя поля")
+		if err != nil {
+			return err
+		}
+		if _, dup := decl.field(fieldTok.Text); dup {
+			return p.errorf(fieldTok.Pos, "поле %q объявлено дважды", fieldTok.Text)
+		}
+		field := FieldDecl{Pos: fieldTok.Pos, Name: fieldTok.Text}
+		if field.Type, err = p.parseOptionalType(); err != nil {
+			return err
+		}
+		if p.match(TokenAssign) {
+			if field.Default, err = p.parseExpr(); err != nil {
+				return err
+			}
+		}
+		decl.Fields = append(decl.Fields, field)
+		return nil
+	})
+	return decl, err
+}
+
+// parseInterface разбирает interface Имя { поле: тип; метод(a, b) … }.
+func (p *Parser) parseInterface() (*InterfaceDecl, error) {
+	ifaceTok := p.advance()
+	nameTok, err := p.expect(TokenIdent, "— имя интерфейса")
+	if err != nil {
+		return nil, err
+	}
+	decl := &InterfaceDecl{Pos: ifaceTok.Pos, Name: nameTok.Text, Doc: p.docComment(ifaceTok.Pos.Line)}
+	seen := map[string]bool{}
+	err = p.parseMembers("интерфейса "+nameTok.Text, func() error {
+		memberTok, err := p.expect(TokenIdent, "— имя поля или метода")
+		if err != nil {
+			return err
+		}
+		if seen[memberTok.Text] {
+			return p.errorf(memberTok.Pos, "%q объявлено в интерфейсе дважды", memberTok.Text)
+		}
+		seen[memberTok.Text] = true
+		if p.match(TokenLParen) {
+			params, _, err := p.parseParams()
+			if err != nil {
+				return err
+			}
+			decl.Methods = append(decl.Methods, MethodDecl{Pos: memberTok.Pos, Name: memberTok.Text, Params: params})
+			return nil
+		}
+		field := FieldDecl{Pos: memberTok.Pos, Name: memberTok.Text}
+		if field.Type, err = p.parseOptionalType(); err != nil {
+			return err
+		}
+		decl.Fields = append(decl.Fields, field)
+		return nil
+	})
+	return decl, err
+}
+
+// parseMembers разбирает тело { … } объявления: элементы через перевод
+// строки, точку с запятой или запятую.
+func (p *Parser) parseMembers(what string, member func() error) error {
+	p.skipNewlines()
+	openTok, err := p.expect(TokenLBrace, "— тело "+what)
+	if err != nil {
+		return err
+	}
+	for {
+		for p.check(TokenNewline) || p.check(TokenSemicolon) || p.check(TokenComma) {
+			p.advance()
+		}
+		if p.match(TokenRBrace) {
+			return nil
+		}
+		if p.atEOF() {
+			return p.errorf(openTok.Pos, "тело %s не закрыто: нет }", what)
+		}
+		if err := member(); err != nil {
+			return err
+		}
+		switch p.peek().Kind {
+		case TokenNewline, TokenSemicolon, TokenComma, TokenRBrace:
+		default:
+			return p.errorf(p.peek().Pos, "лишнее в теле %s: %s", what, p.peek())
+		}
+	}
+}
+
+// importLine — import пакет [vВЕРСИЯ] [as имя] [# комментарий].
+var importLine = regexp.MustCompile(`^\s*import\s+([\p{L}_][\p{L}\p{N}_]*)` +
+	`(?:\s+v?(\d+(?:\.\d+){0,2}))?(?:\s+as\s+([\p{L}_][\p{L}\p{N}_]*))?\s*(?:#.*)?$`)
+
+// parseImport разбирает строку import целиком: версия вида 2.1 — не
+// выражение языка, и разбирать её лексемами незачем.
+func (p *Parser) parseImport() (*ImportDecl, error) {
+	importTok := p.advance()
+	line := ""
+	if importTok.Pos.Line-1 < len(p.src) {
+		line = p.src[importTok.Pos.Line-1]
+	}
+	for !p.check(TokenNewline) && !p.check(TokenSemicolon) && !p.atEOF() {
+		p.advance()
+	}
+	m := importLine.FindStringSubmatch(line)
+	if m == nil || importTok.Pos.Col != strings.Index(line, "import")+1 {
+		return nil, p.errorf(importTok.Pos, "import пишется отдельной строкой: import пакет [vВЕРСИЯ] [as имя], например import devops v2 as d")
+	}
+	return &ImportDecl{Pos: importTok.Pos, Package: m[1], Version: m[2], As: m[3]}, nil
 }
 
 func (p *Parser) parseBlock() (*Block, error) {
@@ -247,6 +397,8 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseBlock()
 	case TokenAlias:
 		return nil, p.errorf(p.peek().Pos, "алиас можно объявлять только на верхнем уровне файла")
+	case TokenRecord, TokenInterface, TokenImport:
+		return nil, p.errorf(p.peek().Pos, "%s можно писать только на верхнем уровне файла", p.peek().Text)
 	case TokenVar:
 		return p.parseVar()
 	case TokenLet:
@@ -287,7 +439,32 @@ func (p *Parser) parseStatement() (Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
+	if p.check(TokenAssign) {
+		return p.parseSet(expr)
+	}
 	return &ExprStmt{Pos: pos, Expr: expr}, p.endStatement()
+}
+
+// parseSet разбирает присваивание полю или элементу: x.поле = v,
+// x["ключ"] = v, x[0] = v.
+func (p *Parser) parseSet(target Expr) (Stmt, error) {
+	assignTok := p.advance()
+	switch t := target.(type) {
+	case *Field, *Index:
+	case *Ident:
+		if t.Module == "" {
+			return nil, p.errorf(assignTok.Pos, "неожиданное =")
+		}
+		// a.b разобрано как имя из пакета; слева от = это поле переменной.
+		target = &Field{Pos: t.Pos, Target: &Ident{Pos: t.Pos, Name: t.Module}, Name: t.Name}
+	default:
+		return nil, p.errorf(assignTok.Pos, "присвоить можно переменной, полю (x.поле = …) или элементу (x[ключ] = …)")
+	}
+	value, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	return &SetStmt{Pos: assignTok.Pos, Target: target, Value: value}, p.endStatement()
 }
 
 // parseVar разбирает объявление переменной:
@@ -698,6 +875,25 @@ func (p *Parser) parsePostfix() (Expr, error) {
 			}
 			expr = call
 
+		case p.check(TokenDot):
+			// x.поле и x.метод(…) после любого выражения; a.b после имени
+			// уже разобран как имя из пакета — что это, решает выполнение.
+			p.advance()
+			nameTok, err := p.expect(TokenIdent, "после точки — имя поля или метода")
+			if err != nil {
+				return nil, err
+			}
+			if p.check(TokenLParen) {
+				call, err := p.parseCallArgs(&Ident{Pos: nameTok.Pos, Name: nameTok.Text})
+				if err != nil {
+					return nil, err
+				}
+				call.Receiver = expr
+				expr = call
+				continue
+			}
+			expr = &Field{Pos: nameTok.Pos, Target: expr, Name: nameTok.Text}
+
 		case p.check(TokenLBracket):
 			openTok := p.advance()
 			index, err := p.parseExpr()
@@ -718,13 +914,31 @@ func (p *Parser) parsePostfix() (Expr, error) {
 func (p *Parser) parseCallArgs(callee *Ident) (*Call, error) {
 	openTok := p.advance() // (
 
-	var args []Expr
+	var (
+		args  []Expr
+		names []string
+	)
 	for !p.check(TokenRParen) {
+		// Именованный аргумент: имя: значение.
+		name := ""
+		if p.check(TokenIdent) && p.tokens[p.pos+1].Kind == TokenColon {
+			nameTok := p.advance()
+			p.advance()
+			name = nameTok.Text
+			for _, seen := range names {
+				if seen == name {
+					return nil, p.errorf(nameTok.Pos, "аргумент %s передан дважды", name)
+				}
+			}
+		} else if len(names) > 0 && names[len(names)-1] != "" {
+			return nil, p.errorf(p.peek().Pos, "аргументы по порядку пишутся до именованных")
+		}
 		arg, err := p.parseExpr()
 		if err != nil {
 			return nil, err
 		}
 		args = append(args, arg)
+		names = append(names, name)
 
 		if !p.match(TokenComma) {
 			break
@@ -734,7 +948,11 @@ func (p *Parser) parseCallArgs(callee *Ident) (*Call, error) {
 	if _, err := p.expect(TokenRParen, "в списке аргументов"); err != nil {
 		return nil, err
 	}
-	return &Call{Pos: openTok.Pos, Callee: callee, Args: args}, nil
+	call := &Call{Pos: openTok.Pos, Callee: callee, Args: args}
+	if call.Names = names; !call.named() {
+		call.Names = nil
+	}
+	return call, nil
 }
 
 func (p *Parser) parsePrimary() (Expr, error) {

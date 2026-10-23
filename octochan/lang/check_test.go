@@ -14,10 +14,8 @@ func check(t *testing.T, src string) []Problem {
 		t.Fatalf("разбор не удался: %v\nисходник:\n%s", err, src)
 	}
 	registry := NewRegistry()
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			t.Fatalf("регистрация не удалась: %v", err)
-		}
+	if err := registry.AddFile("", file); err != nil {
+		t.Fatalf("регистрация не удалась: %v", err)
 	}
 	return Check(file, registry)
 }
@@ -177,10 +175,8 @@ func TestCheckRegistryFindsBrokenLibraryAlias(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, decl := range file.Aliases {
-			if err := registry.Add(module, decl); err != nil {
-				t.Fatal(err)
-			}
+		if err := registry.AddFile(module, file); err != nil {
+			t.Fatal(err)
 		}
 	}
 
@@ -228,10 +224,8 @@ func TestUsesFollowsCallsThroughLibrary(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, decl := range file.Aliases {
-			if err := registry.Add(module, decl); err != nil {
-				t.Fatal(err)
-			}
+		if err := registry.AddFile(module, file); err != nil {
+			t.Fatal(err)
 		}
 	}
 
@@ -239,10 +233,8 @@ func TestUsesFollowsCallsThroughLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			t.Fatal(err)
-		}
+	if err := registry.AddFile("", file); err != nil {
+		t.Fatal(err)
 	}
 
 	var names []string

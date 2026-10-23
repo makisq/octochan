@@ -188,6 +188,9 @@ type Interpreter struct {
 
 	stack []string
 
+	// conforming — интерфейсы, соответствие которым проверяется сейчас.
+	conforming map[*InterfaceDecl]bool
+
 	// clock — время запуска сценария: его отдаёт now(). seed — зерно
 	// rand(). Оба фиксируются в заявке: план и выполнение видят одно
 	// время и одну случайность, иначе выполнилось бы не согласованное.
@@ -366,9 +369,44 @@ func (in *Interpreter) execStmt(stmt Stmt, env *scope) error {
 
 	case *Continue:
 		return errContinue
+
+	case *SetStmt:
+		return in.execSet(s, env)
 	}
 
 	return in.errorf(stmt.Position(), "неизвестная инструкция %T", stmt)
+}
+
+// execSet — x.поле = значение и x[ключ] = значение. Меняется сам объект,
+// а не переменная, поэтому так можно и с переменной из let.
+func (in *Interpreter) execSet(s *SetStmt, env *scope) error {
+	value, err := in.eval(s.Value, env)
+	if err != nil {
+		return err
+	}
+	switch target := s.Target.(type) {
+	case *Field:
+		object, err := in.eval(target.Target, env)
+		if err != nil {
+			return err
+		}
+		if err := in.setMember(object, target.Name, value); err != nil {
+			return in.wrap(s.Pos, err)
+		}
+	case *Index:
+		object, err := in.eval(target.Target, env)
+		if err != nil {
+			return err
+		}
+		index, err := in.eval(target.Index, env)
+		if err != nil {
+			return err
+		}
+		if err := in.setIndex(object, index, value); err != nil {
+			return in.wrap(s.Pos, err)
+		}
+	}
+	return nil
 }
 
 // assign объявляет переменную или присваивает ей.
@@ -391,7 +429,7 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 			}
 			value = zero
 		}
-		if err := checkType(node.Declared, fmt.Sprintf("переменная %s", node.Name), value); err != nil {
+		if err := in.checkType(node.Declared, fmt.Sprintf("переменная %s", node.Name), value); err != nil {
 			return in.wrap(node.Pos, err)
 		}
 		env.define(node.Name, node.Declared, value)
@@ -413,7 +451,7 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 		return in.errorf(node.Pos, "%s — переменная снаружи функции: функция видит её значение "+
 			"на момент создания и не меняет его; объявите свою: var %s = …", node.Name, node.Name)
 	}
-	if !declared.Accepts(value) {
+	if !in.accepts(declared, value) {
 		return in.wrap(node.Pos, reassignError(node.Name, declared, inferred, value))
 	}
 	env.set(node.Name, value)
@@ -456,7 +494,7 @@ func (in *Interpreter) execFor(node *For, env *scope) error {
 		}
 
 		if node.Declared != "" {
-			if err := checkType(node.Declared,
+			if err := in.checkType(node.Declared,
 				fmt.Sprintf("элемент цикла %s", node.Variable), item); err != nil {
 				return in.wrap(node.Pos, err)
 			}
@@ -584,6 +622,17 @@ func (in *Interpreter) eval(expr Expr, env *scope) (Value, error) {
 
 	case *FuncRef:
 		return in.funcRef(e.Target, env)
+
+	case *Field:
+		target, err := in.eval(e.Target, env)
+		if err != nil {
+			return nil, err
+		}
+		value, err := in.fieldOf(target, e.Name)
+		if err != nil {
+			return nil, in.wrap(e.Pos, err)
+		}
+		return value, nil
 	}
 
 	return nil, in.errorf(expr.Position(), "неизвестное выражение %T", expr)
@@ -603,6 +652,16 @@ func (in *Interpreter) evalIdent(e *Ident, env *scope) (Value, error) {
 			return nil, in.errorf(e.Pos, "%s — встроенная функция, вызывайте её со скобками: %s()", e.Name, e.Name)
 		}
 		return nil, in.errorf(e.Pos, "неизвестное имя %q%s", e.Name, in.suggest(e.Name))
+	}
+
+	// x.поле, где x — переменная: переменная перекрывает пакет с тем же
+	// именем, как и везде.
+	if value, ok := env.lookup(e.Module); ok {
+		field, err := in.fieldOf(value, e.Name)
+		if err != nil {
+			return nil, in.wrap(e.Pos, err)
+		}
+		return field, nil
 	}
 
 	decl, err := in.registry.Lookup(e.Module, e.Name)
@@ -754,23 +813,7 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 
 	switch right := e.Right.(type) {
 	case *Call:
-		fn, err := in.callTarget(right, env)
-		if err != nil {
-			return nil, err
-		}
-		args := make([]Value, 0, len(right.Args)+1)
-		args = append(args, left)
-		for _, arg := range right.Args {
-			value, err := in.eval(arg, env)
-			if err != nil {
-				return nil, err
-			}
-			args = append(args, value)
-		}
-		if fn != nil {
-			return in.callValue(fn, args, right.Pos)
-		}
-		return in.dispatch(right.Callee, args, right.Pos)
+		return in.evalCallWith(right, env, left)
 
 	case *Ident:
 		// Имя без скобок: a | печать эквивалентно печать(a).
@@ -781,7 +824,7 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 		if fn != nil {
 			return in.callValue(fn, []Value{left}, right.Pos)
 		}
-		return in.dispatch(right, []Value{left}, right.Pos)
+		return in.dispatch(right, []Value{left}, nil, right.Pos)
 
 	default:
 		// Справа — выражение, дающее функцию: x | f >> g, x | fn(v) => v * 2.
@@ -903,22 +946,96 @@ func (in *Interpreter) evalIndex(e *Index, env *scope) (Value, error) {
 }
 
 func (in *Interpreter) evalCall(e *Call, env *scope) (Value, error) {
-	fn, err := in.callTarget(e, env)
-	if err != nil {
-		return nil, err
-	}
-	args := make([]Value, 0, len(e.Args))
-	for _, arg := range e.Args {
-		value, err := in.eval(arg, env)
+	return in.evalCallWith(e, env, nil)
+}
+
+// evalCallWith вычисляет вызов; piped — значение слева от конвейера, оно
+// становится первым аргументом.
+//
+// x.f(a): если у записи или словаря x есть поле f с функцией — вызывается
+// она; иначе это f(x, a) — для алиаса, встроенной функции или переменной
+// с функцией. a.b(…), где a — переменная, — то же самое: переменная
+// перекрывает пакет с тем же именем.
+func (in *Interpreter) evalCallWith(e *Call, env *scope, piped Value) (Value, error) {
+	callee := e.Callee
+	var receiver Value
+	hasReceiver := false
+	switch {
+	case e.Receiver != nil:
+		value, err := in.eval(e.Receiver, env)
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, value)
+		receiver, hasReceiver = value, true
+	case callee != nil && callee.Module != "":
+		if value, ok := env.lookup(callee.Module); ok {
+			receiver, hasReceiver = value, true
+			callee = &Ident{Pos: callee.Pos, Name: callee.Name}
+		}
 	}
+
+	var args []Value
+	var names []string
+	if hasReceiver {
+		if member, ok := memberOf(receiver, callee.Name); ok && isCallable(member) {
+			// Поле-функция: вызывается без самого значения.
+			args, names, err := in.callArgs(e, env, piped)
+			if err != nil {
+				return nil, err
+			}
+			return in.callNamed(member, args, names, e.Pos)
+		}
+		args = append(args, receiver)
+		names = append(names, "")
+	}
+
+	fn, err := in.callTarget(&Call{Pos: e.Pos, Callee: callee, Fn: e.Fn}, env)
+	if err != nil {
+		return nil, err
+	}
+	rest, restNames, err := in.callArgs(e, env, piped)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, rest...)
+	names = append(names, restNames...)
 	if fn != nil {
-		return in.callValue(fn, args, e.Pos)
+		return in.callNamed(fn, args, names, e.Pos)
 	}
-	return in.dispatch(e.Callee, args, e.Pos)
+	return in.dispatch(callee, args, names, e.Pos)
+}
+
+// callArgs вычисляет аргументы вызова; piped — первым.
+func (in *Interpreter) callArgs(e *Call, env *scope, piped Value) ([]Value, []string, error) {
+	args := make([]Value, 0, len(e.Args)+1)
+	names := make([]string, 0, len(e.Args)+1)
+	if piped != nil {
+		args = append(args, piped)
+		names = append(names, "")
+	}
+	for i, arg := range e.Args {
+		value, err := in.eval(arg, env)
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args, value)
+		name := ""
+		if i < len(e.Names) {
+			name = e.Names[i]
+		}
+		names = append(names, name)
+	}
+	return args, names, nil
+}
+
+// unnamed — нет ли среди имён аргументов ни одного.
+func unnamed(names []string) bool {
+	for _, name := range names {
+		if name != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // isCallable — значение, которое можно вызвать: функция, морфизм или
@@ -933,6 +1050,28 @@ func isCallable(v Value) bool {
 
 // callValue вызывает функцию, применяет морфизм или функтор.
 func (in *Interpreter) callValue(target Value, args []Value, pos Position) (Value, error) {
+	return in.callNamed(target, args, nil, pos)
+}
+
+// callNamed — callValue с именами аргументов.
+func (in *Interpreter) callNamed(target Value, args []Value, names []string, pos Position) (Value, error) {
+	if !unnamed(names) {
+		fn, ok := target.(*FuncValue)
+		var params []string
+		switch {
+		case ok && fn.Decl != nil:
+			params = fn.Decl.Params
+		case ok && fn.Builtin == "" && fn.Base == nil && fn.Chain == nil:
+			params = fn.Params
+		default:
+			return nil, in.errorf(pos, "%s принимает аргументы только по порядку", Display(target))
+		}
+		bound, err := fillArgs(Display(target), params, args, names)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		args = bound
+	}
 	switch t := target.(type) {
 	case *FuncValue:
 		return in.callFunc(t, args, pos)
@@ -1223,7 +1362,7 @@ func (in *Interpreter) callLambda(fn *FuncValue, args []Value, pos Position) (Va
 	for i, param := range fn.Params {
 		declared := fn.ParamTypes[i]
 		if declared != "" {
-			if err := checkType(declared, fmt.Sprintf("параметр %s функции %s", param, fn.Text()), args[i]); err != nil {
+			if err := in.checkType(declared, fmt.Sprintf("параметр %s функции %s", param, fn.Text()), args[i]); err != nil {
 				return nil, in.wrap(pos, err)
 			}
 		}
@@ -1257,7 +1396,7 @@ func (in *Interpreter) callLambda(fn *FuncValue, args []Value, pos Position) (Va
 	}
 
 	if fn.Returns != "" {
-		if err := checkType(fn.Returns, "результат функции "+fn.Text(), result); err != nil {
+		if err := in.checkType(fn.Returns, "результат функции "+fn.Text(), result); err != nil {
 			return nil, in.wrap(pos, err)
 		}
 	}
@@ -1266,22 +1405,46 @@ func (in *Interpreter) callLambda(fn *FuncValue, args []Value, pos Position) (Va
 
 // dispatch вызывает алиас или встроенную функцию с готовыми аргументами.
 // Общая точка для обычного вызова и для конвейера.
-func (in *Interpreter) dispatch(callee *Ident, args []Value, pos Position) (Value, error) {
+func (in *Interpreter) dispatch(callee *Ident, args []Value, names []string, pos Position) (Value, error) {
 	// Алиасы имеют приоритет: пользователь может переопределить встроенное имя
 	// собственным алиасом, и это его осознанный выбор.
-	if decl, err := in.registry.Lookup(callee.Module, callee.Name); err == nil {
-		return in.invoke(decl, args, pos)
-	} else if callee.Module != "" {
+	decl, aliasErr := in.registry.Lookup(callee.Module, callee.Name)
+	if aliasErr == nil {
+		bound, err := fillArgs("алиас "+decl.Name, decl.Params, args, names)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return in.invoke(decl, bound, pos)
+	}
+
+	// Запись создаётся вызовом по имени: Сервер("db1", порт: 5433).
+	if typeDecl, err := in.registry.LookupType(callee.Module, callee.Name); err == nil {
+		switch d := typeDecl.(type) {
+		case *RecordDecl:
+			record, err := in.construct(d, args, names)
+			if err != nil {
+				return nil, in.wrap(pos, err)
+			}
+			return record, nil
+		case *InterfaceDecl:
+			return nil, in.errorf(pos, "%s — интерфейс: его не создают, ему соответствуют", d.Qualified())
+		}
+	}
+
+	if callee.Module != "" {
 		// Встроенные функции с точкой — time.now, time.sleep — живут в
 		// своём пространстве; пакет с тем же именем их перекрывает.
 		if _, ok := in.builtins[callee.Qualified()]; !ok {
-			return nil, in.wrap(pos, err)
+			return nil, in.wrap(pos, aliasErr)
 		}
 	}
 
 	builtin, ok := in.builtins[callee.Qualified()]
 	if !ok {
 		return nil, in.errorf(pos, "неизвестная функция %q%s", callee.Qualified(), in.suggest(callee.Name))
+	}
+	if !unnamed(names) {
+		return nil, in.errorf(pos, "%s: встроенные функции принимают аргументы только по порядку", callee.Qualified())
 	}
 
 	if err := builtin.checkArity(len(args)); err != nil {
@@ -1320,7 +1483,7 @@ func (in *Interpreter) invoke(decl *AliasDecl, args []Value, pos Position) (Valu
 		// Проверка на входе — главный смысл аннотаций: ошибка всплывает
 		// на границе алиаса, а не в его середине.
 		if declared != "" {
-			if err := checkType(declared,
+			if err := in.checkType(declared,
 				fmt.Sprintf("параметр %s алиаса %s", param, decl.Name), args[i]); err != nil {
 				return nil, in.wrap(pos, err)
 			}

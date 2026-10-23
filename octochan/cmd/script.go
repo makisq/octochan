@@ -156,10 +156,8 @@ func loadScript(registry *lang.Registry, src source) (*lang.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			return nil, err
-		}
+	if err := registry.AddFile("", file); err != nil {
+		return nil, err
 	}
 
 	if problems := lang.Check(file, registry); len(problems) > 0 {
@@ -228,15 +226,15 @@ func fingerprints(effects []lang.Effect) []string {
 func libraryHashes(file *lang.File, registry *lang.Registry) (map[string]string, map[string]string, error) {
 	hashes := make(map[string]string)
 	packages := make(map[string]string)
-	for _, decl := range lang.Uses(file, registry) {
-		if decl.Module != "" {
+	for _, dep := range lang.Dependencies(file, registry) {
+		if dep.Module != "" {
 			version := ""
-			if pkg, ok := registry.Package(decl.Module); ok {
+			if pkg, ok := registry.Package(dep.Module); ok {
 				version = pkg.Version
 			}
-			packages[decl.Module] = version
+			packages[dep.Module] = version
 		}
-		path := decl.Pos.File
+		path := dep.File
 		if _, done := hashes[path]; done {
 			continue
 		}

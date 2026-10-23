@@ -61,14 +61,8 @@ var checkCmd = &cobra.Command{
 			// выполняться: со своими алиасами поверх библиотеки, а не с
 			// алиасами соседнего файла.
 			own := registry.Clone()
-			registered := true
-			for _, decl := range file.Aliases {
-				if err := own.Add("", decl); err != nil {
-					problems = append(problems, err.Error())
-					registered = false
-				}
-			}
-			if !registered {
+			if err := own.AddFile("", file); err != nil {
+				problems = append(problems, err.Error())
 				continue
 			}
 

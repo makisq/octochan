@@ -543,6 +543,17 @@ func plain(v Value) (any, error) {
 		}
 		return out, nil
 	}
+	if record, ok := v.(*RecordValue); ok {
+		out := make(map[string]any, len(record.Fields))
+		for name, item := range record.Fields {
+			p, err := plain(item)
+			if err != nil {
+				return nil, err
+			}
+			out[name] = p
+		}
+		return out, nil
+	}
 	if p, ok := v.(interface{ plain() (any, error) }); ok {
 		return p.plain()
 	}

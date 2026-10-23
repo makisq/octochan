@@ -229,6 +229,31 @@ func TestScriptRequestFixesClockAndSeed(t *testing.T) {
 	}
 }
 
+// Запись из библиотеки — такая же зависимость заявки, как алиас: её
+// правка после согласования отменяет выполнение.
+func TestScriptRequestTracksLibraryRecords(t *testing.T) {
+	e := newScriptEnv(t)
+	types := filepath.Join(e.home, ".octochan", "aliases", "types.ochan")
+	e.write(types, "record Настройка {\n    имя: string\n    значение: string = \"200\"\n}\n")
+	e.write(e.path("rec.ochan"), `н = Настройка("max_connections")
+c = config("prod.conf")
+c[н.имя] = н.значение
+save(c, "prod.conf")
+`)
+	resetAliasCache()
+
+	created := e.must("request", "rec.ochan")
+	id := requestIDPattern.FindStringSubmatch(created)[1]
+	if card := e.must("requests", id); !strings.Contains(card, "Алиасы:    "+types) {
+		t.Fatalf("файл записи не попал в заявку:\n%s", card)
+	}
+	e.must("approve", id)
+
+	e.write(types, "record Настройка {\n    имя: string\n    значение: string = \"1\"\n}\n")
+	resetAliasCache()
+	e.fails("файл алиасов "+types+" изменился", "apply", "--request", id)
+}
+
 func TestScriptFlagsNeedSandbox(t *testing.T) {
 	e := newScriptEnv(t)
 	e.fails("действуют только вместе с --sandbox", "plan", "--root", e.work, "tune.ochan")

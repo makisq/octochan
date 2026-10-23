@@ -309,6 +309,20 @@ func (f *FuncValue) Text() string {
 func (*FuncValue) Truthy() bool     { return true }
 func (*FuncValue) TypeName() string { return "функция" }
 
+// RecordValue — запись: значения полей по объявлению. Передаётся
+// указателем, как словарь: поле, изменённое в алиасе, изменено и у
+// вызывающего.
+type RecordValue struct {
+	Decl   *RecordDecl
+	Fields map[string]Value
+}
+
+func (r *RecordValue) Text() string { return Display(r) }
+func (*RecordValue) Truthy() bool   { return true }
+func (r *RecordValue) TypeName() string {
+	return r.Decl.Qualified()
+}
+
 // Display — человекочитаемое представление для печати и отладки.
 func Display(v Value) string {
 	switch val := v.(type) {
@@ -336,6 +350,17 @@ func Display(v Value) string {
 			return "поток в файл " + val.Path
 		}
 		return "поток " + string(val.Kind)
+	case *RecordValue:
+		parts := make([]string, len(val.Decl.Fields))
+		for i, field := range val.Decl.Fields {
+			item := val.Fields[field.Name]
+			shown := Display(item)
+			if _, isString := item.(StringValue); isString {
+				shown = strconv.Quote(shown)
+			}
+			parts[i] = field.Name + ": " + shown
+		}
+		return val.Decl.Qualified() + "(" + strings.Join(parts, ", ") + ")"
 	default:
 		return v.Text()
 	}
@@ -379,6 +404,21 @@ func equalValues(a, b Value) bool {
 	}
 	if isCallable(a) || isCallable(b) {
 		return a == b
+	}
+	if ar, ok := a.(*RecordValue); ok {
+		br, ok := b.(*RecordValue)
+		if !ok || ar.Decl != br.Decl {
+			return false
+		}
+		for _, field := range ar.Decl.Fields {
+			if !equalValues(ar.Fields[field.Name], br.Fields[field.Name]) {
+				return false
+			}
+		}
+		return true
+	}
+	if _, ok := b.(*RecordValue); ok {
+		return false
 	}
 	if _, aNull := a.(NullValue); aNull {
 		_, bNull := b.(NullValue)

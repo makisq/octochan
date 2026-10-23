@@ -78,14 +78,37 @@ type Binary struct {
 
 // Call — вызов алиаса, встроенной функции или функции-значения.
 //
-// Callee — имя: алиас, встроенная функция или переменная с функцией.
-// Fn — вызываемое выражение, когда это не имя: сделать_сумматор(1)(2),
-// функции[0](x). Заполнено ровно одно из двух.
+// Callee — имя: алиас, встроенная функция, запись или переменная с
+// функцией. Fn — вызываемое выражение, когда это не имя:
+// сделать_сумматор(1)(2), функции[0](x). Заполнено ровно одно из двух.
+//
+// Receiver — значение слева от точки: x.f(a) — это f(x, a), а если у
+// записи или словаря x есть поле f с функцией — вызов этой функции.
+// Names — имена аргументов: f(порт: 5432); пустое — аргумент по порядку.
 type Call struct {
+	Pos      Position
+	Callee   *Ident
+	Fn       Expr
+	Receiver Expr
+	Args     []Expr
+	Names    []string
+}
+
+// named сообщает, что у вызова есть именованные аргументы.
+func (c *Call) named() bool {
+	for _, name := range c.Names {
+		if name != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Field — поле записи или ключ словаря через точку: сервер.порт.
+type Field struct {
 	Pos    Position
-	Callee *Ident
-	Fn     Expr
-	Args   []Expr
+	Target Expr
+	Name   string
 }
 
 // FuncLit — функция-значение: fn(x, y) { … } или fn(x) => выражение.
@@ -129,6 +152,7 @@ func (e *Call) Position() Position    { return e.Pos }
 func (e *Index) Position() Position   { return e.Pos }
 func (e *FuncLit) Position() Position { return e.Pos }
 func (e *FuncRef) Position() Position { return e.Pos }
+func (e *Field) Position() Position   { return e.Pos }
 
 func (*Literal) exprNode() {}
 func (*Ident) exprNode()   {}
@@ -140,6 +164,7 @@ func (*Call) exprNode()    {}
 func (*Index) exprNode()   {}
 func (*FuncLit) exprNode() {}
 func (*FuncRef) exprNode() {}
+func (*Field) exprNode()   {}
 
 // ---------------------------------------------------------------------------
 // Инструкции
@@ -222,6 +247,15 @@ type Return struct {
 	Value Expr // может быть nil
 }
 
+// SetStmt — присваивание полю записи, ключу словаря или элементу
+// списка: сервер.порт = 5433, адреса["db1"] = "10.0.0.1". Target — *Field
+// или *Index.
+type SetStmt struct {
+	Pos    Position
+	Target Expr
+	Value  Expr
+}
+
 // Break прерывает цикл.
 type Break struct{ Pos Position }
 
@@ -237,6 +271,7 @@ func (s *Try) Position() Position      { return s.Pos }
 func (s *Return) Position() Position   { return s.Pos }
 func (s *Break) Position() Position    { return s.Pos }
 func (s *Continue) Position() Position { return s.Pos }
+func (s *SetStmt) Position() Position  { return s.Pos }
 
 func (*ExprStmt) stmtNode() {}
 func (*Assign) stmtNode()   {}
@@ -247,6 +282,7 @@ func (*Try) stmtNode()      {}
 func (*Return) stmtNode()   {}
 func (*Break) stmtNode()    {}
 func (*Continue) stmtNode() {}
+func (*SetStmt) stmtNode()  {}
 
 // ---------------------------------------------------------------------------
 // Объявления
@@ -268,9 +304,93 @@ type AliasDecl struct {
 	Doc string
 }
 
-// File — разобранный исходник: объявления алиасов и инструкции верхнего уровня.
-type File struct {
+// FieldDecl — поле записи или требование интерфейса: имя, тип и, у
+// записи, значение по умолчанию.
+type FieldDecl struct {
+	Pos     Position
 	Name    string
-	Aliases []*AliasDecl
-	Stmts   []Stmt
+	Type    TypeName
+	Default Expr
+}
+
+// RecordDecl — объявление записи:
+//
+//	record Сервер {
+//	    имя: string
+//	    порт: int = 5432
+//	}
+//
+// Запись создаётся вызовом по имени: Сервер("db1"), Сервер(имя: "db1").
+type RecordDecl struct {
+	Pos    Position
+	Name   string
+	Fields []FieldDecl
+	Module string
+	Doc    string
+}
+
+// field ищет поле по имени.
+func (r *RecordDecl) field(name string) (FieldDecl, bool) {
+	for _, f := range r.Fields {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return FieldDecl{}, false
+}
+
+// Qualified — имя записи с пакетом.
+func (r *RecordDecl) Qualified() string {
+	if r.Module == "" {
+		return r.Name
+	}
+	return r.Module + "." + r.Name
+}
+
+// MethodDecl — метод, которого требует интерфейс: имя и число параметров
+// после самого значения.
+type MethodDecl struct {
+	Pos    Position
+	Name   string
+	Params []string
+}
+
+// InterfaceDecl — структурный интерфейс: поля и методы, которые должны
+// быть у значения. Объявлять, что запись его реализует, не нужно —
+// подходит любое значение с такими полями, для которого есть такие
+// методы (алиасы, встроенные функции или поля-функции).
+type InterfaceDecl struct {
+	Pos     Position
+	Name    string
+	Fields  []FieldDecl
+	Methods []MethodDecl
+	Module  string
+	Doc     string
+}
+
+// Qualified — имя интерфейса с пакетом.
+func (d *InterfaceDecl) Qualified() string {
+	if d.Module == "" {
+		return d.Name
+	}
+	return d.Module + "." + d.Name
+}
+
+// ImportDecl — import пакет [vВЕРСИЯ] [as имя]: пакет обязан быть
+// подключён и подходить по версии; as даёт ему второе имя.
+type ImportDecl struct {
+	Pos     Position
+	Package string
+	Version string
+	As      string
+}
+
+// File — разобранный исходник: объявления и инструкции верхнего уровня.
+type File struct {
+	Name       string
+	Imports    []*ImportDecl
+	Aliases    []*AliasDecl
+	Records    []*RecordDecl
+	Interfaces []*InterfaceDecl
+	Stmts      []Stmt
 }

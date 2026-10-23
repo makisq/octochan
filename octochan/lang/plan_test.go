@@ -251,10 +251,8 @@ parallel for n in ["1", "2", "3"] { touch("f" + n + ".txt") }
 		t.Fatal(err)
 	}
 	registry := NewRegistry()
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			t.Fatal(err)
-		}
+	if err := registry.AddFile("", file); err != nil {
+		t.Fatal(err)
 	}
 	interp := NewInterpreter(context.Background(), registry, &strings.Builder{})
 	interp.SetDir(dir)

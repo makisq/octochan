@@ -36,10 +36,8 @@ alias wrapper(path) { return store(config(path), path) }
 		t.Fatal(err)
 	}
 	registry := lang.NewRegistry()
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			t.Fatal(err)
-		}
+	if err := registry.AddFile("", file); err != nil {
+		t.Fatal(err)
 	}
 	interp := lang.NewInterpreter(context.Background(), registry, &strings.Builder{})
 	interp.SetDir(dir)

@@ -3,6 +3,7 @@ package lang
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Problem — ошибка, найденная до выполнения.
@@ -31,11 +32,164 @@ const typeNull TypeName = "null"
 // так же, как перед выполнением.
 func Check(file *File, registry *Registry) []Problem {
 	c := newChecker(registry)
+	c.types(file)
 	for _, decl := range file.Aliases {
 		c.alias(decl)
 	}
 	c.stmts(file.Stmts, newCheckScope(nil), flow{topLevel: true})
 	return c.sorted()
+}
+
+// types проверяет объявления записей и интерфейсов файла: типы полей
+// известны, значения по умолчанию им подходят.
+func (c *checker) types(file *File) {
+	for _, decl := range file.Records {
+		for _, field := range decl.Fields {
+			c.typeName(field.Type, field.Pos)
+			if field.Default == nil {
+				continue
+			}
+			if actual := c.expr(field.Default, newCheckScope(nil)); !c.compatible(field.Type, actual) {
+				c.report(field.Default.Position(), "поле %s записи %s: объявлен тип %s, значение по умолчанию типа %s",
+					field.Name, decl.Name, field.Type.Russian(), actual.Russian())
+			}
+		}
+	}
+	for _, decl := range file.Interfaces {
+		for _, field := range decl.Fields {
+			c.typeName(field.Type, field.Pos)
+		}
+	}
+}
+
+// typeName сообщает о неизвестном своём типе в аннотации.
+func (c *checker) typeName(t TypeName, pos Position) {
+	if isBuiltinType(t) {
+		return
+	}
+	decl, err := c.registry.lookupTypeName(t)
+	if err != nil {
+		c.report(pos, "%v", err)
+		return
+	}
+	c.useType(decl)
+}
+
+// compatible — compatible с учётом своих типов: запись подходит только
+// под себя, под интерфейс — если у неё есть его поля и методы.
+func (c *checker) compatible(declared, actual TypeName) bool {
+	if declared == "" || declared == TypeAny || actual == "" || actual == TypeAny {
+		return true
+	}
+	builtin := func(t TypeName) bool { return isBuiltinType(t) || t == typeNull }
+	if builtin(declared) {
+		// Запись под встроенный тип не подходит.
+		return builtin(actual) && compatible(declared, actual)
+	}
+	if actual == typeNull {
+		return false
+	}
+	want, err := c.registry.lookupTypeName(declared)
+	if err != nil {
+		return true // о неизвестном типе сообщено при его объявлении
+	}
+	if !builtin(actual) {
+		// Значение типа-интерфейса — любое подходящее: решит выполнение.
+		if have, err := c.registry.lookupTypeName(actual); err == nil {
+			if _, isInterface := have.(*InterfaceDecl); isInterface {
+				return true
+			}
+		}
+	}
+	switch w := want.(type) {
+	case *RecordDecl:
+		have, err := c.registry.lookupTypeName(actual)
+		return err == nil && have == want
+	case *InterfaceDecl:
+		if isBuiltinType(actual) {
+			// Поля бывают у словаря, методы — у чего угодно: решит выполнение.
+			return len(w.Fields) == 0 || actual == TypeMap
+		}
+		have, err := c.registry.lookupTypeName(actual)
+		if err != nil {
+			return true
+		}
+		record, ok := have.(*RecordDecl)
+		return ok && c.recordConforms(record, w) == ""
+	}
+	return true
+}
+
+// recordConforms объясняет, чего записи не хватает до интерфейса.
+func (c *checker) recordConforms(record *RecordDecl, iface *InterfaceDecl) string {
+	// Метод по умолчанию принимает сам интерфейс: на втором круге считаем,
+	// что запись подходит, как и при выполнении.
+	if c.conforming[iface] {
+		return ""
+	}
+	if c.conforming == nil {
+		c.conforming = map[*InterfaceDecl]bool{}
+	}
+	c.conforming[iface] = true
+	defer delete(c.conforming, iface)
+
+	for _, want := range iface.Fields {
+		have, ok := record.field(want.Name)
+		if !ok {
+			return "нет поля " + want.Name
+		}
+		if want.Type != "" && have.Type != "" && want.Type != have.Type &&
+			!(isBuiltinType(want.Type) && compatible(want.Type, have.Type)) {
+			return fmt.Sprintf("поле %s: нужен тип %s, объявлен %s", want.Name, want.Type.Russian(), have.Type.Russian())
+		}
+	}
+	for _, method := range iface.Methods {
+		if field, ok := record.field(method.Name); ok && callable(field.Type) {
+			continue
+		}
+		if decl, err := c.registry.Lookup("", method.Name); err == nil && len(decl.Params) == len(method.Params)+1 &&
+			c.compatible(decl.ParamTypes[0], TypeName(record.Qualified())) {
+			continue
+		}
+		if builtin, ok := c.builtins[method.Name]; ok && builtin.checkArity(len(method.Params)+1) == nil {
+			continue
+		}
+		return fmt.Sprintf("нет метода %s от %d %s", method.Name, len(method.Params)+1,
+			plural(len(method.Params)+1, "аргумента", "аргументов", "аргументов"))
+	}
+	return ""
+}
+
+// recordOf — объявление записи по типу выражения.
+func (c *checker) recordOf(t TypeName) *RecordDecl {
+	if isBuiltinType(t) || t == TypeAny {
+		return nil
+	}
+	decl, err := c.registry.lookupTypeName(t)
+	if err != nil {
+		return nil
+	}
+	record, _ := decl.(*RecordDecl)
+	return record
+}
+
+// field проверяет x.поле по типу x и возвращает тип поля.
+func (c *checker) field(target TypeName, name string, pos Position) TypeName {
+	if record := c.recordOf(target); record != nil {
+		field, ok := record.field(name)
+		if !ok {
+			c.report(pos, "у записи %s нет поля %q", record.Qualified(), name)
+			return ""
+		}
+		return field.Type
+	}
+	switch target {
+	case TypeConfig:
+		return TypeString
+	case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeList, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
+		c.report(pos, "у значения типа %s нет полей: .%s читают у записи, словаря или конфига", target.Russian(), name)
+	}
+	return ""
 }
 
 // Uses перечисляет алиасы реестра, которые вызывает файл, — прямо или
@@ -91,6 +245,80 @@ func Uses(file *File, registry *Registry) []*AliasDecl {
 	return used
 }
 
+// Dependency — объявление библиотеки, от которого зависит сценарий.
+type Dependency struct {
+	Module string
+	Name   string
+	File   string
+}
+
+// Dependencies перечисляет алиасы, записи и интерфейсы библиотеки, к
+// которым обращается файл, — прямо или через другие алиасы. По ним заявка
+// запоминает файлы библиотеки и версии пакетов.
+func Dependencies(file *File, registry *Registry) []Dependency {
+	c := newChecker(registry)
+	c.uses = make(map[*AliasDecl]bool)
+	c.typeUses = make(map[any]bool)
+	c.types(file)
+
+	visited := make(map[*AliasDecl]bool, len(file.Aliases))
+	for _, decl := range file.Aliases {
+		visited[decl] = true
+		c.alias(decl)
+	}
+	c.stmts(file.Stmts, newCheckScope(nil), flow{topLevel: true})
+	for {
+		var pending []*AliasDecl
+		for decl := range c.uses {
+			if !visited[decl] {
+				pending = append(pending, decl)
+			}
+		}
+		if len(pending) == 0 {
+			break
+		}
+		for _, decl := range pending {
+			visited[decl] = true
+			c.alias(decl)
+		}
+	}
+
+	own := map[any]bool{}
+	for _, decl := range file.Aliases {
+		own[decl] = true
+	}
+	for _, decl := range file.Records {
+		own[decl] = true
+	}
+	for _, decl := range file.Interfaces {
+		own[decl] = true
+	}
+	var deps []Dependency
+	for decl := range c.uses {
+		if !own[decl] {
+			deps = append(deps, Dependency{decl.Module, decl.Name, decl.Pos.File})
+		}
+	}
+	for decl := range c.typeUses {
+		if own[decl] {
+			continue
+		}
+		switch d := decl.(type) {
+		case *RecordDecl:
+			deps = append(deps, Dependency{d.Module, d.Name, d.Pos.File})
+		case *InterfaceDecl:
+			deps = append(deps, Dependency{d.Module, d.Name, d.Pos.File})
+		}
+	}
+	sort.Slice(deps, func(i, j int) bool {
+		if deps[i].Module != deps[j].Module {
+			return deps[i].Module < deps[j].Module
+		}
+		return deps[i].Name < deps[j].Name
+	})
+	return deps
+}
+
 // CheckRegistry проверяет все алиасы реестра — библиотеку целиком.
 func CheckRegistry(registry *Registry) []Problem {
 	c := newChecker(registry)
@@ -106,6 +334,10 @@ type checker struct {
 	problems []Problem
 	// uses собирает алиасы, к которым обращается код; nil — не собирать.
 	uses map[*AliasDecl]bool
+	// typeUses — записи и интерфейсы, к которым обращается код.
+	typeUses map[any]bool
+	// conforming — интерфейсы, соответствие которым проверяется сейчас.
+	conforming map[*InterfaceDecl]bool
 }
 
 func newChecker(registry *Registry) *checker {
@@ -239,6 +471,7 @@ func (c *checker) alias(decl *AliasDecl) {
 		if i < len(decl.ParamTypes) {
 			declared = decl.ParamTypes[i]
 		}
+		c.typeName(declared, decl.Pos)
 		scope.define(param, declared)
 	}
 	// Тело алиаса выполняется прямо в области параметров, без своего блока.
@@ -288,6 +521,22 @@ func (c *checker) stmt(stmt Stmt, scope *checkScope, f flow) {
 			c.expr(s.Value, scope)
 		}
 
+	case *SetStmt:
+		actual := c.expr(s.Value, scope)
+		switch target := s.Target.(type) {
+		case *Field:
+			if t := c.field(c.expr(target.Target, scope), target.Name, target.Pos); !c.compatible(t, actual) {
+				c.report(s.Pos, "поле %s: объявлен тип %s, присваивается значение типа %s",
+					target.Name, t.Russian(), actual.Russian())
+			}
+		case *Index:
+			switch t := c.expr(target.Target, scope); t {
+			case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
+				c.report(s.Pos, "присвоить по индексу можно в список, словарь или конфиг, а не в %s", t.Russian())
+			}
+			c.expr(target.Index, scope)
+		}
+
 	case *Break:
 		c.loopControl("break", s.Pos, f)
 
@@ -315,6 +564,7 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 	}
 
 	if s.Declare {
+		c.typeName(s.Declared, s.Pos)
 		if scope.declaredHere(s.Name) {
 			c.report(s.Pos, "переменная %s уже объявлена в этой области; чтобы изменить значение, "+
 				"присвойте без var и без типа: %s = …", s.Name, s.Name)
@@ -330,7 +580,7 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 			if _, err := zeroValue(s.Declared); err != nil {
 				c.report(s.Pos, "переменная %s: %v", s.Name, err)
 			}
-		case !compatible(s.Declared, actual):
+		case !c.compatible(s.Declared, actual):
 			c.report(s.Pos, "переменная %s: объявлен тип %s, присваивается значение типа %s",
 				s.Name, s.Declared.Russian(), actual.Russian())
 		}
@@ -352,7 +602,7 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 			"на момент создания и не меняет его; объявите свою: var %s = …", s.Name, s.Name)
 		return
 	}
-	if !compatible(declared, actual) {
+	if !c.compatible(declared, actual) {
 		c.report(s.Pos, "переменная %s: %s, присваивается значение типа %s%s",
 			s.Name, typeOrigin(declared, inferred), actual.Russian(), reassignHint(s.Name, declared, actual))
 	}
@@ -367,9 +617,10 @@ func (c *checker) forLoop(s *For, scope *checkScope, f flow) {
 
 	// Тип переменной цикла проверяется по литералу списка: остальное
 	// станет известно только при выполнении.
+	c.typeName(s.Declared, s.Pos)
 	if list, ok := s.Iterable.(*ListLit); ok && s.Declared != "" {
 		for _, element := range list.Elements {
-			if actual := c.infer(element, scope); !compatible(s.Declared, actual) {
+			if actual := c.infer(element, scope); !c.compatible(s.Declared, actual) {
 				c.report(element.Position(), "элемент цикла %s: объявлен тип %s, в списке значение типа %s",
 					s.Variable, s.Declared.Russian(), actual.Russian())
 			}
@@ -427,16 +678,10 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		return c.binary(x, scope)
 
 	case *Call:
-		if x.Fn != nil {
-			if t := c.expr(x.Fn, scope); !callable(t) {
-				c.report(x.Pos, "вызвать можно функцию, получено %s", t.Russian())
-			}
-			for _, arg := range x.Args {
-				c.expr(arg, scope)
-			}
-			return ""
-		}
-		return c.call(x.Callee, x.Args, x.Pos, nil, scope)
+		return c.callExpr(x, scope, nil)
+
+	case *Field:
+		return c.field(c.expr(x.Target, scope), x.Name, x.Pos)
 
 	case *FuncLit:
 		c.funcLit(x, scope)
@@ -563,18 +808,9 @@ func (c *checker) pipe(x *Binary, scope *checkScope) TypeName {
 
 	switch right := x.Right.(type) {
 	case *Call:
-		if right.Fn != nil {
-			if t := c.expr(right.Fn, scope); !callable(t) {
-				c.report(right.Pos, "вызвать можно функцию, получено %s", t.Russian())
-			}
-			for _, arg := range right.Args {
-				c.expr(arg, scope)
-			}
-			return ""
-		}
-		return c.call(right.Callee, right.Args, right.Pos, &left, scope)
+		return c.callExpr(right, scope, &left)
 	case *Ident:
-		return c.call(right, nil, right.Pos, &left, scope)
+		return c.call(right, nil, nil, right.Pos, []TypeName{left}, scope)
 	}
 
 	// Справа — выражение, дающее функцию: x | f >> g.
@@ -621,11 +857,13 @@ func (c *checker) funcLit(x *FuncLit, scope *checkScope) {
 		inner.consts[x.Name] = true
 	}
 	for i, param := range x.Params {
+		c.typeName(x.ParamTypes[i], x.Pos)
 		inner.define(param, x.ParamTypes[i])
 		delete(inner.consts, param)
 	}
+	c.typeName(x.Returns, x.Pos)
 	if x.Expr != nil {
-		if actual := c.expr(x.Expr, inner); x.Returns != "" && !compatible(x.Returns, actual) {
+		if actual := c.expr(x.Expr, inner); x.Returns != "" && !c.compatible(x.Returns, actual) {
 			c.report(x.Expr.Position(), "результат функции: объявлен тип %s, выражение типа %s",
 				x.Returns.Russian(), actual.Russian())
 		}
@@ -679,6 +917,9 @@ func (c *checker) ident(x *Ident, scope *checkScope) TypeName {
 		if declared, ok := scope.lookup(x.Name); ok {
 			return declared
 		}
+	} else if declared, ok := scope.lookup(x.Module); ok {
+		// x.поле, где x — переменная.
+		return c.field(declared, x.Name, x.Pos)
 	}
 
 	// Голое имя алиаса без скобок — вызов без аргументов.
@@ -702,15 +943,79 @@ func (c *checker) ident(x *Ident, scope *checkScope) TypeName {
 	return ""
 }
 
-// call проверяет вызов. piped непуст для правой части конвейера: тогда
-// левое значение — первый аргумент.
-func (c *checker) call(callee *Ident, args []Expr, pos Position, piped *TypeName, scope *checkScope) TypeName {
-	var types []TypeName
-	if piped != nil {
-		types = append(types, *piped)
+// callExpr проверяет выражение вызова: функцию-выражение, x.метод(…) и
+// вызов по имени. piped — тип значения слева от конвейера.
+func (c *checker) callExpr(x *Call, scope *checkScope, piped *TypeName) TypeName {
+	if x.Fn != nil {
+		if t := c.expr(x.Fn, scope); !callable(t) {
+			c.report(x.Pos, "вызвать можно функцию, морфизм или функтор, получено %s", t.Russian())
+		}
+		for _, arg := range x.Args {
+			c.expr(arg, scope)
+		}
+		return ""
 	}
+
+	callee := x.Callee
+	var receiver TypeName
+	hasReceiver := false
+	switch {
+	case x.Receiver != nil:
+		receiver, hasReceiver = c.expr(x.Receiver, scope), true
+	case callee.Module != "":
+		if t, ok := scope.lookup(callee.Module); ok {
+			receiver, hasReceiver = t, true
+			callee = &Ident{Pos: callee.Pos, Name: callee.Name}
+		}
+	}
+	var pre []TypeName
+	if hasReceiver {
+		pre = append(pre, receiver)
+	}
+	if piped != nil {
+		pre = append(pre, *piped)
+	}
+	if !hasReceiver {
+		return c.call(callee, x.Args, x.Names, x.Pos, pre, scope)
+	}
+
+	// Поле-функция записи вызывается без самого значения.
+	if record := c.recordOf(receiver); record != nil {
+		if field, ok := record.field(callee.Name); ok && callable(field.Type) {
+			for _, arg := range x.Args {
+				c.expr(arg, scope)
+			}
+			return ""
+		}
+	}
+	// У словаря и неизвестного значения поле-функция может появиться при
+	// выполнении: если метода с таким именем нет, решит выполнение.
+	if receiver == TypeMap || receiver == "" || receiver == TypeAny {
+		if _, err := c.registry.Lookup("", callee.Name); err != nil && !c.isBuiltin(callee.Name) {
+			if _, ok := scope.lookup(callee.Name); !ok {
+				for _, arg := range x.Args {
+					c.expr(arg, scope)
+				}
+				return ""
+			}
+		}
+	}
+
+	// x.f(a) — это f(x, a); x | r.f(a) — это f(r, x, a).
+	return c.call(callee, x.Args, x.Names, x.Pos, pre, scope)
+}
+
+// call проверяет вызов. pre — типы значений, которые идут первыми
+// аргументами: слева от конвейера и слева от точки.
+func (c *checker) call(callee *Ident, args []Expr, argNames []string, pos Position, pre []TypeName, scope *checkScope) TypeName {
+	types := append([]TypeName(nil), pre...)
 	for _, arg := range args {
 		types = append(types, c.expr(arg, scope))
+	}
+	named := !unnamed(argNames)
+	var names []string
+	if named {
+		names = append(make([]string, len(pre)), argNames...)
 	}
 
 	// Переменная с функцией перекрывает алиас и встроенную функцию; с
@@ -736,14 +1041,32 @@ func (c *checker) call(callee *Ident, args []Expr, pos Position, piped *TypeName
 	decl, err := c.registry.Lookup(callee.Module, callee.Name)
 	if err == nil {
 		c.use(decl)
+		if named {
+			c.namedArgs("алиас "+decl.Name, "параметра", decl.Params, len(types), names, nil, pos)
+			return ""
+		}
 		if c.arity(decl, len(types), pos) {
-			c.paramTypes(decl, types, args, piped != nil, pos)
+			c.paramTypes(decl, types, args, len(pre), pos)
 		}
 		return ""
 	}
 
+	if typeDecl, typeErr := c.registry.LookupType(callee.Module, callee.Name); typeErr == nil {
+		c.useType(typeDecl)
+		switch d := typeDecl.(type) {
+		case *RecordDecl:
+			c.construct(d, types, names, pos)
+			return TypeName(d.Qualified())
+		case *InterfaceDecl:
+			c.report(pos, "%s — интерфейс: его не создают, ему соответствуют", d.Qualified())
+			return ""
+		}
+	}
+
 	if builtin, ok := c.builtins[callee.Qualified()]; ok {
-		if err := builtin.checkArity(len(types)); err != nil {
+		if named {
+			c.report(pos, "%s: встроенные функции принимают аргументы только по порядку", callee.Qualified())
+		} else if err := builtin.checkArity(len(types)); err != nil {
 			c.report(pos, "%s: %v", callee.Qualified(), err)
 		}
 		return builtin.Returns
@@ -768,6 +1091,85 @@ func (c *checker) use(decl *AliasDecl) {
 	}
 }
 
+func (c *checker) useType(decl any) {
+	if c.typeUses != nil {
+		c.typeUses[decl] = true
+	}
+}
+
+// construct проверяет создание записи: число и имена аргументов, все
+// поля без значений по умолчанию заданы, типы подходят.
+func (c *checker) construct(decl *RecordDecl, types []TypeName, names []string, pos Position) {
+	params := make([]string, len(decl.Fields))
+	required := make([]bool, len(decl.Fields))
+	for i, f := range decl.Fields {
+		params[i] = f.Name
+		required[i] = f.Default == nil
+	}
+	slots := c.namedArgs("запись "+decl.Qualified(), "поля", params, len(types), names, required, pos)
+	for i, slot := range slots {
+		if slot < 0 {
+			continue
+		}
+		if field, t := decl.Fields[i], types[slot]; !c.compatible(field.Type, t) {
+			c.report(pos, "поле %s записи %s: объявлен тип %s, передано значение типа %s",
+				field.Name, decl.Qualified(), field.Type.Russian(), t.Russian())
+		}
+	}
+}
+
+// namedArgs проверяет раскладку n аргументов по параметрам. required —
+// какие параметры обязательны (nil — все). Возвращает для каждого
+// параметра номер аргумента или -1.
+func (c *checker) namedArgs(what, kind string, params []string, n int, names []string, required []bool, pos Position) []int {
+	slots := make([]int, len(params))
+	for i := range slots {
+		slots[i] = -1
+	}
+	bound := make([]bool, len(params))
+	for i := 0; i < n; i++ {
+		name := ""
+		if i < len(names) {
+			name = names[i]
+		}
+		if name == "" {
+			if i >= len(params) {
+				c.report(pos, "%s принимает %d %s, передано %d", what, len(params),
+					plural(len(params), "аргумент", "аргумента", "аргументов"), n)
+				return nil
+			}
+			bound[i] = true
+			slots[i] = i
+			continue
+		}
+		index := -1
+		for j, param := range params {
+			if param == name {
+				index = j
+			}
+		}
+		if index < 0 {
+			c.report(pos, "%s: нет %s %q; есть: %s", what, kind, name, strings.Join(params, ", "))
+			continue
+		}
+		if bound[index] {
+			c.report(pos, "%s: %s передан дважды — по порядку и по имени", what, name)
+		}
+		bound[index] = true
+		slots[index] = i
+	}
+	for i, param := range params {
+		if !bound[i] && (required == nil || required[i]) {
+			if required == nil {
+				c.report(pos, "%s: не передан параметр %s", what, param)
+			} else {
+				c.report(pos, "%s: не задано поле %s", what, param)
+			}
+		}
+	}
+	return slots
+}
+
 // arity сообщает о неверном числе аргументов алиаса.
 func (c *checker) arity(decl *AliasDecl, n int, pos Position) bool {
 	if n == len(decl.Params) {
@@ -778,23 +1180,20 @@ func (c *checker) arity(decl *AliasDecl, n int, pos Position) bool {
 	return false
 }
 
-func (c *checker) paramTypes(decl *AliasDecl, types []TypeName, args []Expr, piped bool, pos Position) {
+func (c *checker) paramTypes(decl *AliasDecl, types []TypeName, args []Expr, pre int, pos Position) {
 	for i, actual := range types {
 		if i >= len(decl.ParamTypes) {
 			break
 		}
 		declared := decl.ParamTypes[i]
-		if compatible(declared, actual) {
+		if c.compatible(declared, actual) {
 			continue
 		}
 
 		// Позиция аргумента точнее позиции вызова; у значения из конвейера
 		// своей позиции в этом вызове нет.
 		at := pos
-		argIndex := i
-		if piped {
-			argIndex--
-		}
+		argIndex := i - pre
 		if argIndex >= 0 && argIndex < len(args) {
 			at = args[argIndex].Position()
 		}

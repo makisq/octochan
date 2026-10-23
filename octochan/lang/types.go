@@ -180,7 +180,7 @@ func (t TypeName) Accepts(v Value) bool {
 // typeOf — тип значения: им становится тип переменной, объявленной без
 // аннотации. null типа не задаёт: такая переменная — any.
 func typeOf(v Value) TypeName {
-	switch v.(type) {
+	switch val := v.(type) {
 	case IntValue:
 		return TypeInt
 	case FloatValue:
@@ -203,6 +203,8 @@ func typeOf(v Value) TypeName {
 		return TypeMorph
 	case *FunctorValue:
 		return TypeFunctor
+	case *RecordValue:
+		return TypeName(val.Decl.Qualified())
 	}
 	return TypeAny
 }
@@ -249,15 +251,4 @@ func reassignHint(name string, declared, actual TypeName) string {
 		want = TypeNumber
 	}
 	return fmt.Sprintf(": тип переменной не меняется; для таких значений объявите её как var %s: %s", name, want)
-}
-
-// checkType проверяет значение и возвращает понятную ошибку.
-func checkType(declared TypeName, what string, v Value) error {
-	if declared.Accepts(v) {
-		return nil
-	}
-	// Формулировка нейтральна по роду: what бывает и переменной,
-	// и параметром, и элементом цикла.
-	return fmt.Errorf("%s: объявлен тип %s, получено значение типа %s (%s)",
-		what, declared.Russian(), v.TypeName(), Display(v))
 }

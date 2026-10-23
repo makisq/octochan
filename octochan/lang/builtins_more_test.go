@@ -72,10 +72,8 @@ func runWith(t *testing.T, src string, setup func(*Interpreter)) (string, error)
 		return "", err
 	}
 	registry := NewRegistry()
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			return "", err
-		}
+	if err := registry.AddFile("", file); err != nil {
+		return "", err
 	}
 	var out strings.Builder
 	interp := NewInterpreter(context.Background(), registry, &out)

@@ -91,23 +91,191 @@ func LoadManifest(name, dir string) (*Package, error) {
 type Registry struct {
 	// modules[пространство][имя] = объявление
 	modules map[string]map[string]*AliasDecl
+	// types[пространство][имя] — записи (*RecordDecl) и интерфейсы
+	// (*InterfaceDecl).
+	types map[string]map[string]any
 	// order хранит порядок подключения пакетов для разрешения коротких имён
 	order []string
 	// packages — описания пакетов, у которых есть манифест.
 	packages map[string]*Package
+	// renamed — вторые имена пакетов из import пакет as имя.
+	renamed map[string]string
 }
 
 // NewRegistry создаёт пустой реестр.
 func NewRegistry() *Registry {
 	return &Registry{
 		modules:  map[string]map[string]*AliasDecl{"": {}},
+		types:    map[string]map[string]any{"": {}},
 		packages: map[string]*Package{},
+		renamed:  map[string]string{},
 	}
+}
+
+// resolve переводит второе имя пакета в настоящее.
+func (r *Registry) resolve(module string) string {
+	if real, ok := r.renamed[module]; ok {
+		return real
+	}
+	return module
+}
+
+// AddFile регистрирует всё, что объявлено в файле: импорты, записи,
+// интерфейсы и алиасы.
+func (r *Registry) AddFile(module string, file *File) error {
+	for _, imp := range file.Imports {
+		if err := r.Import(imp); err != nil {
+			return err
+		}
+	}
+	for _, decl := range file.Records {
+		decl.Module = module
+		if err := r.addType(module, decl.Name, decl, decl.Pos); err != nil {
+			return err
+		}
+	}
+	for _, decl := range file.Interfaces {
+		decl.Module = module
+		if err := r.addType(module, decl.Name, decl, decl.Pos); err != nil {
+			return err
+		}
+	}
+	for _, decl := range file.Aliases {
+		if err := r.Add(module, decl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Registry) addType(module, name string, decl any, pos Position) error {
+	space, ok := r.types[module]
+	if !ok {
+		space = map[string]any{}
+		r.types[module] = space
+		if _, known := r.modules[module]; !known && module != "" {
+			r.modules[module] = map[string]*AliasDecl{}
+			r.order = append(r.order, module)
+		}
+	}
+	if _, err := ParseTypeName(name); err == nil {
+		return fmt.Errorf("%s: имя %s занято встроенным типом", pos, name)
+	}
+	if existing, clash := space[name]; clash {
+		return fmt.Errorf("%s: тип %q уже объявлен: %s", pos, name, typePos(existing))
+	}
+	if alias, clash := r.modules[module][name]; clash {
+		return fmt.Errorf("%s: имя %q уже занято алиасом: %s", pos, name, alias.Pos)
+	}
+	space[name] = decl
+	return nil
+}
+
+func typePos(decl any) Position {
+	switch d := decl.(type) {
+	case *RecordDecl:
+		return d.Pos
+	case *InterfaceDecl:
+		return d.Pos
+	}
+	return Position{}
+}
+
+// LookupType ищет запись или интерфейс: с пакетом или по короткому имени,
+// как алиас.
+func (r *Registry) LookupType(module, name string) (any, error) {
+	if module != "" {
+		real := r.resolve(module)
+		space, ok := r.types[real]
+		if !ok {
+			return nil, fmt.Errorf("пакет %q не подключён%s", module, r.suggestModule(module))
+		}
+		decl, ok := space[name]
+		if !ok {
+			return nil, fmt.Errorf("в пакете %s нет типа %q", module, name)
+		}
+		return decl, nil
+	}
+	if decl, ok := r.types[""][name]; ok {
+		return decl, nil
+	}
+	var found any
+	var sources []string
+	for _, pkg := range r.order {
+		if decl, ok := r.types[pkg][name]; ok {
+			found = decl
+			sources = append(sources, pkg)
+		}
+	}
+	switch len(sources) {
+	case 0:
+		return nil, fmt.Errorf("неизвестный тип %q; встроенные: %s", name, strings.Join(knownTypeNames(), ", "))
+	case 1:
+		return found, nil
+	default:
+		return nil, fmt.Errorf("тип %q есть сразу в пакетах %s; уточните пакет, например %s.%s",
+			name, strings.Join(sources, ", "), sources[0], name)
+	}
+}
+
+// lookupTypeName ищет тип по имени из аннотации: «Тип» или «пакет.Тип».
+func (r *Registry) lookupTypeName(t TypeName) (any, error) {
+	module, name, qualified := strings.Cut(string(t), ".")
+	if !qualified {
+		module, name = "", string(t)
+	}
+	return r.LookupType(module, name)
+}
+
+// Import проверяет import: пакет подключён и подходит по версии; as
+// даёт ему второе имя.
+func (r *Registry) Import(imp *ImportDecl) error {
+	if _, ok := r.modules[imp.Package]; !ok || imp.Package == "" {
+		return fmt.Errorf("%s: import %s: пакет не подключён%s", imp.Pos, imp.Package, r.suggestModule(imp.Package))
+	}
+	if imp.Version != "" {
+		pkg, ok := r.packages[imp.Package]
+		if !ok {
+			return fmt.Errorf("%s: import %s v%s: у пакета нет версии — нет %s", imp.Pos, imp.Package, imp.Version, ManifestName)
+		}
+		if !versionMatches(pkg.Version, imp.Version) {
+			return fmt.Errorf("%s: import %s v%s: подключена версия %s", imp.Pos, imp.Package, imp.Version, pkg.Version)
+		}
+	}
+	if imp.As != "" && imp.As != imp.Package {
+		if _, taken := r.modules[imp.As]; taken {
+			return fmt.Errorf("%s: import %s as %s: имя %s уже занято пакетом", imp.Pos, imp.Package, imp.As, imp.As)
+		}
+		if real, taken := r.renamed[imp.As]; taken && real != imp.Package {
+			return fmt.Errorf("%s: import %s as %s: имя %s уже дано пакету %s", imp.Pos, imp.Package, imp.As, imp.As, real)
+		}
+		r.renamed[imp.As] = imp.Package
+	}
+	return nil
+}
+
+// versionMatches — версия подходит под требование: 2 подходит к 2.x.y,
+// 2.1 — к 2.1.y, 2.1.3 — только к 2.1.3.
+func versionMatches(have, want string) bool {
+	h := strings.Split(have, ".")
+	w := strings.Split(want, ".")
+	if len(w) > len(h) {
+		// 2.1 против требования 2.1.0: недостающие части — нули.
+		for len(h) < len(w) {
+			h = append(h, "0")
+		}
+	}
+	for i := range w {
+		if strings.TrimLeft(h[i], "0") != strings.TrimLeft(w[i], "0") {
+			return false
+		}
+	}
+	return true
 }
 
 // Package возвращает описание пакета, если у него есть манифест.
 func (r *Registry) Package(module string) (*Package, bool) {
-	pkg, ok := r.packages[module]
+	pkg, ok := r.packages[r.resolve(module)]
 	return pkg, ok
 }
 
@@ -117,8 +285,20 @@ func (r *Registry) Package(module string) (*Package, bool) {
 func (r *Registry) Clone() *Registry {
 	clone := &Registry{
 		modules:  make(map[string]map[string]*AliasDecl, len(r.modules)),
+		types:    make(map[string]map[string]any, len(r.types)),
 		order:    append([]string(nil), r.order...),
 		packages: make(map[string]*Package, len(r.packages)),
+		renamed:  make(map[string]string, len(r.renamed)),
+	}
+	for as, real := range r.renamed {
+		clone.renamed[as] = real
+	}
+	for module, space := range r.types {
+		copied := make(map[string]any, len(space))
+		for name, decl := range space {
+			copied[name] = decl
+		}
+		clone.types[module] = copied
 	}
 	for module, pkg := range r.packages {
 		clone.packages[module] = pkg
@@ -152,6 +332,9 @@ func (r *Registry) Add(module string, decl *AliasDecl) error {
 		return fmt.Errorf("алиас %q объявлен дважды %s: %s и %s",
 			decl.Name, where, existing.Pos, decl.Pos)
 	}
+	if existing, clash := r.types[module][decl.Name]; clash {
+		return fmt.Errorf("%s: имя %q уже занято типом: %s", decl.Pos, decl.Name, typePos(existing))
+	}
 
 	decl.Module = module
 	space[decl.Name] = decl
@@ -162,6 +345,7 @@ func (r *Registry) Add(module string, decl *AliasDecl) error {
 // сначала среди пользовательских, затем среди пакетов.
 func (r *Registry) Lookup(module, name string) (*AliasDecl, error) {
 	if module != "" {
+		module = r.resolve(module)
 		space, ok := r.modules[module]
 		if !ok {
 			// Частая ошибка: имя файла написано без кавычек, и разбор
@@ -335,11 +519,12 @@ func (r *Registry) LoadFile(module, path string) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	for _, decl := range file.Aliases {
-		if err := r.Add(module, decl); err != nil {
-			return nil, err
-		}
+	if len(file.Imports) > 0 {
+		// Второе имя из import в библиотеке стало бы видно всем сценариям.
+		return nil, fmt.Errorf("%s: import пишут в сценарии; библиотека подключается целиком", file.Imports[0].Pos)
+	}
+	if err := r.AddFile(module, file); err != nil {
+		return nil, err
 	}
 	return file, nil
 }

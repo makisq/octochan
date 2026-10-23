@@ -207,10 +207,8 @@ func TestUsesSeesFunctionReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, decl := range lib.Aliases {
-		if err := registry.Add("lib", decl); err != nil {
-			t.Fatal(err)
-		}
+	if err := registry.AddFile("lib", lib); err != nil {
+		t.Fatal(err)
 	}
 	file, err := Parse("s.ochan", "f = fn lib.a\ng = lib.b >> lib.c\nprint(f(1), g(2))")
 	if err != nil {

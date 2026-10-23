@@ -187,10 +187,8 @@ func prepareScript(registry *lang.Registry, src source, check bool) (*lang.File,
 	if err != nil {
 		return nil, err
 	}
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			return nil, err
-		}
+	if err := registry.AddFile("", file); err != nil {
+		return nil, err
 	}
 	return file, nil
 }
@@ -232,10 +230,8 @@ var evalCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		for _, decl := range file.Aliases {
-			if err := registry.Add("", decl); err != nil {
-				return err
-			}
+		if err := registry.AddFile("", file); err != nil {
+			return err
 		}
 
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())

@@ -115,7 +115,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 			iterScope.define(node.Variable, node.Declared, item)
 
 			if node.Declared != "" {
-				if err := checkType(node.Declared,
+				if err := worker.checkType(node.Declared,
 					fmt.Sprintf("элемент цикла %s", node.Variable), item); err != nil {
 					errs[idx] = worker.wrap(node.Pos, err)
 					return
@@ -272,6 +272,7 @@ func copyValue(v Value) Value {
 // собственного снимка, не копируется бесконечно.
 type copyMemo struct {
 	funcs   map[*FuncValue]*FuncValue
+	records map[*RecordValue]*RecordValue
 	maps    map[uintptr]MapValue
 	configs map[uintptr]config.ConfigMap
 }
@@ -279,6 +280,7 @@ type copyMemo struct {
 func newCopyMemo() *copyMemo {
 	return &copyMemo{
 		funcs:   make(map[*FuncValue]*FuncValue),
+		records: make(map[*RecordValue]*RecordValue),
 		maps:    make(map[uintptr]MapValue),
 		configs: make(map[uintptr]config.ConfigMap),
 	}
@@ -342,6 +344,17 @@ func copyWith(v Value, copied *copyMemo) Value {
 			}
 		}
 		return &out
+
+	case *RecordValue:
+		if done, ok := copied.records[val]; ok {
+			return done
+		}
+		out := &RecordValue{Decl: val.Decl, Fields: make(map[string]Value, len(val.Fields))}
+		copied.records[val] = out
+		for name, item := range val.Fields {
+			out.Fields[name] = copyWith(item, copied)
+		}
+		return out
 
 	case *MorphValue:
 		// Дельта неизменна; морфизм-функция несёт функцию со снимком.
