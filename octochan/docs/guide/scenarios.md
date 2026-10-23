@@ -1,0 +1,103 @@
+# Сценарии исполнителей
+
+YAML-сценарий говорит, **какой сервис** нужен и **над чем**, но не как он
+выполняется. Исполнителя выбирает реестр по имени сервиса: флага «через
+какую систему» нет — внешняя система такой же исполнитель, как любой
+другой.
+
+## Формат
+
+```yaml
+# restart.yaml
+service: pangolin_restart      # сервис — по нему выбирается исполнитель
+parameters:                    # параметры сервиса
+  restart: instance
+targets:                       # цели
+  - svm_ci: CI00000001
+  - svm_ci: CI00000002
+```
+
+Цель задаётся `svm_ci`, списком `ci_list` или `ip`. Некоторым сервисам
+нужен список `items`. Сценарий бывает и в JSON.
+
+```
+$ ochan services
+Сервис                                   Исполнитель
+pangolin_restart                         RLM
+postgresql_se_get_config_files           RLM
+psql_tuning_params_se                    RLM
+psqlse_tuningpgbouncer                   RLM
+```
+
+## Команды
+
+```
+ochan plan restart.yaml                     какие задачи были бы созданы
+ochan apply restart.yaml                    выполнить
+ochan apply restart.yaml restart=cluster    переопределить параметр
+ochan apply restart.yaml --wait             дождаться завершения задач
+ochan status <task_id>                      статус и журнал задачи
+ochan srs restart.yaml                      сохранить в ~/.octochan/scenarios
+ochan request restart.yaml --doc заявка.docx   заявка на выполнение
+```
+
+Переопределения `key=value` заменяют параметры сценария, не меняя файл.
+
+## План
+
+```
+$ ochan plan restart.yaml
+План: restart.yaml (pangolin_restart, исполнитель RLM) -> —
+ВНИМАНИЕ: план прерывает обслуживание
+
+Изменений: 2
+
+  CI00000001
+    задача     pangolin_restart — confirm=true, restart=instance
+  CI00000002
+    задача     pangolin_restart — confirm=true, restart=instance
+```
+
+В режиме плана изменяющие запросы запрещены на уровне API-клиента, поэтому
+план не может создать задачу даже по ошибке. Если исполнителю нужен ответ
+внешней системы уже на этапе подготовки (так делает `psql_tuning_params_se`,
+запускающий разведку), план получается неполным — и об этом сказано прямо:
+
+```
+внимание: модуль psql_tuning_params_se обращается к API на этапе подготовки,
+   поэтому план неполный: показаны цели, но не итоговые параметры
+```
+
+## Исполнитель RLM
+
+```yaml
+defaults:
+  api_url: https://rlm.example.internal/api/tasks.json
+  http_timeout: 30s
+  auto_check_status: false     # true — apply всегда ждёт завершения задач, как с --wait
+  token_timer_enabled: true    # напоминать о смене токена
+  token_lifetime: 20m
+```
+
+```
+ochan auth                     # токен: ввод скрыт, хранится в ~/.octochan/.env (0600)
+export OCTOCHAN_API_TOKEN=...  # либо через окружение
+ochan timer off                # выключить напоминание о смене токена
+```
+
+Без `defaults.api_url` план и выполнение откажут с объяснением; остальные
+команды ochan от него не зависят.
+
+## Откат
+
+Задачи, созданные во внешней системе, необратимы: перезапуск уже
+произошёл, и отменять в ochan нечего. `ochan rollback` для таких записей
+отказывает и говорит об этом прямо, а не делает вид, что откатил.
+
+## Свой исполнитель
+
+Исполнитель — Go-тип с методами `Kind`, `Plan` и `Apply`
+(`scenario.Runner`), зарегистрированный за сервисом. `Plan` обязан ничего
+не менять; если без обращения к внешней системе полного плана не
+построить, он говорит это предупреждением в плане. Встроенные сервисы RLM
+лежат в пакете `module`.
