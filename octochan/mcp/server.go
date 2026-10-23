@@ -337,6 +337,11 @@ func (s *server) instructions() string {
 	} else {
 		text += ", no environment variables"
 	}
+	if len(s.box.net) > 0 {
+		text += ", fetch and curl only to " + strings.Join(s.box.net, ", ")
+	} else {
+		text += ", no network (fetch and curl are refused)"
+	}
 	text += ". For a script written from a formal prompt, pass prompt and report as well: " +
 		"the hard rules are checked against the plan, and the prompt and the report go into the request."
 

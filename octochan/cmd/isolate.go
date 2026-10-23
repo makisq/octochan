@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"octochan/i18n"
 	"octochan/lang"
@@ -46,6 +47,11 @@ type isolatedSpec struct {
 	Roots []string `json:"roots"`
 	Env   []string `json:"env,omitempty"`
 	Live  []string `json:"live,omitempty"`
+	Net   []string `json:"net,omitempty"`
+	// Seed и Clock — зерно rand() и время now() (RFC 3339); пустые —
+	// случайное зерно и текущее время.
+	Seed  int64  `json:"seed,omitempty"`
+	Clock string `json:"clock,omitempty"`
 	// Protected — каталоги, закрытые для встроенных функций.
 	Protected []string `json:"protected,omitempty"`
 
@@ -89,7 +95,7 @@ const maxFrame = 4*maxRollbackBytes + 1<<20
 
 // setBox переносит в задание песочницу языка.
 func (s *isolatedSpec) setBox(box *lang.Sandbox) {
-	s.Roots, s.Env, s.Live = box.Roots(), box.Env(), box.Live()
+	s.Roots, s.Env, s.Live, s.Net = box.Roots(), box.Env(), box.Live(), box.Net()
 }
 
 // isolated выполняет задание в процессе песочницы.
@@ -106,7 +112,7 @@ func isolated(cmd *cobra.Command, spec isolatedSpec, out io.Writer) (*isolatedRe
 	policy := sandbox.Policy{
 		Write:   spec.Roots,
 		Read:    []string{spec.AliasesDir, spec.ModulesDir},
-		Network: len(spec.Live) > 0,
+		Network: len(spec.Live) > 0 || len(spec.Net) > 0,
 	}
 	probe := spec.Mode == "probe"
 	if report := probeSandbox(policy); !probe && viper.GetBool("sandbox.strict") && !report.Full() {
@@ -318,12 +324,25 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 	if err != nil {
 		return fail(err)
 	}
+	if err := box.AllowNet(spec.Net); err != nil {
+		return fail(err)
+	}
 
 	interp := lang.NewInterpreter(context.Background(), registry, out)
 	interp.SetErr(errOut)
 	interp.SetSandbox(box)
 	interp.SetProtected(spec.Protected)
 	interp.SetDir(spec.Dir)
+	if spec.Seed != 0 {
+		interp.SetSeed(spec.Seed)
+	}
+	if spec.Clock != "" {
+		clock, err := time.Parse(time.RFC3339Nano, spec.Clock)
+		if err != nil {
+			return fail(fmt.Errorf("время запуска: %w", err))
+		}
+		interp.SetClock(clock)
+	}
 
 	switch spec.Mode {
 	case "call":

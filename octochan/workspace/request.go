@@ -97,6 +97,13 @@ type ScriptRun struct {
 	Roots     []string `json:"roots,omitempty"`
 	Env       []string `json:"env,omitempty"`
 	Live      []string `json:"live,omitempty"`
+	// Net — хосты, к которым сценарию можно обращаться fetch и curl.
+	Net []string `json:"net,omitempty"`
+
+	// Seed и Clock — зерно rand() и время now(), с которыми строился план:
+	// выполнение видит те же, иначе выполнилось бы не согласованное.
+	Seed  int64  `json:"seed,omitempty"`
+	Clock string `json:"clock,omitempty"`
 
 	// Libraries — файлы алиасов, которые вызывает сценарий, и их суммы
 	// SHA-256 на момент создания заявки.

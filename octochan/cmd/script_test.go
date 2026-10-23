@@ -202,6 +202,33 @@ func TestScriptRequestKeepsSandbox(t *testing.T) {
 	}
 }
 
+// now() и rand() при выполнении заявки возвращают то же, что при
+// построении плана: иначе согласованный план не совпал бы с выполнением.
+func TestScriptRequestFixesClockAndSeed(t *testing.T) {
+	e := newScriptEnv(t)
+	e.write(e.path("stamp.ochan"), "write(\"stamp.txt\", format(\"%s %d\", now(), rand(1000000000)))\n")
+
+	for _, sandboxed := range []bool{false, true} {
+		args := []string{"request", "stamp.ochan"}
+		if sandboxed {
+			args = []string{"request", "--sandbox", "--root", e.work, "stamp.ochan"}
+		}
+		created := e.must(args...)
+		id := requestIDPattern.FindStringSubmatch(created)[1]
+		if card := e.must("requests", id); !strings.Contains(card, "Время:     ") {
+			t.Fatalf("в карточке нет времени плана:\n%s", card)
+		}
+		e.must("approve", id)
+		e.must("apply", "--request", id)
+		if got := e.read("stamp.txt"); !strings.Contains(got, "T") {
+			t.Fatalf("stamp.txt: %q", got)
+		}
+		if err := os.Remove(e.path("stamp.txt")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestScriptFlagsNeedSandbox(t *testing.T) {
 	e := newScriptEnv(t)
 	e.fails("действуют только вместе с --sandbox", "plan", "--root", e.work, "tune.ochan")

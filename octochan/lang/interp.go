@@ -2,13 +2,17 @@ package lang
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"sort"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // maxCallDepth защищает от бесконечной рекурсии: alias a() { a() }
@@ -135,6 +139,13 @@ type Interpreter struct {
 	pending      []pendingAppend
 
 	stack []string
+
+	// clock — время запуска сценария: его отдаёт now(). seed — зерно
+	// rand(). Оба фиксируются в заявке: план и выполнение видят одно
+	// время и одну случайность, иначе выполнилось бы не согласованное.
+	clock time.Time
+	seed  int64
+	rng   *rand.Rand
 }
 
 // NewInterpreter создаёт вычислитель поверх реестра алиасов.
@@ -142,15 +153,43 @@ func NewInterpreter(ctx context.Context, registry *Registry, out io.Writer) *Int
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Interpreter{
+	in := &Interpreter{
 		registry: registry,
 		builtins: DefaultBuiltins(),
 		out:      out,
 		errOut:   os.Stderr,
 		ctx:      ctx,
 		nextCall: new(atomic.Int64),
+		clock:    time.Now(),
 	}
+	in.SetSeed(NewSeed())
+	return in
 }
+
+// NewSeed — случайное зерно для rand().
+func NewSeed() int64 {
+	var raw [8]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return time.Now().UnixNano()
+	}
+	return int64(binary.BigEndian.Uint64(raw[:]) >> 1)
+}
+
+// SetClock задаёт время запуска сценария: его вернёт now().
+func (in *Interpreter) SetClock(t time.Time) { in.clock = t }
+
+// Clock — время запуска сценария.
+func (in *Interpreter) Clock() time.Time { return in.clock }
+
+// SetSeed задаёт зерно rand(): с одним зерном сценарий выдаёт одни и те же
+// случайные числа — в плане и при выполнении.
+func (in *Interpreter) SetSeed(seed int64) {
+	in.seed = seed
+	in.rng = rand.New(rand.NewSource(seed))
+}
+
+// Seed — зерно rand().
+func (in *Interpreter) Seed() int64 { return in.seed }
 
 // SetErr задаёт поток ошибок сценария: туда пишет print(stderr(), …).
 func (in *Interpreter) SetErr(w io.Writer) { in.errOut = w }
@@ -786,16 +825,20 @@ func (in *Interpreter) dispatch(callee *Ident, args []Value, pos Position) (Valu
 	if decl, err := in.registry.Lookup(callee.Module, callee.Name); err == nil {
 		return in.invoke(decl, args, pos)
 	} else if callee.Module != "" {
-		return nil, in.wrap(pos, err)
+		// Встроенные функции с точкой — time.now, time.sleep — живут в
+		// своём пространстве; пакет с тем же именем их перекрывает.
+		if _, ok := in.builtins[callee.Qualified()]; !ok {
+			return nil, in.wrap(pos, err)
+		}
 	}
 
-	builtin, ok := in.builtins[callee.Name]
+	builtin, ok := in.builtins[callee.Qualified()]
 	if !ok {
 		return nil, in.errorf(pos, "неизвестная функция %q%s", callee.Qualified(), in.suggest(callee.Name))
 	}
 
 	if err := builtin.checkArity(len(args)); err != nil {
-		return nil, in.errorf(pos, "%s: %v", callee.Name, err)
+		return nil, in.errorf(pos, "%s: %v", callee.Qualified(), err)
 	}
 
 	result, err := builtin.Fn(in, args)

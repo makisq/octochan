@@ -3,6 +3,7 @@ package lang
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,9 @@ type Sandbox struct {
 	roots []string
 	env   map[string]bool
 	live  map[string]bool
+	// net — хосты, к которым можно обращаться fetch и curl: host или
+	// host:port.
+	net map[string]bool
 }
 
 // NewSandbox создаёт песочницу. Каталоги приводятся к реальным путям:
@@ -40,7 +44,7 @@ func NewSandbox(roots, env, live []string) (*Sandbox, error) {
 		return nil, errors.New("песочнице не задан ни один разрешённый каталог")
 	}
 
-	box := &Sandbox{env: make(map[string]bool), live: make(map[string]bool)}
+	box := &Sandbox{env: make(map[string]bool), live: make(map[string]bool), net: make(map[string]bool)}
 	for _, root := range roots {
 		abs, err := filepath.Abs(root)
 		if err != nil {
@@ -72,6 +76,36 @@ func NewSandbox(roots, env, live []string) (*Sandbox, error) {
 		}
 	}
 	return box, nil
+}
+
+// AllowNet разрешает fetch и curl обращаться к хостам: host или host:port.
+func (s *Sandbox) AllowNet(hosts []string) error {
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" {
+			continue
+		}
+		if strings.Contains(host, "/") {
+			return fmt.Errorf("--allow-net %s: нужен хост или хост:порт, без схемы и пути", host)
+		}
+		s.net[host] = true
+	}
+	return nil
+}
+
+// Net возвращает разрешённые хосты по порядку.
+func (s *Sandbox) Net() []string { return sortedKeys(s.net) }
+
+// checkNet проверяет, можно ли обращаться по адресу.
+func (s *Sandbox) checkNet(u *url.URL) error {
+	host := strings.ToLower(u.Hostname())
+	if s.net[host] || s.net[strings.ToLower(u.Host)] {
+		return nil
+	}
+	if len(s.net) == 0 {
+		return fmt.Errorf("сеть в песочнице закрыта: %s не разрешён (--allow-net %s)", u.Host, host)
+	}
+	return fmt.Errorf("хост %s не разрешён, разрешены: %s", u.Host, strings.Join(s.Net(), ", "))
 }
 
 // Roots возвращает разрешённые каталоги.

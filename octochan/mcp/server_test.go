@@ -888,6 +888,9 @@ func TestScriptSandboxMirrorsServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := box.allowNet([]string{"Status.Example.com", "10.0.0.5:8080"}); err != nil {
+		t.Fatal(err)
+	}
 
 	tools := buildTools(box.liveSchemes())
 	byName := make(map[string]*tool)
@@ -901,7 +904,14 @@ func TestScriptSandboxMirrorsServer(t *testing.T) {
 	}
 	assertArgv(t, args, "plan", "--script", "--bundle", "--sandbox",
 		"--root="+box.roots[0], "--root="+box.roots[1],
-		"--allow-live=postgres", "--allow-env=APP_ENV", "--allow-env=PGPASSWORD", "--", "-")
+		"--allow-live=postgres", "--allow-env=APP_ENV", "--allow-env=PGPASSWORD",
+		"--allow-net=10.0.0.5:8080", "--allow-net=status.example.com", "--", "-")
+
+	for _, bad := range []string{"https://example.com", "example.com/path", "user@example.com", "-x", "a b"} {
+		if err := box.allowNet([]string{bad}); err == nil {
+			t.Errorf("хост %q принят", bad)
+		}
+	}
 
 	// check только читает текст: песочница ему не нужна.
 	args, _, err = byName["check_script"].argv(box, map[string]any{"script": "print(1)"})

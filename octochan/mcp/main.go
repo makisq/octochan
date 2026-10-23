@@ -53,6 +53,7 @@ func run() int {
 		roots     listFlag
 		live      listFlag
 		env       listFlag
+		netHosts  listFlag
 		timeout   time.Duration
 		maxOutput int
 		version   bool
@@ -66,6 +67,7 @@ func run() int {
 	flags.Var(&roots, "root", "каталог, внутри которого разрешены файлы; можно указать несколько раз (по умолчанию — текущий)")
 	flags.Var(&live, "allow-live", "разрешить живые источники этой схемы, например postgres; по умолчанию запрещены")
 	flags.Var(&env, "allow-env", "разрешить сценариям читать эту переменную окружения; по умолчанию ни одну")
+	flags.Var(&netHosts, "allow-net", "разрешить сценариям fetch и curl к этому хосту (хост или хост:порт); по умолчанию сеть закрыта")
 	flags.DurationVar(&timeout, "timeout", 2*time.Minute, "предел времени одного вызова")
 	flags.IntVar(&maxOutput, "max-output", 100_000, "предел объёма вывода, возвращаемого модели, в байтах")
 	flags.BoolVar(&version, "version", false, "показать версию и выйти")
@@ -101,6 +103,9 @@ func run() int {
 	}
 
 	box, err := newSandbox(roots, live, env...)
+	if err == nil {
+		err = box.allowNet(netHosts)
+	}
 	if err != nil {
 		logger.Print(err)
 		return 1

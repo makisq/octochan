@@ -404,8 +404,8 @@ func buildTools(live []string) []tool {
 			Title: "Plan an alias-language script",
 			Description: "Checks a script and runs it in plan mode: write, save and print to a file write nothing, " +
 				"and the plan shows which files and parameters would change. The script runs in the server " +
-				"sandbox: files only inside the allowed directories, environment variables and live sources " +
-				"only as allowed. Prints what the script printed and the plan. With prompt, checks the hard " +
+				"sandbox: files only inside the allowed directories, environment variables, live sources and " +
+				"network hosts only as allowed. Prints what the script printed and the plan. With prompt, checks the hard " +
 				"rules of the prompt against the plan.",
 			Command:   "plan",
 			Fixed:     []string{"--script", "--bundle"},

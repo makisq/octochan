@@ -313,6 +313,10 @@ func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	if request.Script != nil {
 		cmd.Printf("Каталог:   %s\n", request.Script.Dir)
 		cmd.Printf("Песочница: %s\n", sandboxSummary(request.Script))
+		if request.Script.Clock != "" {
+			// now() и rand() при выполнении вернут то же, что в плане.
+			cmd.Printf("Время:     %s, зерно rand %d\n", request.Script.Clock, request.Script.Seed)
+		}
 		for _, name := range sortedPaths(request.Script.Packages) {
 			cmd.Printf("Пакет:     %s %s\n", name, versionOrNone(request.Script.Packages[name]))
 		}
@@ -488,6 +492,9 @@ func sandboxSummary(run *workspace.ScriptRun) string {
 	}
 	if len(run.Live) > 0 {
 		parts = append(parts, "живые источники "+strings.Join(run.Live, ", "))
+	}
+	if len(run.Net) > 0 {
+		parts = append(parts, "сеть "+strings.Join(run.Net, ", "))
 	}
 	return strings.Join(parts, "; ")
 }

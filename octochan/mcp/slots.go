@@ -75,6 +75,8 @@ var (
 	namePattern    = packagePattern
 	overrideKey    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.\-]{0,63}$`)
 	envPattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	// hostPattern — имя, IPv4 или [IPv6], с портом или без.
+	hostPattern = regexp.MustCompile(`^(?:[a-z0-9][a-z0-9.\-]{0,252}|\[[0-9a-f:.]+\])(?::[0-9]{1,5})?$`)
 )
 
 const maxLimit = 1000
@@ -102,6 +104,8 @@ type sandbox struct {
 	liveAllow map[string]bool
 	// env — переменные окружения, которые разрешено читать сценариям.
 	env []string
+	// net — хосты, к которым сценарии могут обращаться fetch и curl.
+	net []string
 }
 
 // newSandbox проверяет корни и приводит их к реальным путям: иначе
@@ -171,7 +175,27 @@ func (b *sandbox) ochanFlags() []string {
 	for _, name := range b.env {
 		flags = append(flags, "--allow-env="+name)
 	}
+	for _, host := range b.net {
+		flags = append(flags, "--allow-net="+host)
+	}
 	return flags
+}
+
+// allowNet разрешает сценариям обращаться к хостам: имя или имя:порт,
+// без схемы и пути.
+func (b *sandbox) allowNet(hosts []string) error {
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" {
+			continue
+		}
+		if !hostPattern.MatchString(host) {
+			return fmt.Errorf("недопустимый хост %q: нужно имя или имя:порт, без схемы и пути", host)
+		}
+		b.net = append(b.net, host)
+	}
+	sort.Strings(b.net)
+	return nil
 }
 
 // liveSchemes возвращает разрешённые схемы живых источников по порядку.

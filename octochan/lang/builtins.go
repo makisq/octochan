@@ -203,6 +203,7 @@ func DefaultBuiltins() map[string]Builtin {
 		},
 	}
 
+	list = append(list, moreBuiltins()...)
 	builtins := make(map[string]Builtin, len(list))
 	for _, b := range list {
 		builtins[b.Name] = b

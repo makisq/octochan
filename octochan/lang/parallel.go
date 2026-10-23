@@ -107,7 +107,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 				}
 			}()
 
-			worker := in.fork(&outputs[idx], &errOutputs[idx])
+			worker := in.fork(idx, &outputs[idx], &errOutputs[idx])
 			workers[idx] = worker
 
 			iterScope := base.snapshot()
@@ -204,8 +204,11 @@ func (in *Interpreter) joinIterationErrors(node *For, items []Value, errs []erro
 // как общий диск, и защищены своей блокировкой. Стек вызовов, вывод
 // и список действий у каждой итерации свои; печать в файлы итерация
 // копит и отдаёт после цикла.
-func (in *Interpreter) fork(out, errOut io.Writer) *Interpreter {
-	return &Interpreter{
+//
+// Случайность итерации выводится из зерна и номера элемента: итерации
+// идут в любом порядке, а числа у каждой — те же, что в плане.
+func (in *Interpreter) fork(idx int, out, errOut io.Writer) *Interpreter {
+	worker := &Interpreter{
 		registry:     in.registry,
 		builtins:     in.builtins,
 		out:          out,
@@ -219,7 +222,10 @@ func (in *Interpreter) fork(out, errOut io.Writer) *Interpreter {
 		callIDs:      append([]int{}, in.callIDs...),
 		nextCall:     in.nextCall,
 		stack:        append([]string{}, in.stack...),
+		clock:        in.clock,
 	}
+	worker.SetSeed(in.seed*1_000_003 + int64(idx) + 1)
+	return worker
 }
 
 // snapshot делает плоскую копию видимых переменных.

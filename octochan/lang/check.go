@@ -548,16 +548,16 @@ func (c *checker) call(callee *Ident, args []Expr, pos Position, piped *TypeName
 		return ""
 	}
 
+	if builtin, ok := c.builtins[callee.Qualified()]; ok {
+		if err := builtin.checkArity(len(types)); err != nil {
+			c.report(pos, "%s: %v", callee.Qualified(), err)
+		}
+		return builtin.Returns
+	}
+
 	if callee.Module != "" {
 		c.report(pos, "%v", err)
 		return ""
-	}
-
-	if builtin, ok := c.builtins[callee.Name]; ok {
-		if err := builtin.checkArity(len(types)); err != nil {
-			c.report(pos, "%s: %v", callee.Name, err)
-		}
-		return builtin.Returns
 	}
 
 	if c.registry.declared(callee.Name) {
