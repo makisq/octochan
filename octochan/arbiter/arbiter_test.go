@@ -131,3 +131,20 @@ func TestDescribe(t *testing.T) {
 		t.Fatalf("Describe: %q", got)
 	}
 }
+
+func TestHint(t *testing.T) {
+	for src, want := range map[string]string{
+		"hard forbid save(except = {prod_conf})\n": "save допустимо только для исключений except = {prod_conf}",
+		"hard forbid save()\n":                     "save запрещено без исключений",
+		"hard require verify(scope = web)\n":       "вызовите verify для каждой цели области: web",
+		"hard require verify()\n":                  "сценарий обязан вызвать verify хотя бы раз",
+	} {
+		prog, diags := fp.Parse("t.fp", "goal: g\nclasses:\n  G : \"g\"\n"+src)
+		if len(diags) > 0 || len(prog.Rules) != 1 {
+			t.Fatalf("%s: %v", src, diags)
+		}
+		if got := Hint(prog.Rules[0]); !strings.Contains(got, want) {
+			t.Errorf("%s: %q, ожидалось %q", src, got, want)
+		}
+	}
+}

@@ -301,6 +301,9 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 	if err != nil {
 		return nil, err
 	}
+	if err := checkSkills(prompt, file, registry); err != nil {
+		return nil, err
+	}
 
 	var output strings.Builder
 	effects, calls, err := planScript(cmd, registry, file, setup, &output)
@@ -404,6 +407,9 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		prompt, err = checkPrompt(cmd, storedInput(run.Prompt))
 		if err != nil {
 			return fmt.Errorf("промпт заявки %s: %w", request.ID, err)
+		}
+		if err := checkSkills(prompt, file, registry); err != nil {
+			return fmt.Errorf("заявка %s: %w", request.ID, err)
 		}
 	}
 
@@ -553,7 +559,7 @@ func splitFingerprint(print string) (kind, path string) {
 	return kind, rest
 }
 
-func sortedPaths(set map[string]string) []string {
+func sortedPaths[V any](set map[string]V) []string {
 	paths := make([]string, 0, len(set))
 	for path := range set {
 		paths = append(paths, path)

@@ -246,10 +246,12 @@ func Uses(file *File, registry *Registry) []*AliasDecl {
 }
 
 // Dependency — объявление библиотеки, от которого зависит сценарий.
+// Kind — alias, record или interface.
 type Dependency struct {
 	Module string
 	Name   string
 	File   string
+	Kind   string
 }
 
 // Dependencies перечисляет алиасы, записи и интерфейсы библиотеки, к
@@ -296,7 +298,7 @@ func Dependencies(file *File, registry *Registry) []Dependency {
 	var deps []Dependency
 	for decl := range c.uses {
 		if !own[decl] {
-			deps = append(deps, Dependency{decl.Module, decl.Name, decl.Pos.File})
+			deps = append(deps, Dependency{decl.Module, decl.Name, decl.Pos.File, "alias"})
 		}
 	}
 	for decl := range c.typeUses {
@@ -305,9 +307,9 @@ func Dependencies(file *File, registry *Registry) []Dependency {
 		}
 		switch d := decl.(type) {
 		case *RecordDecl:
-			deps = append(deps, Dependency{d.Module, d.Name, d.Pos.File})
+			deps = append(deps, Dependency{d.Module, d.Name, d.Pos.File, "record"})
 		case *InterfaceDecl:
-			deps = append(deps, Dependency{d.Module, d.Name, d.Pos.File})
+			deps = append(deps, Dependency{d.Module, d.Name, d.Pos.File, "interface"})
 		}
 	}
 	sort.Slice(deps, func(i, j int) bool {

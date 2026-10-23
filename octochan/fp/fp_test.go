@@ -493,3 +493,51 @@ func TestBuiltinsSatisfyRules(t *testing.T) {
 		t.Fatalf("операция среды попала в K: %v", r.Knowledge)
 	}
 }
+
+// expectHint — отказ с подсказкой, в которой есть фрагмент.
+func expectHint(t *testing.T, r *Result, code Code, fragment string) {
+	t.Helper()
+	for _, d := range r.Diagnostics {
+		if d.Code == code && strings.Contains(d.Hint, fragment) {
+			return
+		}
+	}
+	t.Fatalf("нет находки %s с подсказкой %q, получено:\n%s", code, fragment, dump(r.Diagnostics))
+}
+
+// Подсказки называют законный путь: скилл, в котором есть операция,
+// похожее имя, исключение правила.
+func TestHints(t *testing.T) {
+	library := map[string]*Skill{
+		"ops": {Ops: []string{"disconnect", "reload"}, Version: "1.0"},
+		"svc": {Ops: []string{"restart"}, Version: "2.0"},
+	}
+	opts := Options{
+		Library: func(name string) (*Skill, bool) { s, ok := library[name]; return s, ok },
+		Skills:  func() []string { return []string{"svc", "ops"} },
+	}
+	skill := head + "import @ops\n"
+
+	// Операция есть в скилле, который промпт не подключил.
+	expectHint(t, check(t, skill+"hard forbid restart()\n", opts), ErrUndef,
+		"restart есть в @svc v2.0 — подключите: import @svc v2.0")
+	// Опечатка в имени операции.
+	expectHint(t, check(t, skill+"hard forbid relaod()\n", opts), ErrUndef, "возможно, имелось в виду reload")
+	// Опечатка в имени скилла.
+	expectHint(t, check(t, head+"import @opz\n", opts), ErrUndef, "возможно, имелось в виду @ops")
+	expectHint(t, check(t, head+"import @ops\n  provides: reloda\n", opts), ErrUndef, "в @ops есть reload")
+	expectHint(t, check(t, head+"import @ops v2\n", opts), ErrUndef, "import @ops v1.0")
+
+	// Ж3 с подсказкой — и без отказа, когда требование внутри исключений.
+	r := check(t, skill+"??n_disconnect(except: {maintenance_window})\n??a_disconnect(scope: web)\n", opts)
+	expect(t, r, ErrConflict, "несовместно")
+	expectHint(t, r, ErrConflict, "hard require disconnect(scope = окно)")
+	expectClean(t, check(t, skill+"??n_disconnect(except: {maintenance_window, night})\n??a_disconnect(scope: night)\n", opts))
+
+	// Подсказка видна в тексте находки.
+	for _, d := range check(t, skill+"hard forbid restart()\n", opts).Diagnostics {
+		if d.Code == ErrUndef && !strings.Contains(d.String(), "\n    подсказка: restart есть в @svc") {
+			t.Fatalf("подсказки нет в тексте: %s", d)
+		}
+	}
+}
