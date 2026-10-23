@@ -30,6 +30,24 @@ func NewRegistry() *Registry {
 	return &Registry{modules: map[string]map[string]*AliasDecl{"": {}}}
 }
 
+// Clone возвращает копию реестра. Объявления общие — их никто не
+// меняет, — а пространства свои: алиасы, добавленные в копию, не видны
+// в оригинале.
+func (r *Registry) Clone() *Registry {
+	clone := &Registry{
+		modules: make(map[string]map[string]*AliasDecl, len(r.modules)),
+		order:   append([]string(nil), r.order...),
+	}
+	for module, space := range r.modules {
+		copied := make(map[string]*AliasDecl, len(space))
+		for name, decl := range space {
+			copied[name] = decl
+		}
+		clone.modules[module] = copied
+	}
+	return clone
+}
+
 // Add регистрирует алиас в пространстве module.
 func (r *Registry) Add(module string, decl *AliasDecl) error {
 	space, ok := r.modules[module]
@@ -140,6 +158,34 @@ func (r *Registry) Names() []string {
 
 	sort.Strings(names)
 	return names
+}
+
+// declared сообщает, что имя объявлено хотя бы в одном пакете. Нужен,
+// чтобы отличить «алиаса нет» от «алиас есть в нескольких пакетах сразу».
+func (r *Registry) declared(name string) bool {
+	for _, pkg := range r.order {
+		if _, ok := r.modules[pkg][name]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// Decls возвращает объявления всех алиасов, отсортированные по пакету и имени.
+func (r *Registry) Decls() []*AliasDecl {
+	var decls []*AliasDecl
+	for _, space := range r.modules {
+		for _, decl := range space {
+			decls = append(decls, decl)
+		}
+	}
+	sort.Slice(decls, func(i, j int) bool {
+		if decls[i].Module != decls[j].Module {
+			return decls[i].Module < decls[j].Module
+		}
+		return decls[i].Name < decls[j].Name
+	})
+	return decls
 }
 
 // AliasInfo — сведения об алиасе для команды списка.

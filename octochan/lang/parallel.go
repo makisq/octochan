@@ -80,6 +80,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 
 	outputs := make([]bytes.Buffer, len(items))
 	errs := make([]error, len(items))
+	workers := make([]*Interpreter, len(items))
 
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, limit)
@@ -106,6 +107,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 			}()
 
 			worker := in.fork(&outputs[idx])
+			workers[idx] = worker
 
 			iterScope := base.snapshot()
 			iterScope.define(node.Variable, node.Declared, item)
@@ -123,6 +125,15 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 	}
 
 	wg.Wait()
+
+	// Действия итераций — тоже в порядке элементов: план параллельного
+	// цикла должен совпадать от запуска к запуску. Действия упавших
+	// итераций остаются в списке: записанное до сбоя уже записано.
+	for _, worker := range workers {
+		if worker != nil {
+			in.effects = append(in.effects, worker.effects...)
+		}
+	}
 
 	// Вывод сбрасывается в порядке итераций, а не в порядке завершения:
 	// результат параллельного цикла обязан быть воспроизводимым.
@@ -172,14 +183,19 @@ func (in *Interpreter) joinIterationErrors(node *For, items []Value, errs []erro
 
 // fork создаёт вычислитель для одной итерации.
 //
-// Реестр алиасов и набор встроенных функций во время выполнения только
-// читаются, поэтому их можно разделять. Стек вызовов и вывод — нет.
+// Реестр алиасов, набор встроенных функций и песочница во время выполнения
+// только читаются, поэтому их можно разделять; записи режима плана общие,
+// как общий диск, и защищены своей блокировкой. Стек вызовов, вывод
+// и список действий у каждой итерации свои.
 func (in *Interpreter) fork(out io.Writer) *Interpreter {
 	return &Interpreter{
 		registry: in.registry,
 		builtins: in.builtins,
 		out:      out,
 		ctx:      in.ctx,
+		sandbox:  in.sandbox,
+		dir:      in.dir,
+		dry:      in.dry,
 		stack:    append([]string{}, in.stack...),
 	}
 }

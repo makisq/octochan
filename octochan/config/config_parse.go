@@ -473,12 +473,20 @@ func quoteIfNeeded(value string) string {
 }
 
 // SaveConfig записывает конфиг в файл.
+func SaveConfig(config ConfigMap, filePath string) error {
+	if err := os.WriteFile(filePath, []byte(FormatConfig(config)), 0o644); err != nil {
+		return fmt.Errorf("не удалось записать конфиг %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// FormatConfig возвращает текст, который SaveConfig записал бы в файл.
 //
 // Порядок теперь детерминированный, а параметры без секции пишутся первыми.
 // Прежняя реализация обходила map в случайном порядке, из-за чего секция ""
 // могла оказаться после [section] и её ключи при обратном чтении попадали
 // в чужую секцию.
-func SaveConfig(config ConfigMap, filePath string) error {
+func FormatConfig(config ConfigMap) string {
 	sections := make([]string, 0, len(config))
 	for section := range config {
 		sections = append(sections, section)
@@ -502,11 +510,7 @@ func SaveConfig(config ConfigMap, filePath string) error {
 		}
 		b.WriteString("\n")
 	}
-
-	if err := os.WriteFile(filePath, []byte(b.String()), 0o644); err != nil {
-		return fmt.Errorf("не удалось записать конфиг %s: %w", filePath, err)
-	}
-	return nil
+	return b.String()
 }
 
 // GetScriptDir возвращает директорию исполняемого файла.

@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"octochan/config"
+	"octochan/lang"
 	"octochan/report"
 	"octochan/scenario"
 	"octochan/workspace"
@@ -21,6 +23,8 @@ var (
 	rejectReason   string
 	applyRequestID string
 	notifyMail     bool
+	requestScript  bool
+	requestOpts    scriptOptions
 )
 
 // requestStore открывает хранилище заявок.
@@ -33,15 +37,20 @@ func requestStore() (*workspace.Requests, error) {
 }
 
 var requestCmd = &cobra.Command{
-	Use:   "request <сценарий> | request <база> <изменения>",
+	Use:   "request <сценарий> | request <база> <изменения> | request --script <файл.ochan | ->",
 	Short: "Создать заявку на изменение из плана",
 	Long: "Заявка фиксирует план и ждёт решения. Выполнить её можно только\n" +
 		"после согласования: ochan apply --request <id>.\n\n" +
 		"Заявка отвечает не на вопрос «кому в принципе можно», а на вопрос\n" +
-		"«на это конкретное изменение сказали да» — именно это нужно аудиту.",
-	Args: cobra.MinimumNArgs(1),
+		"«на это конкретное изменение сказали да» — именно это нужно аудиту.\n\n" +
+		"Файл .ochan (или --script) — сценарий на языке алиасов: он проверяется,\n" +
+		"план строится выполнением в режиме плана, а в заявку попадают его текст,\n" +
+		"каталог и песочница. При выполнении план строится заново и должен совпасть.",
+	Args: cobra.MinimumNArgs(0),
 	Example: "ochan request restart.yaml --doc заявка.docx\n" +
-		"ochan request prod.conf changes.conf",
+		"ochan request prod.conf changes.conf\n" +
+		"ochan request сценарий.ochan\n" +
+		"ochan request --script --sandbox --root ./configs - < сценарий.ochan",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		store, err := requestStore()
 		if err != nil {
@@ -58,6 +67,11 @@ var requestCmd = &cobra.Command{
 
 		cmd.Printf("Заявка %s создана (%s)\n", request.ID, request.State.Russian())
 		cmd.Printf("Изменений: %d\n", request.Plan.Len())
+		if request.Script != nil {
+			// Тот, кто оформил заявку на сценарий, видит план сразу: из
+			// текста сценария его не прочитать.
+			cmd.Print("\n" + request.Plan.Render(60) + "\n")
+		}
 
 		if requestDoc != "" {
 			if err := writeRequestDoc(request, requestDoc); err != nil {
@@ -73,6 +87,15 @@ var requestCmd = &cobra.Command{
 
 // buildRequest строит заявку из сценария или из пары конфигов.
 func buildRequest(cmd *cobra.Command, args []string) (*workspace.Request, error) {
+	if requestScript || (len(args) == 1 && filepath.Ext(args[0]) == lang.AliasExtension) {
+		return scriptRequest(cmd, args, &requestOpts)
+	}
+	if requestOpts.any() {
+		return nil, fmt.Errorf("песочница относится к сценариям на языке алиасов: укажите --script")
+	}
+	if len(args) == 0 {
+		return nil, fmt.Errorf("укажите сценарий, пару конфигов или --script")
+	}
 	if len(args) >= 2 && !isOverride(args[1]) {
 		return configRequest(cmd, args)
 	}
@@ -167,6 +190,12 @@ func writeRequestDoc(request *workspace.Request, path string) error {
 	if request.Target != "" {
 		doc.Fields = append(doc.Fields, report.Field{Name: "Цель", Value: request.Target})
 	}
+	if request.Script != nil {
+		doc.Fields = append(doc.Fields,
+			report.Field{Name: "Каталог", Value: request.Script.Dir},
+			report.Field{Name: "Песочница", Value: sandboxSummary(request.Script)})
+		doc.Listing = request.Payload
+	}
 	if request.DecidedBy != "" {
 		doc.Fields = append(doc.Fields,
 			report.Field{Name: "Решение", Value: request.State.Russian() + " — " + request.DecidedBy})
@@ -244,6 +273,18 @@ func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	if !request.AppliedAt.IsZero() {
 		cmd.Printf("Выполнена: %s\n", request.AppliedAt.Local().Format("2006-01-02 15:04:05"))
 	}
+	if request.Script != nil {
+		cmd.Printf("Каталог:   %s\n", request.Script.Dir)
+		cmd.Printf("Песочница: %s\n", sandboxSummary(request.Script))
+		for _, path := range sortedPaths(request.Script.Libraries) {
+			cmd.Printf("Алиасы:    %s\n", path)
+		}
+		// Согласуют не только план, но и текст, который его породил.
+		cmd.Print("\nСценарий:\n")
+		for _, line := range strings.Split(strings.TrimRight(request.Payload, "\n"), "\n") {
+			cmd.Printf("  | %s\n", line)
+		}
+	}
 
 	if request.Plan != nil {
 		cmd.Print("\n" + request.Plan.Render(60))
@@ -318,6 +359,21 @@ func requestMailBody(request *workspace.Request) string {
 	return body
 }
 
+// sandboxSummary описывает песочницу заявки одной строкой.
+func sandboxSummary(run *workspace.ScriptRun) string {
+	if !run.Sandboxed {
+		return "нет: сценарию доступно всё, что доступно выполняющему"
+	}
+	parts := []string{"каталоги " + strings.Join(run.Roots, ", ")}
+	if len(run.Env) > 0 {
+		parts = append(parts, "окружение "+strings.Join(run.Env, ", "))
+	}
+	if len(run.Live) > 0 {
+		parts = append(parts, "живые источники "+strings.Join(run.Live, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
 // notify отправляет письмо, если почта настроена.
 //
 // Ненастроенная почта — не ошибка: письмо просто не нужно. А вот сбой
@@ -358,6 +414,8 @@ func init() {
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")
 	applyCmd.Flags().StringVar(&applyRequestID, "request", "", "выполнить согласованную заявку")
+	requestCmd.Flags().BoolVar(&requestScript, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")
+	requestOpts.register(requestCmd)
 	applyCmd.Flags().BoolVar(&notifyMail, "notify", false, "отправить уведомление по почте")
 	approveCmd.Flags().BoolVar(&notifyMail, "notify", false, "отправить уведомление по почте")
 	rejectCmd.Flags().BoolVar(&notifyMail, "notify", false, "отправить уведомление по почте")

@@ -423,7 +423,7 @@ func TestConfigStillWorksAfterFileIsGone(t *testing.T) {
 	}
 
 	// Повторный разбор здесь упал бы: файла больше нет.
-	cfg, err := configOf(StringValue("нет-такого-файла"))
+	cfg, err := interp.configOf(StringValue("нет-такого-файла"))
 	if err == nil {
 		t.Fatalf("несуществующий путь разобрался: %+v", cfg)
 	}
@@ -660,5 +660,34 @@ alias бесконечный_цикл() {
 
 	if err := interp.RunFile(file); err == nil {
 		t.Fatal("отменённый контекст не прервал выполнение")
+	}
+}
+
+func TestRegistryCloneIsIndependent(t *testing.T) {
+	base := NewRegistry()
+	file, err := Parse("lib.ochan", "alias shared() { return 1 }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := base.Add("lib", file.Aliases[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	script, err := Parse("сценарий.ochan", "alias own() { return 2 }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Тот же сценарий дважды — как два запуска в одной оболочке.
+	for i := 0; i < 2; i++ {
+		clone := base.Clone()
+		if err := clone.Add("", script.Aliases[0]); err != nil {
+			t.Fatalf("запуск %d: %v", i+1, err)
+		}
+		if _, err := clone.Lookup("", "shared"); err != nil {
+			t.Fatalf("копия потеряла алиас пакета: %v", err)
+		}
+	}
+	if _, err := base.Lookup("", "own"); err == nil {
+		t.Fatal("алиас копии попал в оригинал")
 	}
 }

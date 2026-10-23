@@ -40,8 +40,9 @@ type outcome struct {
 //
 // Командная оболочка не участвует: аргументы передаются процессу как есть,
 // поэтому кавычки, точки с запятой и подстановки в значениях ничего не
-// значат. stdin у ochan пустой — иначе он прочитал бы поток протокола.
-func (r *runner) run(ctx context.Context, args []string) outcome {
+// значат. На stdin ochan получает только текст сценария, если он есть, —
+// и никогда не поток протокола.
+func (r *runner) run(ctx context.Context, args []string, stdin string) outcome {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
@@ -49,6 +50,9 @@ func (r *runner) run(ctx context.Context, args []string) outcome {
 	cmd.Dir = r.dir
 	cmd.Env = append(os.Environ(), r.env...)
 	cmd.Stdin = nil
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

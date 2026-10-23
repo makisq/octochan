@@ -306,6 +306,14 @@ func (s *server) instructions() string {
 	if live := s.box.liveSchemes(); len(live) > 0 {
 		text += " Живые источники разрешены: " + strings.Join(live, ", ") + "."
 	}
+	text += " Сценарии на языке алиасов: сначала check_script, затем plan_script, затем request_script. " +
+		"Сценарий выполняется в песочнице: файлы только внутри тех же каталогов"
+	if len(s.box.env) > 0 {
+		text += ", переменные окружения только " + strings.Join(s.box.env, ", ")
+	} else {
+		text += ", переменные окружения недоступны"
+	}
+	text += "."
 	return text
 }
 
@@ -337,7 +345,7 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 
 	// Ошибка в аргументах — результат с isError, а не ошибка протокола:
 	// так её видит модель и может исправить вызов сама.
-	args, err := t.argv(s.box, params.Arguments)
+	args, stdin, err := t.argv(s.box, params.Arguments)
 	if err != nil {
 		s.logger.Printf("%s: отказ: %v", t.Name, err)
 		return toolResult(msg.ID, "Вызов отклонён до запуска: "+err.Error(), true)
@@ -356,9 +364,13 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 	}()
 
 	started := time.Now()
-	outcome := s.runner.run(callCtx, args)
-	s.logger.Printf("%s: ochan %s → код %d за %s", t.Name, maskSecrets(strings.Join(args, " ")),
-		outcome.code, time.Since(started).Round(time.Millisecond))
+	outcome := s.runner.run(callCtx, args, stdin)
+	script := ""
+	if stdin != "" {
+		script = fmt.Sprintf(" (сценарий %d байт)", len(stdin))
+	}
+	s.logger.Printf("%s: ochan %s%s → код %d за %s", t.Name, maskSecrets(strings.Join(args, " ")),
+		script, outcome.code, time.Since(started).Round(time.Millisecond))
 
 	// Отменённый вызов остаётся без ответа: так требует протокол, клиент
 	// его уже не ждёт.

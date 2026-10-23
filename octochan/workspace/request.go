@@ -66,11 +66,41 @@ type Request struct {
 	// что согласовали, а не перечитанный с диска изменившийся файл.
 	Payload string `json:"payload,omitempty"`
 
+	// Script непуст, если заявка на выполнение сценария на языке алиасов.
+	Script *ScriptRun `json:"script,omitempty"`
+
 	Decision   string    `json:"decision,omitempty"`
 	DecidedBy  string    `json:"decided_by,omitempty"`
 	DecidedAt  time.Time `json:"decided_at,omitempty"`
 	AppliedAt  time.Time `json:"applied_at,omitempty"`
 	AppliedRef []string  `json:"applied_refs,omitempty"`
+}
+
+// ScriptRun — то, что нужно, чтобы выполнить сценарий на языке алиасов
+// так же, как его планировали.
+//
+// Текста сценария мало. Относительные пути отсчитываются от каталога,
+// в котором заявку создавали, а не от того, где её потом выполнят;
+// песочница, в которой строили план, должна действовать и при выполнении;
+// алиасы библиотеки, которые сценарий вызывает, могли поменяться.
+type ScriptRun struct {
+	// Dir — каталог, от которого отсчитываются относительные пути.
+	Dir string `json:"dir"`
+
+	// Sandboxed означает, что сценарий выполняется в песочнице с
+	// разрешёнными каталогами Roots, переменными Env и схемами Live.
+	Sandboxed bool     `json:"sandboxed"`
+	Roots     []string `json:"roots,omitempty"`
+	Env       []string `json:"env,omitempty"`
+	Live      []string `json:"live,omitempty"`
+
+	// Libraries — файлы алиасов, которые вызывает сценарий, и их суммы
+	// SHA-256 на момент создания заявки.
+	Libraries map[string]string `json:"libraries,omitempty"`
+
+	// Effects — отпечатки действий из плана, по порядку. Перед выполнением
+	// план строится заново и сверяется с ними.
+	Effects []string `json:"effects"`
 }
 
 // Describe возвращает однострочное описание для списка.

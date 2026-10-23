@@ -18,6 +18,10 @@ const (
 	ChangeRemove ChangeKind = "remove"
 	// ChangeTask — будет создана задача во внешней системе.
 	ChangeTask ChangeKind = "task"
+	// ChangeWrite — файл будет записан целиком; Detail говорит, как
+	// именно. Для правки конфига план перечисляет параметры, а запись
+	// произвольного текста по параметрам не разложить.
+	ChangeWrite ChangeKind = "write"
 )
 
 func (k ChangeKind) Russian() string {
@@ -30,6 +34,8 @@ func (k ChangeKind) Russian() string {
 		return "удалить"
 	case ChangeTask:
 		return "задача"
+	case ChangeWrite:
+		return "записать"
 	default:
 		return string(k)
 	}
@@ -158,7 +164,7 @@ func (p *Plan) Render(width int) string {
 		}
 
 		switch change.Kind {
-		case ChangeTask:
+		case ChangeTask, ChangeWrite:
 			fmt.Fprintf(&b, "    %-10s %s", change.Kind.Russian(), change.Name)
 			if change.Detail != "" {
 				fmt.Fprintf(&b, " — %s", change.Detail)

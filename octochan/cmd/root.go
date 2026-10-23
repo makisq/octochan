@@ -78,6 +78,7 @@ func init() {
 		runCmd,
 		evalCmd,
 		aliasesCmd,
+		checkCmd,
 		planCmd,
 		historyCmd,
 		rollbackCmd,
