@@ -102,7 +102,9 @@ func commandKey(cmd *cobra.Command) string {
 }
 
 // moduleCommands — команды, которых нет ни в одной группе прав: команды
-// подключённых модулей. Их можно выдать по имени.
+// подключённых модулей. Их можно выдать по имени; право на команду модуля
+// открывает и её подкоманды. Свои команды с подкомандами (set, back, tls)
+// по имени не выдаются: их подкоманды уже распределены по группам.
 func moduleCommands() []string {
 	known := map[string]bool{}
 	for _, name := range append(rbac.KnownCommands(), rbac.Free...) {
@@ -110,7 +112,10 @@ func moduleCommands() []string {
 	}
 	var extra []string
 	for _, c := range rootCmd.Commands() {
-		if !known[c.Name()] && !c.HasSubCommands() {
+		if known[c.Name()] {
+			continue
+		}
+		if c.Annotations[moduleCommandAnnotation] == "module" || !c.HasSubCommands() {
 			extra = append(extra, c.Name())
 		}
 	}

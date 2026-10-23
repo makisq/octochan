@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -167,5 +168,24 @@ func TestLLMCeilingFromCommandLine(t *testing.T) {
 	e.must("role", "revoke", "llm", "request")
 	if list := e.must("role", "list"); !strings.Contains(list, "read, plan, diff") {
 		t.Fatalf("права llm:\n%s", list)
+	}
+}
+
+// Право на команду модуля выдаётся по имени, даже если у неё есть
+// подкоманды; свои команды с подкомандами по имени не выдаются.
+func TestModuleCommandWithSubcommandsIsGrantable(t *testing.T) {
+	module := &cobra.Command{Use: "test", Annotations: map[string]string{moduleCommandAnnotation: "module"}}
+	module.AddCommand(&cobra.Command{Use: "generate"})
+	rootCmd.AddCommand(module)
+	t.Cleanup(func() { rootCmd.RemoveCommand(module) })
+
+	extra := moduleCommands()
+	if !slices.Contains(extra, "test") {
+		t.Fatalf("команда модуля не выдаётся по имени: %v", extra)
+	}
+	for _, own := range []string{"set", "back", "tls"} {
+		if slices.Contains(extra, own) {
+			t.Fatalf("своя команда %s выдаётся по имени: %v", own, extra)
+		}
 	}
 }

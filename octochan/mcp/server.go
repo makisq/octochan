@@ -19,7 +19,9 @@ import (
 // устроены одинаково.
 var protocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
 
-const serverVersion = "0.1.0"
+// serverVersion — версия сервера; при сборке релиза задаётся через
+// -ldflags "-X main.serverVersion=…".
+var serverVersion = "0.1.0-alpha"
 
 // Коды ошибок JSON-RPC 2.0.
 const (

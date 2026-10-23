@@ -347,7 +347,16 @@ var tlsInitCmd = &cobra.Command{
 				}
 			}
 		}
-		hosts := append([]string{"localhost", "127.0.0.1", "::1"}, tlsHosts...)
+		// Имена по умолчанию и указанные — без повторов: в сертификате и в
+		// выводе каждое имя один раз.
+		var hosts []string
+		seen := map[string]bool{}
+		for _, host := range append([]string{"localhost", "127.0.0.1", "::1"}, tlsHosts...) {
+			if host = strings.TrimSpace(host); host != "" && !seen[strings.ToLower(host)] {
+				seen[strings.ToLower(host)] = true
+				hosts = append(hosts, host)
+			}
+		}
 		fp, err := remote.GenerateCert(settings.Cert, settings.Key, hosts, time.Duration(tlsDays)*24*time.Hour)
 		if err != nil {
 			return err

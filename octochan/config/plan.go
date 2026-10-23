@@ -216,6 +216,14 @@ func ApplyPlan(cfg ConfigMap, plan *Plan) ConfigMap {
 
 // splitParamName разбирает "секция.ключ"; имя без точки относится
 // к параметрам без секции.
+// ParamValue — значение параметра по имени из плана: «секция.ключ» или
+// «ключ» без секции. Так же имя разбирает ApplyPlan.
+func ParamValue(cfg ConfigMap, name string) (string, bool) {
+	section, key := splitParamName(name)
+	value, ok := cfg[section][key]
+	return value, ok
+}
+
 func splitParamName(name string) (section, key string) {
 	if idx := strings.LastIndex(name, "."); idx > 0 {
 		return name[:idx], name[idx+1:]

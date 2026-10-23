@@ -16,6 +16,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version — версия ochan. При сборке релиза задаётся через
+// -ldflags "-X octochan/cmd.Version=…"; ochan --version печатает её.
+var Version = "0.1.0-alpha"
+
 var (
 	cfgFile string
 	verbose bool
@@ -55,6 +59,9 @@ func init() {
 		"путь до конфига (по умолчанию ~/.octochan/config.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false,
 		"дублировать журнал в stderr")
+
+	rootCmd.Version = Version
+	rootCmd.SetVersionTemplate("ochan {{.Version}}\n")
 
 	rootCmd.SetHelpCommand(helpCmd)
 	rootCmd.AddCommand(

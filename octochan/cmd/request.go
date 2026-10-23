@@ -165,9 +165,18 @@ func configRequest(cmd *cobra.Command, args []string) (*workspace.Request, error
 	plan.Warnings = append(plan.Warnings, base.Notes...)
 	plan.Warnings = append(plan.Warnings, changes.Notes...)
 
+	// Файл записывается в заявку полным путём: выполнять её могут из
+	// другого каталога, и правка должна лечь туда, где её согласовали.
+	target := base.Name
+	if args[0] != "-" && config.SourceScheme(args[0]) == "" {
+		if abs, err := filepath.Abs(args[0]); err == nil {
+			target = abs
+		}
+	}
+
 	return &workspace.Request{
 		Source:  changes.Name,
-		Target:  base.Name,
+		Target:  target,
 		Summary: fmt.Sprintf("правка %s, параметров: %d", base.Name, plan.Len()),
 		Plan:    plan,
 	}, nil
