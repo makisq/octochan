@@ -317,28 +317,31 @@ func (s *server) loadProtocol(ctx context.Context) {
 	s.protocol = result.stdout
 }
 
+// instructions — то, что модель получает при подключении. Текст для
+// модели, как и протокол, на английском: на нём модели понимают лучше и
+// на нём пишется формальный промпт.
 func (s *server) instructions() string {
-	text := "Сервер даёт доступ к octochan на чтение, планирование и создание заявок. " +
-		"Выполнить изменение через этот сервер нельзя: заявку согласует и выполняет человек " +
-		"(ochan approve, затем ochan apply --request). " +
-		"Файлы принимаются только внутри каталогов: " + strings.Join(s.box.roots, ", ") + "."
+	text := "This server gives read, plan and request access to octochan. " +
+		"No change can be carried out through it: a human approves and applies each request " +
+		"(ochan approve, then ochan apply --request). " +
+		"Files are accepted only inside these directories: " + strings.Join(s.box.roots, ", ") + "."
 	if live := s.box.liveSchemes(); len(live) > 0 {
-		text += " Живые источники разрешены: " + strings.Join(live, ", ") + "."
+		text += " Live sources allowed: " + strings.Join(live, ", ") + "."
 	}
-	text += " Сценарии на языке алиасов: сначала check_script, затем plan_script, затем request_script. " +
-		"Сценарий выполняется в песочнице: файлы только внутри тех же каталогов"
+	text += " Alias-language scripts: check_script first, then plan_script, then request_script. " +
+		"A script runs in a sandbox: files only inside the same directories"
 	if len(s.box.env) > 0 {
-		text += ", переменные окружения только " + strings.Join(s.box.env, ", ")
+		text += ", environment variables only " + strings.Join(s.box.env, ", ")
 	} else {
-		text += ", переменные окружения недоступны"
+		text += ", no environment variables"
 	}
-	text += ". Сценарию по формальному промпту передавайте и prompt с report: жёсткие правила " +
-		"проверяются по плану, а промпт и отчёт попадают в заявку."
+	text += ". For a script written from a formal prompt, pass prompt and report as well: " +
+		"the hard rules are checked against the plan, and the prompt and the report go into the request."
 
 	if s.protocol == "" {
-		return text + " Протокол формального промпта недоступен: ochan не отдал его при запуске сервера."
+		return text + " The formal prompt protocol is unavailable: ochan did not provide it when the server started."
 	}
-	return text + " Прежде чем отвечать оператору, прочитайте протокол ниже: он определяет, как вы здесь работаете.\n\n" +
+	return text + " Before answering the operator, read the protocol below: it defines how you work here.\n\n" +
 		s.protocol
 }
 

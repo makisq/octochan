@@ -613,7 +613,7 @@ func TestInitializeNegotiatesVersion(t *testing.T) {
 		if _, ok := r.Result.Capabilities["tools"]; !ok {
 			t.Error("не объявлена поддержка инструментов")
 		}
-		if !strings.Contains(r.Result.Instructions, "нельзя") {
+		if !strings.Contains(r.Result.Instructions, "No change can be carried out") {
 			t.Errorf("в инструкциях нет запрета на выполнение: %q", r.Result.Instructions)
 		}
 	}
@@ -956,7 +956,7 @@ func TestSandboxRejectsBadEnvName(t *testing.T) {
 func TestInstructionsDescribeScriptSandbox(t *testing.T) {
 	e := newEnv(t)
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	for _, want := range []string{"check_script", "plan_script", "request_script", "переменные окружения недоступны"} {
+	for _, want := range []string{"check_script", "plan_script", "request_script", "no environment variables"} {
 		if !strings.Contains(r.Result.Instructions, want) {
 			t.Errorf("в инструкциях нет %q: %s", want, r.Result.Instructions)
 		}
@@ -992,7 +992,7 @@ func TestInstructionsCarryProtocol(t *testing.T) {
 	e.srv.loadProtocol(context.Background())
 
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	if !strings.Contains(r.Result.Instructions, "прочитайте протокол ниже") ||
+	if !strings.Contains(r.Result.Instructions, "read the protocol below") ||
 		!strings.HasSuffix(r.Result.Instructions, "# Протокол ochan\nПервым делом check_prompt.\n") {
 		t.Fatalf("протокола нет в instructions: %q", r.Result.Instructions)
 	}
@@ -1003,7 +1003,7 @@ func TestMissingProtocolIsSaid(t *testing.T) {
 	e.srv.loadProtocol(context.Background())
 
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	if !strings.Contains(r.Result.Instructions, "Протокол формального промпта недоступен") {
+	if !strings.Contains(r.Result.Instructions, "The formal prompt protocol is unavailable") {
 		t.Fatalf("о недоступном протоколе не сказано: %q", r.Result.Instructions)
 	}
 }
