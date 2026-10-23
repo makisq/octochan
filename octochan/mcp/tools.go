@@ -452,8 +452,11 @@ func buildTools(live []string) []tool {
 			Title:       "Task status",
 			Description: "Shows the status and log of a task in the executor's external system.",
 			Command:     "status",
-			Slots: []slot{{Name: "task_id", Kind: slotTaskID, Required: true,
-				Description: "task ID"}},
+			Slots: []slot{
+				{Name: "task_id", Kind: slotTaskID, Required: true, Description: "task ID"},
+				{Name: "executor", Kind: slotParam, Flag: "executor",
+					Description: "the executor that created the task, for example rlm; needed only when several executors can show a status"},
+			},
 			Remote: true,
 		},
 	}

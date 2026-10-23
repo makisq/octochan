@@ -37,9 +37,18 @@ ochan apply restart.yaml                    выполнить
 ochan apply restart.yaml restart=cluster    переопределить параметр
 ochan apply restart.yaml --wait             дождаться завершения задач
 ochan status <task_id>                      статус и журнал задачи
+ochan status <task_id> --rlm                то же, у исполнителя RLM явно
 ochan srs restart.yaml                      сохранить в ~/.octochan/scenarios
 ochan request restart.yaml --doc заявка.docx   заявка на выполнение
 ```
+
+`status` — общая команда ядра, а не часть RLM: статус показывает
+исполнитель, который создал задачу, а команда выбирает его флагом —
+`--executor rlm` или коротко `--rlm`. Такой флаг появляется у каждого
+подключённого исполнителя, который умеет показывать статус: подключите
+исполнитель для Linux — появится `--linux`. Если такой исполнитель один,
+флаг не нужен. Свой исполнитель — Go-пакет, который регистрирует сервисы
+(`scenario.Register`) и реализует `scenario.StatusReporter`.
 
 Переопределения `key=value` заменяют параметры сценария, не меняя файл.
 

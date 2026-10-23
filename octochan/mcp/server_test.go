@@ -402,6 +402,7 @@ func TestReadToolsArgv(t *testing.T) {
 		{"history", map[string]any{"id": "ABC1"}, []string{"history", "--", "abc1"}},
 		{"requests", map[string]any{"id": "3ff2"}, []string{"requests", "--", "3ff2"}},
 		{"task_status", map[string]any{"task_id": "1001"}, []string{"status", "--", "1001"}},
+		{"task_status", map[string]any{"task_id": "job-17", "executor": "linux"}, []string{"status", "--executor=linux", "--", "job-17"}},
 	}
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {

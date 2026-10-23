@@ -214,7 +214,7 @@ curl -si -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 | `requests` | `requests` | заявки |
 | `request_config` | `request` | заявка на правку конфигурации |
 | `request_scenario` | `request` | заявка на выполнение сценария |
-| `task_status` | `status` | статус задачи у исполнителя |
+| `task_status` | `status` | статус задачи у исполнителя; `executor` — какого, если их несколько |
 | `rank_logs` | `logs rank` | строки журнала по уровням важности или сводка |
 | `protocol` | `fp protocol` | протокол формального промпта |
 | `check_prompt` | `fp check` | проверить формальный промпт: ⊥syn, ⊥ambig, ⊥undef, ⊥conflict |

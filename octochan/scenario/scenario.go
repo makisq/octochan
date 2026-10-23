@@ -83,10 +83,53 @@ type Waiter interface {
 	Wait(ctx context.Context, ref string) (string, error)
 }
 
+// StatusReporter — необязательная возможность исполнителя: показать
+// состояние того, что он создал, — задачи RLM, задания на машине, процесса.
+//
+// Команда status — общая, ядро её не знает ни про RLM, ни про Linux: она
+// спрашивает исполнителя, выбранного флагом, и печатает, что он ответил.
+type StatusReporter interface {
+	Status(ctx context.Context, ref string) (*Status, error)
+}
+
+// Status — состояние одной ссылки исполнителя.
+type Status struct {
+	Ref   string
+	State string
+	// Fields — прочие поля по порядку: «Создана», «Прогресс»…
+	Fields []StatusField
+	// Events — журнал выполнения, если исполнитель его ведёт.
+	Events []StatusEvent
+}
+
+// StatusField — поле статуса.
+type StatusField struct{ Name, Value string }
+
+// StatusEvent — запись журнала выполнения.
+type StatusEvent struct{ Time, Level, Message string }
+
 var (
 	runnersMu sync.RWMutex
 	runners   = make(map[string]Runner)
 )
+
+// ExecutorName — имя исполнителя для флагов и выбора: его вид в нижнем
+// регистре, пробелы заменены дефисами. RLM → rlm.
+func ExecutorName(r Runner) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(r.Kind())), " ", "-")
+}
+
+// Executors — зарегистрированные исполнители по имени, каждый один раз:
+// у одного исполнителя бывает много сервисов.
+func Executors() map[string]Runner {
+	runnersMu.RLock()
+	defer runnersMu.RUnlock()
+	executors := make(map[string]Runner)
+	for _, runner := range runners {
+		executors[ExecutorName(runner)] = runner
+	}
+	return executors
+}
 
 // Register связывает имя сервиса с исполнителем.
 func Register(service string, runner Runner) {
