@@ -232,7 +232,7 @@ func TestDiffBuiltin(t *testing.T) {
 }
 
 func TestTypeAnnotationsAreOptional(t *testing.T) {
-	// Без аннотаций всё работает как раньше — это условие «необязательности».
+	// Без аннотации тип задаёт первое значение: писать его необязательно.
 	src := `
 без_типа = 5
 с_типом: целое = 7
@@ -264,6 +264,61 @@ func TestDeclaredTypeSurvivesReassignment(t *testing.T) {
 `)
 	if err == nil {
 		t.Fatal("повторное присваивание обошло объявленный тип")
+	}
+}
+
+// Переменная строго типизирована: тип задаёт объявление или первое
+// значение, и дальше он не меняется.
+func TestVariablesAreStronglyTyped(t *testing.T) {
+	got := mustRun(t, `
+var n: int
+var s = "строка"
+var l: list
+var a: any
+var k: number = 1
+k = 2.5
+print(n, s, len(l), a, k)
+x = 1
+x = 2
+print(x)
+`)
+	if got != "0 строка 0 null 2.5\n2\n" {
+		t.Fatalf("вывод %q", got)
+	}
+
+	cases := []struct{ src, want string }{
+		{"x = 1\nx = \"a\"", "переменная x: тип целое задан первым значением, присваивается значение типа строка"},
+		{"x = 1\nx = x / 2", "объявите её как var x: number"},
+		{"var s: string\ns = 1", "переменная s: объявлен тип строка"},
+		{"var x = 1\nvar x = 2", "переменная x уже объявлена в этой области"},
+		{"var c: config", "у типа конфиг нет нулевого значения"},
+		{"alias f(a) { a = \"x\"\nreturn a }\nf(1)", "переменная a: тип целое задан первым значением"},
+		{"try { fail(\"x\") } catch e { e = 1 }", "переменная e: объявлен тип строка"},
+	}
+	for _, tc := range cases {
+		if _, err := run(t, tc.src); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: ожидалась ошибка с %q, получено %v", tc.src, tc.want, err)
+		}
+	}
+
+	if _, err := Parse("<тест>", "var x"); err == nil || !strings.Contains(err.Error(), "укажите тип") {
+		t.Errorf("var без типа и значения: %v", err)
+	}
+}
+
+// Объявление во вложенной области — новая переменная: она затеняет
+// внешнюю, а внешняя после блока прежняя.
+func TestVarShadowsInNestedScope(t *testing.T) {
+	got := mustRun(t, `
+var x = 1
+if true {
+    var x = "внутри"
+    print(x)
+}
+print(x)
+`)
+	if got != "внутри\n1\n" {
+		t.Fatalf("вывод %q", got)
 	}
 }
 

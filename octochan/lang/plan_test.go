@@ -232,3 +232,59 @@ b = config("ochanplan://u:secret@db1")
 		t.Fatalf("чтение попало в изменения:\n%s", plan.Render(60))
 	}
 }
+
+// Режим плана помнит, какие алиасы вызывались и что записали: по этому
+// арбитр проверяет жёсткие правила промпта.
+func TestPlanTracesInvocations(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.conf"), "port = 5432\n")
+
+	file, err := Parse("<тест>", `
+alias store(c, path) { return save(c, path) }
+alias touch(path) { return write(path, "x") }
+c = config("a.conf")
+store(c, "a.conf")
+touch("note.txt")
+parallel for n in ["1", "2", "3"] { touch("f" + n + ".txt") }
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := NewRegistry()
+	for _, decl := range file.Aliases {
+		if err := registry.Add("", decl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	interp := NewInterpreter(context.Background(), registry, &strings.Builder{})
+	interp.SetDir(dir)
+	interp.SetPlanMode()
+	if err := interp.RunFile(file); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := interp.Invocations()
+	var got []string
+	ids := map[int]bool{}
+	for _, call := range calls {
+		got = append(got, call.Qualified()+"("+strings.Join(call.Args, ",")+")")
+		if ids[call.ID] {
+			t.Fatalf("ID вызова повторяется: %d", call.ID)
+		}
+		ids[call.ID] = true
+	}
+	want := "store(a.conf,a.conf);touch(note.txt);touch(f1.txt);touch(f2.txt);touch(f3.txt)"
+	if strings.Join(got, ";") != want {
+		t.Fatalf("вызовы:\n  %s\nожидалось\n  %s", strings.Join(got, ";"), want)
+	}
+
+	effects := interp.Effects()
+	if len(effects) != 5 {
+		t.Fatalf("действий %d, ожидалось 5", len(effects))
+	}
+	for i, e := range effects {
+		if len(e.Calls) != 1 || e.Calls[0] != calls[i].ID {
+			t.Fatalf("действие %d (%s) приписано вызовам %v, ожидался %d", i, e.Path, e.Calls, calls[i].ID)
+		}
+	}
+}

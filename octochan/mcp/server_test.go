@@ -39,7 +39,9 @@ func fakeOchan() {
 	if text := os.Getenv("FAKE_STDERR"); text != "" {
 		fmt.Fprint(os.Stderr, text)
 	}
-	if text := os.Getenv("FAKE_STDOUT"); text != "" {
+	if os.Getenv("FAKE_PRINT_ROLE") == "1" {
+		fmt.Println("role=" + os.Getenv("OCTOCHAN_ROLE"))
+	} else if text := os.Getenv("FAKE_STDOUT"); text != "" {
 		fmt.Print(text)
 	} else if os.Getenv("FAKE_ECHO_STDIN") == "1" {
 		stdin, _ := io.ReadAll(os.Stdin)
@@ -611,7 +613,7 @@ func TestInitializeNegotiatesVersion(t *testing.T) {
 		if _, ok := r.Result.Capabilities["tools"]; !ok {
 			t.Error("не объявлена поддержка инструментов")
 		}
-		if !strings.Contains(r.Result.Instructions, "нельзя") {
+		if !strings.Contains(r.Result.Instructions, "No change can be carried out") {
 			t.Errorf("в инструкциях нет запрета на выполнение: %q", r.Result.Instructions)
 		}
 	}
@@ -815,20 +817,54 @@ func TestScriptToolsArgv(t *testing.T) {
 		t.Errorf("check: на stdin %q", stdin)
 	}
 
+	// plan и request принимают ещё промпт и отчёт, поэтому stdin у них —
+	// JSON-объект --bundle, даже если текст один.
 	args, stdin = e.scriptCall("plan_script", map[string]any{"script": script})
-	assertArgv(t, args, "plan", "--script", "--sandbox", "--root="+e.root, "--", "-")
-	if stdin != script {
-		t.Errorf("plan: на stdin %q", stdin)
-	}
+	assertArgv(t, args, "plan", "--script", "--bundle", "--sandbox", "--root="+e.root, "--", "-")
+	assertBundle(t, stdin, map[string]string{"script": script})
 
 	doc := filepath.Join(e.root, "заявка.docx")
 	args, stdin = e.scriptCall("request_script", map[string]any{
 		"script": script, "name": "поднять_лимит.ochan", "doc": "заявка.docx"})
-	assertArgv(t, args, "request", "--script", "--sandbox", "--root="+e.root,
+	assertArgv(t, args, "request", "--script", "--bundle", "--sandbox", "--root="+e.root,
 		"--name=поднять_лимит.ochan", "--doc="+doc, "--", "-")
-	if stdin != script {
-		t.Errorf("request: на stdin %q", stdin)
+	assertBundle(t, stdin, map[string]string{"script": script})
+}
+
+func assertBundle(t *testing.T, stdin string, want map[string]string) {
+	t.Helper()
+	var got map[string]string
+	if err := json.Unmarshal([]byte(stdin), &got); err != nil {
+		t.Fatalf("на stdin не JSON: %q", stdin)
 	}
+	if len(got) != len(want) {
+		t.Fatalf("на stdin %v, ожидалось %v", got, want)
+	}
+	for key, value := range want {
+		if got[key] != value {
+			t.Fatalf("на stdin %s = %q, ожидалось %q", key, got[key], value)
+		}
+	}
+}
+
+// Сценарий, промпт и отчёт приходят ochan одним объектом: stdin один.
+func TestScriptToolsCarryPromptAndReport(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_ECHO_STDIN=1"))
+	script := "print(1)\n"
+	prompt := "goal: tuned\nhard forbid save(except = {prod_conf})\n"
+	report := "report:\n  q: limit\n    choice: high\n    basis: not_in_prompt\n"
+
+	for _, name := range []string{"plan_script", "request_script"} {
+		args, stdin := e.scriptCall(name, map[string]any{"script": script, "prompt": prompt, "report": report})
+		if args[len(args)-1] != "-" || args[len(args)-2] != "--" {
+			t.Errorf("%s: позиционно ожидался один «-»: %q", name, args)
+		}
+		assertBundle(t, stdin, map[string]string{"script": script, "prompt": prompt, "report": report})
+	}
+
+	e.assertRejected("plan_script", map[string]any{"script": script, "prompt": ""}, "prompt: пустой текст")
+	e.assertRejected("plan_script", map[string]any{"script": script, "report": 1}, "report: ожидается текст строкой")
+	e.assertRejected("plan_script", map[string]any{"prompt": prompt}, "script: обязательный параметр не задан")
 }
 
 // Песочница ochan получает ровно то, что разрешено серверу: те же
@@ -850,7 +886,7 @@ func TestScriptSandboxMirrorsServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertArgv(t, args, "plan", "--script", "--sandbox",
+	assertArgv(t, args, "plan", "--script", "--bundle", "--sandbox",
 		"--root="+box.roots[0], "--root="+box.roots[1],
 		"--allow-live=postgres", "--allow-env=APP_ENV", "--allow-env=PGPASSWORD", "--", "-")
 
@@ -920,7 +956,7 @@ func TestSandboxRejectsBadEnvName(t *testing.T) {
 func TestInstructionsDescribeScriptSandbox(t *testing.T) {
 	e := newEnv(t)
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	for _, want := range []string{"check_script", "plan_script", "request_script", "переменные окружения недоступны"} {
+	for _, want := range []string{"check_script", "plan_script", "request_script", "no environment variables"} {
 		if !strings.Contains(r.Result.Instructions, want) {
 			t.Errorf("в инструкциях нет %q: %s", want, r.Result.Instructions)
 		}
@@ -956,7 +992,7 @@ func TestInstructionsCarryProtocol(t *testing.T) {
 	e.srv.loadProtocol(context.Background())
 
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	if !strings.Contains(r.Result.Instructions, "прочитайте протокол ниже") ||
+	if !strings.Contains(r.Result.Instructions, "read the protocol below") ||
 		!strings.HasSuffix(r.Result.Instructions, "# Протокол ochan\nПервым делом check_prompt.\n") {
 		t.Fatalf("протокола нет в instructions: %q", r.Result.Instructions)
 	}
@@ -967,15 +1003,43 @@ func TestMissingProtocolIsSaid(t *testing.T) {
 	e.srv.loadProtocol(context.Background())
 
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	if !strings.Contains(r.Result.Instructions, "Протокол формального промпта недоступен") {
+	if !strings.Contains(r.Result.Instructions, "The formal prompt protocol is unavailable") {
 		t.Fatalf("о недоступном протоколе не сказано: %q", r.Result.Instructions)
 	}
 }
 
 func TestOneStdinSlotPerTool(t *testing.T) {
-	bad := tool{Name: "x", Command: "fp", Fixed: []string{"check"},
-		Slots: []slot{promptSlot(), {Name: "other", Kind: slotText}}}
-	if err := checkTable([]tool{bad}); err == nil {
-		t.Fatal("инструмент с двумя текстами на stdin принят")
+	script := func(fixed []string, bundle bool, slots ...slot) tool {
+		return tool{Name: "x", Command: "plan", Fixed: append([]string{"--script"}, fixed...),
+			Sandboxed: true, Bundle: bundle, Slots: append([]slot{scriptSlot()}, slots...)}
+	}
+	cases := map[string]tool{
+		"два текста без --bundle": {Name: "x", Command: "fp", Fixed: []string{"check"},
+			Slots: []slot{promptSlot(), {Name: "other", Kind: slotText}}},
+		"сценарий и промпт без --bundle": script(nil, false, scriptPromptSlot()),
+		"Bundle без флага":               script(nil, true, scriptPromptSlot()),
+		"флаг без Bundle":                script([]string{"--bundle"}, false),
+		"ключ, которого ochan не знает":  script([]string{"--bundle"}, true, slot{Name: "notes", Kind: slotText}),
+		"--bundle без сценария": {Name: "x", Command: "fp", Fixed: []string{"check", "--bundle"}, Bundle: true,
+			Slots: []slot{promptSlot()}},
+	}
+	for name, bad := range cases {
+		if err := checkTable([]tool{bad}); err == nil {
+			t.Errorf("%s: таблица принята", name)
+		}
+	}
+	if err := checkTable([]tool{script([]string{"--bundle"}, true, scriptPromptSlot(), reportSlot())}); err != nil {
+		t.Fatalf("правильный инструмент отвергнут: %v", err)
+	}
+}
+
+// ochan под сервером работает в роли llm, даже если в окружении сервера
+// задана другая роль.
+func TestOchanRunsAsLLM(t *testing.T) {
+	t.Setenv("OCTOCHAN_ROLE", "master")
+	e := newEnv(t, withFakeEnv("FAKE_PRINT_ROLE=1"))
+	text, isError := e.callTool("services", map[string]any{})
+	if isError || strings.TrimSpace(text) != "role=llm" {
+		t.Fatalf("ochan запущен не в роли llm: %q", text)
 	}
 }

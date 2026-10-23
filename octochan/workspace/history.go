@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,8 @@ const (
 	EntryPatch EntryKind = "patch"
 	// EntryApply — во внешней системе созданы задачи.
 	EntryApply EntryKind = "apply"
+	// EntryScript — сценарий на языке алиасов записал файлы.
+	EntryScript EntryKind = "script"
 )
 
 func (k EntryKind) Russian() string {
@@ -35,6 +38,8 @@ func (k EntryKind) Russian() string {
 		return "правка файла"
 	case EntryApply:
 		return "запуск сценария"
+	case EntryScript:
+		return "сценарий"
 	default:
 		return string(k)
 	}
@@ -62,6 +67,11 @@ type Entry struct {
 	// по diff ломается, если файл успели поправить руками между операциями.
 	Before config.ConfigMap `json:"before,omitempty"`
 
+	// Files — файлы, которые записала операция, в состоянии до неё. Так
+	// откатывается сценарий: он пишет несколько файлов, не обязательно
+	// конфиги, и некоторые создаёт.
+	Files []FileState `json:"files,omitempty"`
+
 	// Reversible означает, что операцию можно отменить командой rollback.
 	// Созданные во внешней системе задачи необратимы: перезапуск СУБД
 	// уже произошёл, и отменять в октохане нечего.
@@ -74,6 +84,26 @@ type Entry struct {
 	RevertedBy string `json:"reverted_by,omitempty"`
 	// RevertOf — идентификатор записи, которую этот шаг отменяет.
 	RevertOf string `json:"revert_of,omitempty"`
+}
+
+// FileState — файл до операции.
+type FileState struct {
+	Path string `json:"path"`
+	// Existed ложно, если файла не было: откат его удаляет.
+	Existed bool   `json:"existed"`
+	Content []byte `json:"content,omitempty"`
+	// After — то, что операция оставила в файле (см. StateHash). Если
+	// файл с тех пор поменяли, откат стёр бы чужую правку.
+	After string `json:"after"`
+}
+
+// StateHash — отпечаток состояния файла: сумма SHA-256 содержимого или
+// пустая строка, если файла нет.
+func StateHash(exists bool, content []byte) string {
+	if !exists {
+		return ""
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(content))
 }
 
 // Reverted сообщает, был ли шаг уже отменён.

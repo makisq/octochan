@@ -23,6 +23,7 @@ const (
 
 	// Ключевые слова
 	TokenAlias
+	TokenVar
 	TokenIf
 	TokenElse
 	TokenFor
@@ -74,6 +75,7 @@ var tokenNames = map[TokenKind]string{
 	TokenFloat:     "дробное",
 	TokenString:    "строка",
 	TokenAlias:     "alias",
+	TokenVar:       "var",
 	TokenIf:        "if",
 	TokenElse:      "else",
 	TokenFor:       "for",
@@ -126,6 +128,7 @@ func (k TokenKind) String() string {
 // имена алиасов и переменных при этом могут быть на любом языке.
 var keywords = map[string]TokenKind{
 	"alias":    TokenAlias,
+	"var":      TokenVar,
 	"if":       TokenIf,
 	"else":     TokenElse,
 	"for":      TokenFor,

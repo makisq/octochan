@@ -235,6 +235,8 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseBlock()
 	case TokenAlias:
 		return nil, p.errorf(p.peek().Pos, "алиас можно объявлять только на верхнем уровне файла")
+	case TokenVar:
+		return p.parseVar()
 	}
 
 	// Присваивание: идентификатор, за которым идёт '=' или ': тип ='.
@@ -259,6 +261,7 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return &Assign{
 			Pos:      nameTok.Pos,
 			Name:     nameTok.Text,
+			Declare:  declared != "",
 			Declared: declared,
 			Value:    value,
 		}, p.endStatement()
@@ -270,6 +273,39 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return nil, err
 	}
 	return &ExprStmt{Pos: pos, Expr: expr}, p.endStatement()
+}
+
+// parseVar разбирает объявление переменной:
+//
+//	var имя: тип = значение
+//	var имя = значение      — тип задаёт значение
+//	var имя: тип            — нулевое значение типа
+func (p *Parser) parseVar() (Stmt, error) {
+	varTok := p.advance()
+	nameTok, err := p.expect(TokenIdent, "— имя переменной после var")
+	if err != nil {
+		return nil, err
+	}
+
+	declared, err := p.parseOptionalType()
+	if err != nil {
+		return nil, err
+	}
+
+	node := &Assign{Pos: varTok.Pos, Name: nameTok.Text, Declare: true, Declared: declared}
+	if !p.match(TokenAssign) {
+		if declared == "" {
+			return nil, p.errorf(nameTok.Pos, "var %s: укажите тип (var %s: int) или значение (var %s = 0)",
+				nameTok.Text, nameTok.Text, nameTok.Text)
+		}
+		return node, p.endStatement()
+	}
+
+	node.Value, err = p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	return node, p.endStatement()
 }
 
 // endStatement требует, чтобы инструкция завершалась переводом строки,

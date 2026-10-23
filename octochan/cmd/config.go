@@ -75,6 +75,18 @@ func initConfig() error {
 	viper.SetDefault("defaults.smtp_starttls", false)
 	viper.SetDefault("defaults.notify_always", false)
 
+	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
+	viper.SetDefault("ssl", true)
+	viper.SetDefault("tls.min_version", "1.2")
+	viper.SetDefault("tls.cert", filepath.Join(fm.BaseDir(), "tls", "server.crt"))
+	viper.SetDefault("tls.key", filepath.Join(fm.BaseDir(), "tls", "server.key"))
+	viper.SetDefault("tls.ca", "")
+	viper.SetDefault("tls.server_name", "")
+	viper.SetDefault("server.listen", "127.0.0.1:7443")
+	viper.SetDefault("server.dir", "")
+	viper.SetDefault("server.session_timeout", "30m")
+	viper.SetDefault("server.command_timeout", "10m")
+
 	path := configPath(fm)
 	viper.SetConfigFile(path)
 

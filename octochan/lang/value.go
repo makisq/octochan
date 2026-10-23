@@ -220,6 +220,35 @@ func (v ConfigValue) Text() string {
 func (v ConfigValue) Truthy() bool   { return v.Params() > 0 }
 func (ConfigValue) TypeName() string { return "конфиг" }
 
+// StreamKind — куда пишет поток.
+type StreamKind string
+
+const (
+	StreamStdout StreamKind = "stdout"
+	StreamStderr StreamKind = "stderr"
+	StreamFile   StreamKind = "file"
+)
+
+// StreamValue — поток вывода для print: консоль, поток ошибок или файл.
+//
+// Сам поток ничего не открывает: это адрес. Файл открывается при каждой
+// печати, и запись в него — такое же действие сценария, как write: она
+// попадает в план, проверяется песочницей и откатывается.
+type StreamValue struct {
+	Kind StreamKind
+	// Path — путь файла, как его написали в сценарии.
+	Path string
+}
+
+func (v StreamValue) Text() string {
+	if v.Kind == StreamFile {
+		return v.Path
+	}
+	return string(v.Kind)
+}
+func (StreamValue) Truthy() bool     { return true }
+func (StreamValue) TypeName() string { return "поток" }
+
 // Display — человекочитаемое представление для печати и отладки.
 func Display(v Value) string {
 	switch val := v.(type) {
@@ -242,6 +271,11 @@ func Display(v Value) string {
 		return "{" + strings.Join(parts, ", ") + "}"
 	case ConfigValue:
 		return fmt.Sprintf("конфиг %s (%d параметров)", val.Name, val.Params())
+	case StreamValue:
+		if val.Kind == StreamFile {
+			return "поток в файл " + val.Path
+		}
+		return "поток " + string(val.Kind)
 	default:
 		return v.Text()
 	}

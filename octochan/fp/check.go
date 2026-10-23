@@ -30,6 +30,9 @@ type Options struct {
 	// Library — библиотека скиллов: есть ли скилл, его операции и версия.
 	// nil — библиотеки нет, и скилл даёт ровно то, что объявлено в import.
 	Library func(name string) (*Skill, bool)
+	// Builtins — операции самой среды выполнения (в ochan — write и save):
+	// они известны арбитру без скиллов, и правило о них проверяется по плану.
+	Builtins []string
 }
 
 // Skill — скилл в библиотеке.
@@ -668,7 +671,7 @@ func (c *checker) checkRules() {
 // догадка: модель не пополняет K сама (определение 6).
 func (c *checker) checkKnowledge() {
 	for _, r := range c.required {
-		if c.knowledge[r.name.Text] {
+		if c.knowledge[r.name.Text] || contains(c.opts.Builtins, r.name.Text) {
 			continue
 		}
 		switch r.from {

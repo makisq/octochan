@@ -22,10 +22,12 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "ochan",
-	Short: "Инструмент для детекта изменений в конфигурациях",
-	Long: `Octo-chan — утилита для сравнения и анализа конфигурационных файлов.
-Поддерживает YAML, JSON, ENV и другие форматы.
-Находит различия, проверяет валидность и умеет применять патчи.`,
+	Short: "Минималистичный оркестратор для командной строки и CI",
+	Long: `Octo-chan — минималистичный оркестратор для командной строки и CI.
+Сценарии на языке алиасов со строгими типами, план до выполнения, заявки
+с согласованием, откат, роли и серверный режим. Из коробки работает с
+конфигурациями (YAML, JSON, ENV, conf, живой PostgreSQL) — остальное
+подключается модулями и пакетами алиасов.`,
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }
@@ -43,6 +45,10 @@ func init() {
 		return runInteractiveShell(cmd.Context())
 	}
 	helpCmd.RunE = runHelp
+
+	// Права проверяются перед каждой командой — и в командной строке,
+	// и в оболочке: там каждая строка тоже проходит через rootCmd.
+	rootCmd.PersistentPreRunE = authorize
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"путь до конфига (по умолчанию ~/.octochan/config.yaml)")
@@ -80,6 +86,13 @@ func init() {
 		aliasesCmd,
 		checkCmd,
 		fpCmd,
+		roleCmd,
+		setCmd,
+		backCmd,
+		serveCmd,
+		tlsCmd,
+		connectCmd,
+		remoteCmd,
 		planCmd,
 		historyCmd,
 		rollbackCmd,

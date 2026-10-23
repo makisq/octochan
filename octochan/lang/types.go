@@ -24,6 +24,7 @@ const (
 	TypeList   TypeName = "list"
 	TypeMap    TypeName = "map"
 	TypeConfig TypeName = "config"
+	TypeStream TypeName = "stream"
 )
 
 // typeAliases позволяет писать имена типов и латиницей, и по-русски:
@@ -49,6 +50,8 @@ var typeAliases = map[string]TypeName{
 	"словарь":    TypeMap,
 	"config":     TypeConfig,
 	"конфиг":     TypeConfig,
+	"stream":     TypeStream,
+	"поток":      TypeStream,
 }
 
 // ParseTypeName распознаёт имя типа.
@@ -94,6 +97,8 @@ func (t TypeName) Russian() string {
 		return "словарь"
 	case TypeConfig:
 		return "конфиг"
+	case TypeStream:
+		return "поток"
 	default:
 		return string(t)
 	}
@@ -140,8 +145,79 @@ func (t TypeName) Accepts(v Value) bool {
 	case TypeConfig:
 		_, ok := v.(ConfigValue)
 		return ok
+	case TypeStream:
+		_, ok := v.(StreamValue)
+		return ok
 	}
 	return false
+}
+
+// typeOf — тип значения: им становится тип переменной, объявленной без
+// аннотации. null типа не задаёт: такая переменная — any.
+func typeOf(v Value) TypeName {
+	switch v.(type) {
+	case IntValue:
+		return TypeInt
+	case FloatValue:
+		return TypeFloat
+	case StringValue:
+		return TypeString
+	case BoolValue:
+		return TypeBool
+	case ListValue:
+		return TypeList
+	case MapValue:
+		return TypeMap
+	case ConfigValue:
+		return TypeConfig
+	case StreamValue:
+		return TypeStream
+	}
+	return TypeAny
+}
+
+// zeroValue — значение переменной, объявленной без него: `var n: int`.
+func zeroValue(t TypeName) (Value, error) {
+	switch t {
+	case TypeInt, TypeNumber:
+		return IntValue(0), nil
+	case TypeFloat:
+		return FloatValue(0), nil
+	case TypeString:
+		return StringValue(""), nil
+	case TypeBool:
+		return BoolValue(false), nil
+	case TypeList:
+		return ListValue{}, nil
+	case TypeMap:
+		return MapValue{}, nil
+	case TypeAny:
+		return NullValue{}, nil
+	}
+	return nil, fmt.Errorf("у типа %s нет нулевого значения: объявите переменную со значением", t.Russian())
+}
+
+// reassignError — значение не того типа для объявленной переменной.
+func reassignError(name string, declared TypeName, inferred bool, v Value) error {
+	return fmt.Errorf("переменная %s: %s, присваивается значение типа %s (%s)%s",
+		name, typeOrigin(declared, inferred), v.TypeName(), Display(v), reassignHint(name, declared, typeOf(v)))
+}
+
+func typeOrigin(declared TypeName, inferred bool) string {
+	if inferred {
+		return "тип " + declared.Russian() + " задан первым значением"
+	}
+	return "объявлен тип " + declared.Russian()
+}
+
+// reassignHint подсказывает, как объявить переменную, если ей нужны
+// значения разных типов: целое и дробное — number, остальное — any.
+func reassignHint(name string, declared, actual TypeName) string {
+	want := TypeAny
+	if (declared == TypeInt || declared == TypeFloat) && (actual == TypeInt || actual == TypeFloat) {
+		want = TypeNumber
+	}
+	return fmt.Sprintf(": тип переменной не меняется; для таких значений объявите её как var %s: %s", name, want)
 }
 
 // checkType проверяет значение и возвращает понятную ошибку.

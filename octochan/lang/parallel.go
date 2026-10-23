@@ -29,7 +29,7 @@ func (in *Interpreter) execTry(node *Try, env *scope) error {
 
 	catchScope := newScope(env)
 	if node.ErrVar != "" {
-		catchScope.define(node.ErrVar, "", StringValue(errorMessage(err)))
+		catchScope.define(node.ErrVar, TypeString, StringValue(errorMessage(err)))
 	}
 	return in.execStmt(node.Catch, catchScope)
 }
@@ -79,6 +79,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 	base := env.snapshot()
 
 	outputs := make([]bytes.Buffer, len(items))
+	errOutputs := make([]bytes.Buffer, len(items))
 	errs := make([]error, len(items))
 	workers := make([]*Interpreter, len(items))
 
@@ -106,7 +107,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 				}
 			}()
 
-			worker := in.fork(&outputs[idx])
+			worker := in.fork(&outputs[idx], &errOutputs[idx])
 			workers[idx] = worker
 
 			iterScope := base.snapshot()
@@ -131,18 +132,33 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 	// итераций остаются в списке: записанное до сбоя уже записано.
 	for _, worker := range workers {
 		if worker != nil {
+			for _, effect := range worker.effects {
+				// Итерация переписала файл: печать после цикла — новое действие.
+				delete(in.appending, effect.Path)
+			}
 			in.effects = append(in.effects, worker.effects...)
+			in.calls = append(in.calls, worker.calls...)
 		}
 	}
 
 	// Вывод сбрасывается в порядке итераций, а не в порядке завершения:
-	// результат параллельного цикла обязан быть воспроизводимым.
+	// результат параллельного цикла обязан быть воспроизводимым. Так же
+	// дописывается и печать итераций в файлы.
 	for i := range outputs {
-		if outputs[i].Len() > 0 {
-			if _, err := io.Copy(in.out, &outputs[i]); err != nil {
+		for _, stream := range []struct {
+			buf *bytes.Buffer
+			dst io.Writer
+		}{{&outputs[i], in.out}, {&errOutputs[i], in.errOut}} {
+			if stream.buf.Len() == 0 {
+				continue
+			}
+			if _, err := io.Copy(stream.dst, stream.buf); err != nil {
 				return in.errorf(node.Pos, "не удалось записать вывод итерации %d: %v", i+1, err)
 			}
 		}
+	}
+	if err := in.flushAppends(workers); err != nil {
+		return in.errorf(node.Pos, "parallel for: %v", err)
 	}
 
 	return in.joinIterationErrors(node, items, errs)
@@ -186,17 +202,22 @@ func (in *Interpreter) joinIterationErrors(node *For, items []Value, errs []erro
 // Реестр алиасов, набор встроенных функций и песочница во время выполнения
 // только читаются, поэтому их можно разделять; записи режима плана общие,
 // как общий диск, и защищены своей блокировкой. Стек вызовов, вывод
-// и список действий у каждой итерации свои.
-func (in *Interpreter) fork(out io.Writer) *Interpreter {
+// и список действий у каждой итерации свои; печать в файлы итерация
+// копит и отдаёт после цикла.
+func (in *Interpreter) fork(out, errOut io.Writer) *Interpreter {
 	return &Interpreter{
-		registry: in.registry,
-		builtins: in.builtins,
-		out:      out,
-		ctx:      in.ctx,
-		sandbox:  in.sandbox,
-		dir:      in.dir,
-		dry:      in.dry,
-		stack:    append([]string{}, in.stack...),
+		registry:     in.registry,
+		builtins:     in.builtins,
+		out:          out,
+		errOut:       errOut,
+		deferAppends: true,
+		ctx:          in.ctx,
+		sandbox:      in.sandbox,
+		dir:          in.dir,
+		dry:          in.dry,
+		callIDs:      append([]int{}, in.callIDs...),
+		nextCall:     in.nextCall,
+		stack:        append([]string{}, in.stack...),
 	}
 }
 
@@ -220,6 +241,9 @@ func (s *scope) snapshot() *scope {
 		}
 		for name, declared := range chain[i].types {
 			flat.types[name] = declared
+		}
+		for name, inferred := range chain[i].inferred {
+			flat.inferred[name] = inferred
 		}
 	}
 	return flat
