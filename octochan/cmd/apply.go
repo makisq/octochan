@@ -131,8 +131,7 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		return applyScriptRequest(cmd, store, request)
 	}
 	if request.Service == "" {
-		return fmt.Errorf("заявка %s описывает правку файла; выполните её командой patch",
-			request.ID)
+		return applyConfigRequest(cmd, store, request)
 	}
 
 	parsed, err := scenario.Parse(request.Source, []byte(request.Payload))
@@ -334,4 +333,81 @@ func scenarioServices() []serviceInfo {
 
 func init() {
 	applyCmd.Flags().BoolVarP(&waitDone, "wait", "w", false, "дождаться завершения")
+}
+
+// applyConfigRequest выполняет согласованную правку конфига.
+//
+// Применяются изменения из плана заявки, а не перечитанный файл правок:
+// согласовывали план. Перед этим файл сверяется с тем, что было при
+// согласовании: если параметр, который правка меняет, успели поправить,
+// выполнение отменяется — иначе правка легла бы не на то, что видели.
+func applyConfigRequest(cmd *cobra.Command, store *workspace.Requests, request *workspace.Request) error {
+	target := request.Target
+	switch {
+	case target == "" || target == "stdin":
+		return fmt.Errorf("заявка %s: правка stdin — записывать некуда; выполните её командой patch", request.ID)
+	case config.SourceScheme(target) != "":
+		return fmt.Errorf("заявка %s правит живой источник %s: ochan его не записывает — "+
+			"выполните правку на сервере (например, ALTER SYSTEM)", request.ID, target)
+	}
+
+	current, err := config.LoadConfigFrom(cmd.Context(), target, config.SourceOptions{})
+	if err != nil {
+		return fmt.Errorf("заявка %s: %w", request.ID, err)
+	}
+
+	var drift []string
+	for _, change := range request.Plan.Changes {
+		now, exists := config.ParamValue(current.Data, change.Name)
+		switch change.Kind {
+		case config.ChangeAdd:
+			if exists {
+				drift = append(drift, fmt.Sprintf("  %s: при согласовании не было, сейчас %s", change.Name, now))
+			}
+		default:
+			if !exists {
+				drift = append(drift, fmt.Sprintf("  %s: при согласовании %s, сейчас параметра нет", change.Name, change.From))
+			} else if now != change.From {
+				drift = append(drift, fmt.Sprintf("  %s: при согласовании %s, сейчас %s", change.Name, change.From, now))
+			}
+		}
+	}
+	if len(drift) > 0 {
+		return fmt.Errorf("%s изменился после согласования заявки %s: правка легла бы не на то, что согласовали; "+
+			"оформите новую заявку.\n%s", target, request.ID, strings.Join(drift, "\n"))
+	}
+
+	// ApplyPlan правит карту на месте, а прежнее содержимое нужно журналу.
+	before := make(config.ConfigMap, len(current.Data))
+	for section, params := range current.Data {
+		before[section] = make(map[string]string, len(params))
+		for key, value := range params {
+			before[section][key] = value
+		}
+	}
+	result := config.ApplyPlan(current.Data, request.Plan)
+	if err := config.SaveConfig(result, target); err != nil {
+		return err
+	}
+	if err := store.MarkApplied(request, []string{target}); err != nil {
+		cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
+	}
+	entry := &workspace.Entry{
+		Kind:       workspace.EntryPatch,
+		Command:    "apply --request " + request.ID,
+		Source:     request.Source,
+		Target:     target,
+		Summary:    fmt.Sprintf("правка по заявке %s, параметров: %d", request.ID, request.Plan.Len()),
+		Changes:    request.Plan.Changes,
+		Before:     before,
+		Reversible: true,
+	}
+	record(cmd, entry)
+	notify(cmd, fmt.Sprintf("Заявка %s выполнена", request.ID), requestMailBody(request), nil)
+
+	cmd.Printf("Заявка %s выполнена: %s, изменено параметров: %d\n", request.ID, target, request.Plan.Len())
+	if entry.ID != "" {
+		cmd.Printf("Откат: ochan rollback %s\n", entry.ID)
+	}
+	return nil
 }
