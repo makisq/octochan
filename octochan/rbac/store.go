@@ -31,6 +31,9 @@ type Store struct {
 	Current string
 	// History — роли в порядке переключений; последняя — текущая.
 	History []string
+	// ServerKey — ключ подписи допусков сервера; пуст, пока сервер не
+	// запускался (см. grant.go).
+	ServerKey []byte
 }
 
 // Default — хранилище сразу после установки: master — первая и

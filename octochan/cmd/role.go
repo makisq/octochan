@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"octochan/rbac"
 
@@ -20,6 +21,10 @@ import (
 // ochan-mcp запускает ochan в роли llm: что бы ни было текущей ролью
 // пользователя, нейросеть работает в своей.
 const EnvRole = "OCTOCHAN_ROLE"
+
+// EnvGrant — допуск сервера на роль из EnvRole: с ним роль процесса
+// может быть и защищённой паролем, потому что пароль проверил сервер.
+const EnvGrant = "OCTOCHAN_ROLE_GRANT"
 
 var (
 	roleAllow     []string
@@ -71,6 +76,12 @@ func activeRole(store *rbac.Store) (*rbac.Role, bool, error) {
 	role := store.Find(name)
 	if role == nil {
 		return nil, true, fmt.Errorf("%s=%s: такой роли нет", EnvRole, name)
+	}
+	if grant := os.Getenv(EnvGrant); grant != "" {
+		if err := store.CheckGrant(role.Name, grant, time.Now()); err != nil {
+			return nil, true, fmt.Errorf("%s: %w", EnvGrant, err)
+		}
+		return role, true, nil
 	}
 	if role.NeedsAuth() {
 		return nil, true, fmt.Errorf("%s=%s: роль защищена логином или паролем, задать её окружением нельзя; "+
@@ -161,7 +172,10 @@ func newCredentialReader(cmd *cobra.Command) *credentialReader {
 func (r *credentialReader) line(prompt string) (string, error) {
 	r.cmd.Print(prompt)
 	text, err := r.lines.ReadString('\n')
-	if err != nil && !(errors.Is(err, io.EOF) && text != "") {
+	switch {
+	case errors.Is(err, io.EOF) && text == "":
+		return "", errors.New("ввод закончился, а ответа нет: логин или пароль не введён")
+	case err != nil && !errors.Is(err, io.EOF):
 		return "", fmt.Errorf("не удалось прочитать ввод: %w", err)
 	}
 	return strings.TrimRight(text, "\r\n"), nil

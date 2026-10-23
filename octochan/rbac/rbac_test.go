@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func init() {
@@ -337,4 +338,36 @@ func flipByte(data []byte, i int) []byte {
 	out := append([]byte(nil), data...)
 	out[i] ^= 0xff
 	return out
+}
+
+func TestServerGrant(t *testing.T) {
+	s := Default()
+	now := time.Unix(1_800_000_000, 0)
+
+	_, err := s.IssueGrant(Master, now.Add(time.Minute))
+	mustFail(t, err, "нет ключа сервера")
+	mustFail(t, s.CheckGrant(Master, "x", now), "сервер не запускался")
+
+	if err := s.RotateServerKey(); err != nil {
+		t.Fatal(err)
+	}
+	grant, err := s.IssueGrant(Master, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckGrant("MASTER", grant, now); err != nil {
+		t.Fatalf("свежий допуск не принят: %v", err)
+	}
+
+	mustFail(t, s.CheckGrant(Master, grant, now.Add(2*time.Minute)), "срок допуска истёк")
+	mustFail(t, s.CheckGrant(LLM, grant, now), "выдан на роль master")
+	forged := strings.Replace(grant, "master", "llm", 1)
+	mustFail(t, s.CheckGrant(LLM, forged, now), "подпись допуска не сходится")
+	mustFail(t, s.CheckGrant(Master, "master|1|2|3", now), "испорчен")
+
+	// После перезапуска сервера старые допуски недействительны.
+	if err := s.RotateServerKey(); err != nil {
+		t.Fatal(err)
+	}
+	mustFail(t, s.CheckGrant(Master, grant, now), "подпись допуска не сходится")
 }

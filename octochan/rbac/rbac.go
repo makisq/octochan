@@ -40,6 +40,11 @@ var Groups = map[string][]string{
 	"install": {"!install", "inspect"},
 	"auth":    {"auth", "timer"},
 	"admin":   {"role.create", "role.delete", "role.grant", "role.revoke", "role.update"},
+	// server — держать общий оркестратор; remote — подключаться к чужому.
+	// Ни то ни другое не входит в потолок llm: нейросеть, подключившись
+	// к серверу, где у master нет пароля, стала бы master.
+	"server": {"serve", "tls.init"},
+	"remote": {"connect", "remote"},
 }
 
 // Free — команды, доступные любой роли: без них нельзя узнать, кто ты,
