@@ -868,9 +868,9 @@ func TestScriptValidation(t *testing.T) {
 		value  any
 		reason string
 	}{
-		{"", "пустой сценарий"},
-		{"  \n\t", "пустой сценарий"},
-		{42, "ожидается текст сценария строкой"},
+		{"", "пустой текст"},
+		{"  \n\t", "пустой текст"},
+		{42, "ожидается текст строкой"},
 		{"print(1)\x00", "недопустимые символы"},
 		{strings.Repeat("#", maxScript+1), "длиннее"},
 	}
@@ -924,5 +924,58 @@ func TestInstructionsDescribeScriptSandbox(t *testing.T) {
 		if !strings.Contains(r.Result.Instructions, want) {
 			t.Errorf("в инструкциях нет %q: %s", want, r.Result.Instructions)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Протокол и формальный промпт
+// ---------------------------------------------------------------------------
+
+func TestPromptToolsArgv(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_ECHO_STDIN=1"))
+	prompt := "goal: tuned\nclasses:\n  Goal : \"tuned\"\n"
+
+	args, stdin := e.scriptCall("check_prompt", map[string]any{"prompt": prompt, "name": "задача.fp"})
+	assertArgv(t, args, "fp", "check", "--name=задача.fp", "--", "-")
+	if stdin != prompt {
+		t.Errorf("на stdin %q", stdin)
+	}
+
+	args, stdin = e.scriptCall("protocol", map[string]any{})
+	assertArgv(t, args, "fp", "protocol")
+	if stdin != "" {
+		t.Errorf("протоколу stdin не нужен, получено %q", stdin)
+	}
+
+	e.assertRejected("check_prompt", map[string]any{"prompt": ""}, "пустой текст")
+}
+
+// Модель получает протокол первым — в instructions при подключении.
+func TestInstructionsCarryProtocol(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_STDOUT=# Протокол ochan\nПервым делом check_prompt.\n"))
+	e.srv.loadProtocol(context.Background())
+
+	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
+	if !strings.Contains(r.Result.Instructions, "прочитайте протокол ниже") ||
+		!strings.HasSuffix(r.Result.Instructions, "# Протокол ochan\nПервым делом check_prompt.\n") {
+		t.Fatalf("протокола нет в instructions: %q", r.Result.Instructions)
+	}
+}
+
+func TestMissingProtocolIsSaid(t *testing.T) {
+	e := newEnv(t, withFakeEnv("FAKE_EXIT=1", "FAKE_STDERR=unknown command fp"))
+	e.srv.loadProtocol(context.Background())
+
+	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
+	if !strings.Contains(r.Result.Instructions, "Протокол формального промпта недоступен") {
+		t.Fatalf("о недоступном протоколе не сказано: %q", r.Result.Instructions)
+	}
+}
+
+func TestOneStdinSlotPerTool(t *testing.T) {
+	bad := tool{Name: "x", Command: "fp", Fixed: []string{"check"},
+		Slots: []slot{promptSlot(), {Name: "other", Kind: slotText}}}
+	if err := checkTable([]tool{bad}); err == nil {
+		t.Fatal("инструмент с двумя текстами на stdin принят")
 	}
 }

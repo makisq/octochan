@@ -106,10 +106,11 @@ func run() int {
 		return 1
 	}
 
-	logger.Printf("запущен: ochan %s, каталоги %s", binary, strings.Join(box.roots, ", "))
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	srv.loadProtocol(ctx)
+	logger.Printf("запущен: ochan %s, каталоги %s", binary, strings.Join(box.roots, ", "))
 
 	done := make(chan error, 1)
 	go func() { done <- srv.serve(ctx, os.Stdin) }()

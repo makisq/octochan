@@ -45,6 +45,9 @@ const (
 	slotOverrides
 	// slotName — имя сценария для сообщений, плана и заявки.
 	slotName
+	// slotText — текст формального промпта. Как и сценарий, идёт ochan
+	// через stdin, но ничего не выполняет: его только проверяют.
+	slotText
 	// slotScript — текст сценария на языке алиасов. Передаётся ochan
 	// через stdin, а не аргументом: сценарий бывает длинным, и в командной
 	// строке ему не место — её видно в списке процессов.
@@ -349,6 +352,9 @@ func matched(name, value string, pattern *regexp.Regexp, allowed string) (string
 	return value, nil
 }
 
+// stdinSlot сообщает, что значение слота передаётся ochan через stdin.
+func stdinSlot(kind slotKind) bool { return kind == slotScript || kind == slotText }
+
 // scriptText проверяет текст сценария.
 //
 // Сам сценарий проверяет ochan: разбор, имена, типы. Здесь отсекается то,
@@ -356,15 +362,15 @@ func matched(name, value string, pattern *regexp.Regexp, allowed string) (string
 func scriptText(name string, raw any) (string, error) {
 	text, ok := raw.(string)
 	if !ok {
-		return "", slotError(name, "ожидается текст сценария строкой")
+		return "", slotError(name, "ожидается текст строкой")
 	}
 	switch {
 	case strings.TrimSpace(text) == "":
-		return "", slotError(name, "пустой сценарий")
+		return "", slotError(name, "пустой текст")
 	case len(text) > maxScript:
-		return "", slotError(name, "сценарий длиннее %d КиБ", maxScript>>10)
+		return "", slotError(name, "текст длиннее %d КиБ", maxScript>>10)
 	case strings.ContainsRune(text, 0) || !utf8.ValidString(text):
-		return "", slotError(name, "сценарий содержит недопустимые символы")
+		return "", slotError(name, "текст содержит недопустимые символы")
 	}
 	return text, nil
 }

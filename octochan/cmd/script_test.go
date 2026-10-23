@@ -31,8 +31,7 @@ func newScriptEnv(t *testing.T) *scriptEnv {
 		t.Fatal(err)
 	}
 	// Реестр алиасов кешируется на процесс; каждому тесту — свой дом.
-	aliasRegistryOnce = sync.Once{}
-	aliasRegistry, aliasLoadErrs = nil, nil
+	resetAliasCache()
 
 	e := &scriptEnv{t: t, home: home, work: t.TempDir()}
 	e.library = filepath.Join(home, ".octochan", "aliases", "lib.ochan")
@@ -102,6 +101,11 @@ func (e *scriptEnv) fails(want string, args ...string) {
 	if !strings.Contains(err.Error(), want) {
 		e.t.Fatalf("ochan %s: ожидался отказ с %q, получено: %v", strings.Join(args, " "), want, err)
 	}
+}
+
+func resetAliasCache() {
+	aliasRegistryOnce = sync.Once{}
+	aliasRegistry, aliasLoadErrs = nil, nil
 }
 
 var requestIDPattern = regexp.MustCompile(`Заявка ([0-9a-f]+) создана`)

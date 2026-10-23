@@ -36,7 +36,7 @@ type tool struct {
 var readCommands = map[string]bool{
 	"diff": true, "validate": true, "find": true, "stats": true, "print": true,
 	"plan": true, "services": true, "aliases": true, "modules": true,
-	"history": true, "requests": true, "status": true, "check": true,
+	"history": true, "requests": true, "status": true, "check": true, "fp": true,
 }
 
 // writeCommands — единственное, что сервер может создать: заявку в
@@ -67,6 +67,17 @@ func checkTable(tools []tool) error {
 
 		if err := checkScriptTool(t); err != nil {
 			return err
+		}
+
+		// stdin у ochan один: два текста в одном вызове перемешались бы.
+		stdin := 0
+		for _, s := range t.Slots {
+			if stdinSlot(s.Kind) {
+				stdin++
+			}
+		}
+		if stdin > 1 {
+			return fmt.Errorf("инструмент %s: через stdin передаётся только один текст", t.Name)
 		}
 	}
 	return nil
@@ -127,6 +138,12 @@ func overridesSlot() slot {
 func scriptSlot() slot {
 	return slot{Name: "script", Kind: slotScript, Required: true,
 		Description: "текст сценария на языке алиасов ochan; встроенные функции и алиасы перечисляет инструмент aliases"}
+}
+
+func promptSlot() slot {
+	return slot{Name: "prompt", Kind: slotText, Required: true,
+		Description: "текст формального промпта; язык описан в протоколе (инструмент protocol). " +
+			"Отчёт report: дописывается к промпту и проверяется вместе с ним"}
 }
 
 func nameSlot() slot {
@@ -290,6 +307,25 @@ func buildTools(live []string) []tool {
 			Remote:  true,
 		},
 		{
+			Name:  "protocol",
+			Title: "Протокол",
+			Description: "Протокол работы с ochan: кто модель здесь, язык формального промпта, отказы и цикл " +
+				"работы. Его же сервер отдаёт в instructions при подключении; инструмент — для клиентов, " +
+				"которые instructions не показывают модели.",
+			Command: "fp",
+			Fixed:   []string{"protocol"},
+		},
+		{
+			Name:  "check_prompt",
+			Title: "Проверить формальный промпт",
+			Description: "Детерминированная проверка до модели: текст принадлежит языку (⊥syn), слова однозначны " +
+				"(⊥ambig), знания хватает — Req(P) ⊆ K (⊥undef), жёсткие правила совместны (⊥conflict). " +
+				"Скиллы сверяются с библиотекой пакетов алиасов. С разделом report: проверяет и отчёт.",
+			Command: "fp",
+			Fixed:   []string{"check"},
+			Slots:   []slot{promptSlot(), nameSlot()},
+		},
+		{
 			Name:  "check_script",
 			Title: "Проверить сценарий",
 			Description: "Проверяет сценарий на языке алиасов, ничего не выполняя: синтаксис, неизвестные " +
@@ -377,7 +413,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 			continue
 		}
 
-		if s.Kind == slotScript {
+		if stdinSlot(s.Kind) {
 			text, err := scriptText(s.Name, raw)
 			if err != nil {
 				return nil, "", err
@@ -440,7 +476,7 @@ func (t *tool) schema() map[string]any {
 		case slotName:
 			property["type"] = "string"
 			property["pattern"] = namePattern.String()
-		case slotScript:
+		case slotScript, slotText:
 			property["type"] = "string"
 			property["minLength"] = 1
 			property["maxLength"] = maxScript
