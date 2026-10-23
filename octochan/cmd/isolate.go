@@ -46,6 +46,8 @@ type isolatedSpec struct {
 	Roots []string `json:"roots"`
 	Env   []string `json:"env,omitempty"`
 	Live  []string `json:"live,omitempty"`
+	// Protected — каталоги, закрытые для встроенных функций.
+	Protected []string `json:"protected,omitempty"`
 
 	AliasesDir  string `json:"aliases_dir"`
 	ModulesDir  string `json:"modules_dir"`
@@ -99,6 +101,7 @@ func isolated(cmd *cobra.Command, spec isolatedSpec, out io.Writer) (*isolatedRe
 	spec.AliasesDir, spec.ModulesDir = fm.AliasesDir(), fm.ModulesDir()
 	spec.MaxParallel = viper.GetInt("defaults.max_parallel_tasks")
 	spec.Lang = i18n.Current()
+	spec.Protected = protectedPaths()
 
 	policy := sandbox.Policy{
 		Write:   spec.Roots,
@@ -319,6 +322,7 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 	interp := lang.NewInterpreter(context.Background(), registry, out)
 	interp.SetErr(errOut)
 	interp.SetSandbox(box)
+	interp.SetProtected(spec.Protected)
 	interp.SetDir(spec.Dir)
 
 	switch spec.Mode {

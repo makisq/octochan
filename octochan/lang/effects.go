@@ -191,9 +191,50 @@ func (in *Interpreter) path(name string) (string, error) {
 	path = filepath.Clean(path)
 
 	if in.sandbox != nil {
-		return in.sandbox.resolve(path)
+		resolved, err := in.sandbox.resolve(path)
+		if err != nil {
+			return "", err
+		}
+		path = resolved
+	}
+	if len(in.protected) > 0 {
+		real, err := realPath(path)
+		if err != nil {
+			return "", fmt.Errorf("путь %s не проверить: %w", name, err)
+		}
+		for _, dir := range in.protected {
+			if within(dir, real) {
+				return "", fmt.Errorf("%s — рабочий каталог ochan (%s): сценариям он закрыт", name, dir)
+			}
+		}
 	}
 	return path, nil
+}
+
+// SetProtected закрывает каталоги для встроенных функций — и в песочнице,
+// и без неё. Это рабочий каталог ochan: там хранилище ролей с ключом
+// подписи допусков сервера, токен API и журналы. Сценарий, который его
+// прочитал бы, подделал бы допуск; который записал бы — переписал бы роли.
+func (in *Interpreter) SetProtected(dirs []string) {
+	in.protected = nil
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		if real, err := realPath(filepath.Clean(dir)); err == nil {
+			dir = real
+		}
+		in.protected = append(in.protected, dir)
+	}
+}
+
+// within сообщает, что path — это dir или лежит внутри него.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // readFile читает файл: сначала записанное в режиме плана, затем диск.

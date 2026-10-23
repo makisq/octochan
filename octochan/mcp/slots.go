@@ -137,6 +137,12 @@ func newSandbox(roots, live []string, env ...string) (*sandbox, error) {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("%s — не каталог", root)
 		}
+		if work := ochanDir(); work != "" && within(real, work) {
+			// ochan откажет каждому вызову с такой песочницей: сказать это
+			// сразу понятнее, чем отказом на первом же сценарии.
+			return nil, fmt.Errorf("каталог %s содержит рабочий каталог ochan %s: нейросети туда нельзя; "+
+				"запустите сервер из каталога проекта или укажите --root", root, work)
+		}
 		box.roots = append(box.roots, real)
 	}
 
@@ -413,4 +419,26 @@ func overrides(name string, raw any) ([]string, error) {
 		args = append(args, key+"="+value)
 	}
 	return args, nil
+}
+
+// ochanDir — рабочий каталог ochan: там роли, ключ сервера и токены.
+func ochanDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".octochan")
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		return real
+	}
+	return dir
+}
+
+// within сообщает, что path — это dir или лежит внутри него.
+func within(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil || filepath.IsAbs(rel) {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FileName — хранилище ролей в рабочем каталоге octochan.
@@ -42,7 +43,10 @@ func Default() *Store {
 	return &Store{
 		Roles: []*Role{
 			{Name: Master, Perms: []string{All}, Builtin: true},
-			{Name: LLM, Perms: append([]string(nil), LLMCeiling...), Builtin: true},
+			// Нейросеть, которой подсунули вредную инструкцию, может
+			// завалить людей заявками: тридцати в час хватает для работы.
+			{Name: LLM, Perms: append([]string(nil), LLMCeiling...), Builtin: true,
+				Limits: []Limit{{Perm: "request", Count: 30, Window: time.Hour}}},
 		},
 		Current: Master,
 		History: []string{Master},

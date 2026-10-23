@@ -1086,3 +1086,24 @@ func TestToolDescriptionsAreEnglish(t *testing.T) {
 		}
 	}
 }
+
+// Песочница нейросети не накрывает рабочий каталог ochan: там роли и
+// ключ сервера.
+func TestSandboxRefusesOchanDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(filepath.Join(home, ".octochan"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSandbox([]string{home}, nil); err == nil || !strings.Contains(err.Error(), "рабочий каталог ochan") {
+		t.Fatalf("корень поверх ~/.octochan принят: %v", err)
+	}
+	project := filepath.Join(home, "project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSandbox([]string{project}, nil); err != nil {
+		t.Fatalf("каталог проекта отвергнут: %v", err)
+	}
+}

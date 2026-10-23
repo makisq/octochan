@@ -123,6 +123,10 @@ func (s *Sandbox) resolve(path string) (string, error) {
 	return real, nil
 }
 
+// RealPath раскрывает символические ссылки в пути, в том числе ещё не
+// существующем, — так же, как песочница перед проверкой.
+func RealPath(path string) (string, error) { return realPath(path) }
+
 // realPath раскрывает символические ссылки в самой длинной существующей
 // части пути и дописывает к ней остаток.
 //

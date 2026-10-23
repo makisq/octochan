@@ -249,3 +249,50 @@ func TestTLSSettingsFromConfig(t *testing.T) {
 		t.Fatal("сертификат появился без tls init")
 	}
 }
+
+// Клиент сервера с правом apply не дотягивается ни до файлов вне каталога
+// сервера, ни до хранилища ролей с ключом подписи допусков: иначе он
+// подделал бы допуск master.
+func TestServerConfinesRemoteRoles(t *testing.T) {
+	s := startServer(t)
+	dan := s.client("dan", "dan", "d")
+
+	outside := filepath.Join(t.TempDir(), "secret.conf")
+	s.write(outside, "password = x\n")
+	if r := s.exec(dan, "print", outside); r.Code == 0 || !strings.Contains(r.Stderr, "вне области роли dan") {
+		t.Fatalf("файл вне каталога сервера: %+v", r)
+	}
+
+	roles := filepath.Join(s.home, ".octochan", "roles.bin")
+	s.write(s.path("steal.ochan"), "print(read(\""+filepath.ToSlash(roles)+"\"))\n")
+	if r := s.exec(dan, "run", "steal.ochan"); r.Code == 0 || r.Stdout != "" {
+		t.Fatalf("сценарий клиента прочитал хранилище ролей: %+v", r)
+	}
+	if r := s.exec(dan, "run", "--sandbox", "--root", s.home, "steal.ochan"); r.Code == 0 ||
+		!strings.Contains(r.Stderr, "вне области роли dan") {
+		t.Fatalf("песочница поверх домашнего каталога: %+v", r)
+	}
+	// Сценарий в каталоге сервера работает: песочница ставится сама.
+	if r := s.exec(dan, "run", "tune.ochan"); r.Code != 0 {
+		t.Fatalf("сценарий в каталоге сервера: %+v", r)
+	}
+
+	// Неудачный вход, отказ сервера и команда клиента — в журнале аудита,
+	// с адресом клиента.
+	c, err := remote.Dial(s.addr, tlsSettings(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Login(context.Background(), "dan", "dan", "не тот"); err == nil {
+		t.Fatal("вход с неверным паролем прошёл")
+	}
+	_, _ = dan.Exec(context.Background(), []string{"serve"}, "")
+
+	journal := s.must("audit", "-n", "0")
+	for _, want := range []string{"login", "неверная роль, логин или пароль", "127.0.0.1", "сервер уже запущен", "run tune.ochan"} {
+		if !strings.Contains(journal, want) {
+			t.Fatalf("в журнале нет %q:\n%s", want, journal)
+		}
+	}
+	s.must("audit", "verify")
+}

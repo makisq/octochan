@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"octochan/audit"
 	"octochan/rbac"
 )
 
@@ -73,8 +74,31 @@ type Problem struct {
 	RetryAfter int `json:"retry_after,omitempty"`
 }
 
-// Executor выполняет команду в роли role.
+// Executor выполняет команду в роли role. Адрес клиента — ClientAddr(ctx).
 type Executor func(ctx context.Context, role string, args []string, stdin string) Result
+
+type clientKey struct{}
+
+// ClientAddr — адрес клиента, приславшего команду.
+func ClientAddr(ctx context.Context) string {
+	addr, _ := ctx.Value(clientKey{}).(string)
+	return addr
+}
+
+// record пишет событие сервера в журнал аудита. Сбой журнала не
+// останавливает сервер, но попадает в его лог.
+func (s *Server) record(rec audit.Record, refused string) {
+	if s.Audit == nil {
+		return
+	}
+	var guard func(audit.Recent) error
+	if refused != "" {
+		guard = func(audit.Recent) error { return errors.New(refused) }
+	}
+	if err := s.Audit.Append(rec, guard); err != nil && refused == "" {
+		s.Logger.Printf("журнал аудита: %v", err)
+	}
+}
 
 // Server — общий оркестратор.
 type Server struct {
@@ -86,6 +110,10 @@ type Server struct {
 	Authorize func(role *rbac.Role, args []string) error
 	Exec      Executor
 	Logger    *log.Logger
+	// Audit — журнал аудита: входы, смены ролей и отказы сервера. Команды,
+	// которые сервер пропустил, пишет в журнал сам дочерний процесс.
+	// nil — без журнала.
+	Audit *audit.Journal
 
 	// SessionTimeout — сколько живёт сессия без запросов.
 	SessionTimeout time.Duration
@@ -191,6 +219,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	if wait := s.locked(ip, req.Role); wait > 0 {
 		s.Logger.Printf("вход: роль %s с %s заблокирован ещё на %s", req.Role, ip, wait.Round(time.Second))
+		s.record(audit.Record{Event: audit.EventLogin, Role: req.Role, Remote: ip}, "вход заблокирован после неудачных попыток")
 		reply(w, http.StatusTooManyRequests, Problem{
 			Error:      fmt.Sprintf("слишком много неудачных входов; повторите через %s", wait.Round(time.Second)),
 			RetryAfter: int(wait.Seconds()) + 1,
@@ -207,6 +236,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	role, problem := s.authenticate(r.Context(), store, ip, req.Role, req.Login, req.Password)
 	if problem != nil {
+		// Пустой вход — вопрос «что спросить», а не попытка.
+		if req.Login != "" || req.Password != "" {
+			s.record(audit.Record{Event: audit.EventLogin, Role: req.Role, Remote: ip}, problem.Error)
+		}
 		reply(w, http.StatusUnauthorized, *problem)
 		return
 	}
@@ -235,6 +268,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	s.Logger.Printf("вход: роль %s с %s", role.Name, ip)
+	s.record(audit.Record{Event: audit.EventLogin, Role: role.Name, Remote: ip}, "")
 	reply(w, http.StatusOK, State{Token: token, Role: role.Name, History: sess.history})
 }
 
@@ -426,12 +460,13 @@ func (s *Server) exec(w http.ResponseWriter, r *http.Request, sess *session, sto
 	role := store.Find(roleName)
 	if err := s.Authorize(role, req.Args); err != nil {
 		s.Logger.Printf("отказ: %s@%s: %s: %v", role.Name, sess.remote, strings.Join(req.Args, " "), err)
+		s.record(audit.Record{Event: audit.EventCommand, Role: role.Name, Remote: sess.remote, Args: req.Args}, err.Error())
 		reply(w, http.StatusForbidden, Problem{Error: err.Error()})
 		return
 	}
 
 	started := s.clock()
-	result := s.Exec(r.Context(), role.Name, req.Args, req.Stdin)
+	result := s.Exec(context.WithValue(r.Context(), clientKey{}, sess.remote), role.Name, req.Args, req.Stdin)
 	s.Logger.Printf("%s@%s: %s → код %d за %s", role.Name, sess.remote, strings.Join(req.Args, " "),
 		result.Code, s.clock().Sub(started).Round(time.Millisecond))
 	reply(w, http.StatusOK, result)
@@ -461,6 +496,10 @@ func (s *Server) role(w http.ResponseWriter, r *http.Request, sess *session, sto
 		}
 		role, problem := s.authenticate(r.Context(), store, ip, req.Role, req.Login, req.Password)
 		if problem != nil {
+			if req.Login != "" || req.Password != "" {
+				s.record(audit.Record{Event: audit.EventRole, Role: current.Role, Remote: ip,
+					Command: "set.role", Args: []string{req.Role}}, problem.Error)
+			}
 			reply(w, http.StatusUnauthorized, *problem)
 			return
 		}
@@ -504,6 +543,8 @@ func (s *Server) role(w http.ResponseWriter, r *http.Request, sess *session, sto
 	s.mu.Unlock()
 
 	s.Logger.Printf("роль: %s@%s → %s", current.Role, sess.remote, target.Name)
+	s.record(audit.Record{Event: audit.EventRole, Role: current.Role, Remote: sess.remote,
+		Command: req.Action + ".role", Args: []string{target.Name}}, "")
 	reply(w, http.StatusOK, s.state(sess))
 }
 

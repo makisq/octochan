@@ -295,6 +295,9 @@ func generateID() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// CurrentUser — пользователь ОС, от имени которого работает ochan.
+func CurrentUser() string { return currentUser() }
+
 func currentUser() string {
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		return u.Username

@@ -213,6 +213,7 @@ func (in *Interpreter) fork(out, errOut io.Writer) *Interpreter {
 		deferAppends: true,
 		ctx:          in.ctx,
 		sandbox:      in.sandbox,
+		protected:    in.protected,
 		dir:          in.dir,
 		dry:          in.dry,
 		callIDs:      append([]int{}, in.callIDs...),

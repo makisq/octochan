@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"octochan/config"
+	"octochan/i18n"
 	"octochan/lang"
+	"octochan/rbac"
 	"octochan/report"
 	"octochan/scenario"
 	"octochan/workspace"
@@ -20,6 +22,7 @@ import (
 var (
 	requestDoc     string
 	requestComment string
+	approveYes     bool
 	rejectReason   string
 	applyRequestID string
 	notifyMail     bool
@@ -61,6 +64,9 @@ var requestCmd = &cobra.Command{
 		request, err := buildRequest(cmd, args)
 		if err != nil {
 			return err
+		}
+		if currentRole != nil {
+			request.Role = currentRole.Name
 		}
 		if err := store.Create(request); err != nil {
 			return err
@@ -282,7 +288,7 @@ func printListing(cmd *cobra.Command, text string) {
 func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	cmd.Printf("Заявка:    %s\n", request.ID)
 	cmd.Printf("Состояние: %s\n", request.State.Russian())
-	cmd.Printf("Автор:     %s\n", request.Author)
+	cmd.Printf("Автор:     %s\n", authorLine(request))
 	cmd.Printf("Создана:   %s\n", request.Created.Local().Format("2006-01-02 15:04:05"))
 	cmd.Printf("Источник:  %s\n", request.Source)
 	if request.Service != "" {
@@ -376,7 +382,19 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	if err != nil {
 		return err
 	}
-	if err := store.Decide(request, state, "", comment); err != nil {
+	if err := checkRequestScope(currentRole, request); err != nil {
+		return err
+	}
+	who := ""
+	if currentRole != nil {
+		who = fmt.Sprintf("%s, роль %s", workspace.CurrentUser(), currentRole.Name)
+	}
+	if state == workspace.RequestApproved && request.State == workspace.RequestPending {
+		if err := checkApprover(cmd, request); err != nil {
+			return err
+		}
+	}
+	if err := store.Decide(request, state, who, comment); err != nil {
 		return err
 	}
 
@@ -388,6 +406,53 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	notify(cmd, fmt.Sprintf("Заявка %s %s", request.ID, request.State.Russian()),
 		requestMailBody(request), nil)
 	return nil
+}
+
+// checkApprover — разделение обязанностей при согласовании.
+//
+// Роль не согласует свою заявку: иначе право request и approve у одной
+// роли превращало бы согласование в формальность. Исключение — master:
+// на своей машине человек один. Заявку нейросети согласуют только после
+// явного подтверждения: подсунутая модели инструкция рассчитывает как раз
+// на то, что человек согласует не глядя.
+func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
+	role := currentRole
+	if role == nil {
+		return nil
+	}
+	if request.Role != "" && strings.EqualFold(request.Role, role.Name) && role.Name != rbac.Master {
+		return i18n.Errorf("заявку роли %s согласует другая роль: свою заявку не согласуют", request.Role)
+	}
+	if !strings.EqualFold(request.Role, rbac.LLM) || approveYes {
+		return nil
+	}
+
+	cmd.Println(i18n.T("Заявку создала нейросеть (роль llm). Согласуйте её, только проверив план:"))
+	if request.Plan != nil {
+		cmd.Print("\n" + request.Plan.Render(60) + "\n")
+	}
+	if request.Script != nil {
+		cmd.Printf("%s %s\n\n", i18n.T("Песочница:"), sandboxSummary(request.Script))
+	}
+	if !roleInputIsTTY() {
+		return i18n.Errorf("заявку нейросети согласуют, проверив план выше: повторите с --yes")
+	}
+	answer, err := newCredentialReader(cmd).line(i18n.Sprintf("Чтобы согласовать, введите номер заявки (%s): ", request.ID))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(answer) != request.ID {
+		return i18n.Errorf("номер не совпал: заявка %s не согласована", request.ID)
+	}
+	return nil
+}
+
+// authorLine — автор заявки и роль, в которой он её оформил.
+func authorLine(request *workspace.Request) string {
+	if request.Role == "" {
+		return request.Author
+	}
+	return fmt.Sprintf("%s, роль %s", request.Author, request.Role)
 }
 
 func requestMailBody(request *workspace.Request) string {
@@ -465,6 +530,7 @@ func init() {
 	requestCmd.Flags().StringVar(&requestDoc, "doc", "", "выгрузить заявку в файл .docx")
 	requestsCmd.Flags().StringVar(&requestDoc, "doc", "", "выгрузить заявку в файл .docx")
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
+	approveCmd.Flags().BoolVar(&approveYes, "yes", false, "план заявки нейросети проверен: согласовать без вопроса")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")
 	applyCmd.Flags().StringVar(&applyRequestID, "request", "", "выполнить согласованную заявку")
 	requestCmd.Flags().BoolVar(&requestScript, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")

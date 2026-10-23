@@ -52,6 +52,10 @@ type Request struct {
 	State   RequestState `json:"state"`
 	Created time.Time    `json:"created"`
 	Author  string       `json:"author"`
+	// Role — роль, в которой заявку создали. Своя заявка роли не
+	// согласуется ею же, а заявку нейросети (llm) согласуют с явным
+	// подтверждением.
+	Role string `json:"role,omitempty"`
 
 	// Source — откуда взят план: файл сценария или пара конфигов.
 	Source string `json:"source"`

@@ -18,6 +18,8 @@
 - [`ochan aliases`](#ochan-aliases) — Показать доступные алиасы и встроенные функции
 - [`ochan apply`](#ochan-apply) — Выполнить сценарий
 - [`ochan approve`](#ochan-approve) — Согласовать заявку
+- [`ochan audit`](#ochan-audit) — Журнал аудита: кто, что и когда пытался выполнить
+- [`ochan audit verify`](#ochan-audit-verify) — Проверить цепочку хешей журнала аудита
 - [`ochan auth`](#ochan-auth) — Установить токен для доступа к RLM API
 - [`ochan back`](#ochan-back) — Возврат: back role [роль]
 - [`ochan back role`](#ochan-back-role) — Вернуться к прошлой роли
@@ -50,9 +52,14 @@
 - [`ochan role`](#ochan-role) — Роли и права: текущая роль, список, создание и правка
 - [`ochan role create`](#ochan-role-create) — Создать роль и выдать ей права
 - [`ochan role delete`](#ochan-role-delete) — Удалить роль
+- [`ochan role deny`](#ochan-role-deny) — Запретить роли права: запрет перекрывает разрешение
 - [`ochan role grant`](#ochan-role-grant) — Выдать роли права
+- [`ochan role limit`](#ochan-role-limit) — Ограничить частоту команд роли
 - [`ochan role list`](#ochan-role-list) — Перечислить роли и их права
 - [`ochan role revoke`](#ochan-role-revoke) — Забрать у роли права
+- [`ochan role scope`](#ochan-role-scope) — Ограничить роль каталогами
+- [`ochan role show`](#ochan-role-show) — Показать роль целиком: права, запреты, область, пределы
+- [`ochan role undeny`](#ochan-role-undeny) — Снять с роли запреты
 - [`ochan role update`](#ochan-role-update) — Сменить логин, пароль или имя роли
 - [`ochan rollback`](#ochan-rollback) — Отменить изменение файлов из истории
 - [`ochan run`](#ochan-run) — Выполнить сценарий или алиас
@@ -137,6 +144,59 @@ ochan approve <id>
 |---|---|---|---|
 | `--comment` | string | — | комментарий к решению |
 | `--notify` | bool | — | отправить уведомление по почте |
+| `--yes` | bool | — | план заявки нейросети проверен: согласовать без вопроса |
+
+## ochan audit
+
+Журнал аудита: кто, что и когда пытался выполнить.
+
+```
+ochan audit
+```
+
+Каждая команда, вход на сервер и смена роли пишутся в журнал
+~/.octochan/audit.log — и разрешённые, и отвергнутые, с причиной отказа.
+Записи связаны цепочкой хешей: правку, вставку или удаление записи
+находит ochan audit verify.
+
+Право: `audit`.
+
+Примеры:
+
+```
+ochan audit
+ochan audit --role dan --denied
+ochan audit verify --head 3f9a1c0b2e7d
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--denied` | bool | — | только отказы |
+| `-n`, `--n` | int | `20` | сколько записей показать (0 — все) |
+| `--role` | string | — | только записи этой роли |
+
+Подкоманды: [`verify`](#ochan-audit-verify).
+
+## ochan audit verify
+
+Проверить цепочку хешей журнала аудита.
+
+```
+ochan audit verify
+```
+
+Проверяет каждую запись: её хеш, ссылку на предыдущую и номер. Правка,
+вставка или удаление записи рвут цепочку — проверка назовёт строку.
+
+Обрезанный хвост цепочку не рвёт. Поэтому хеш последней записи стоит
+время от времени сохранять вне этой машины: --head с ним проверит, что
+эта запись в журнале есть.
+
+Право: `audit`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--head` | string | — | хеш записи, сохранённый вне машины: она должна быть в журнале |
 
 ## ochan auth
 
@@ -740,11 +800,11 @@ ochan role
 
 После установки есть две роли: master — первая и высшая, ей доступно всё;
 llm — для нейросетей: читать, планировать, оформлять заявки. Права — группы
-(admin, apply, approve, auth, install, plan, read, remote, request, server), all или имя команды.
+(admin, apply, approve, audit, auth, install, plan, read, remote, request, server), all или имя команды.
 
 Право: `свободная — доступна любой роли`.
 
-Подкоманды: [`create`](#ochan-role-create), [`delete`](#ochan-role-delete), [`grant`](#ochan-role-grant), [`list`](#ochan-role-list), [`revoke`](#ochan-role-revoke), [`update`](#ochan-role-update).
+Подкоманды: [`create`](#ochan-role-create), [`delete`](#ochan-role-delete), [`deny`](#ochan-role-deny), [`grant`](#ochan-role-grant), [`limit`](#ochan-role-limit), [`list`](#ochan-role-list), [`revoke`](#ochan-role-revoke), [`scope`](#ochan-role-scope), [`show`](#ochan-role-show), [`undeny`](#ochan-role-undeny), [`update`](#ochan-role-update).
 
 ## ochan role create
 
@@ -761,11 +821,13 @@ ochan role create <роль> --allow <права>
 ```
 ochan role create slave --allow read,plan
 ochan role create Dan --allow read,plan,request,approve --nlogin dan --npsw
+ochan role create ops --allow all --deny serve,admin
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--allow` | stringSlice | — | права роли через запятую |
+| `--deny` | stringSlice | — | запреты роли через запятую |
 | `--nlogin` | string | — | задать логин роли |
 | `--npsw` | bool | — | задать пароль роли (спросит, ввод скрыт) |
 
@@ -778,6 +840,27 @@ ochan role delete <роль>
 ```
 
 Право: `admin`.
+
+## ochan role deny
+
+Запретить роли права: запрет перекрывает разрешение.
+
+```
+ochan role deny <роль> <право>...
+```
+
+Запрет сильнее права, в том числе all: роль с all и запретом serve
+может всё, кроме serve. Команды, без которых не узнать свою роль и не
+вернуться (role, set role, back role, help), не запрещаются.
+
+Право: `admin`.
+
+Примеры:
+
+```
+ochan role deny ops serve tls
+ochan role deny dan role
+```
 
 ## ochan role grant
 
@@ -796,6 +879,33 @@ ochan role grant slave approve
 ochan role grant slave patch rollback
 ```
 
+## ochan role limit
+
+Ограничить частоту команд роли.
+
+```
+ochan role limit <роль> <право>=<число>/<окно>... | limit <роль> --clear
+```
+
+Предел — сколько раз за окно роль может выполнить команды права:
+apply=10/1h — не больше десяти выполнений в час. Окно — от 1m до 31d.
+Считается по журналу аудита, по всем сессиям роли вместе; отказ тоже
+пишется в журнал. Предел того же права заменяет прежний.
+
+Право: `admin`.
+
+Примеры:
+
+```
+ochan role limit llm request=30/1h
+ochan role limit dan apply=10/1h approve=20/1d
+ochan role limit dan --clear
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--clear` | bool | — | снять пределы |
+
 ## ochan role list
 
 Перечислить роли и их права.
@@ -812,6 +922,56 @@ ochan role list
 
 ```
 ochan role revoke <роль> <право>...
+```
+
+Право: `admin`.
+
+## ochan role scope
+
+Ограничить роль каталогами.
+
+```
+ochan role scope <роль> <каталог>... | scope <роль> --clear
+```
+
+Роль с областью работает только внутри своих каталогов: текущий
+каталог, пути в аргументах и флагах, песочница сценариев, файлы заявок,
+которые она согласует или выполняет, и файлы отката — всё должно лежать
+в них. Сценарии такой роли всегда идут в песочнице (без --sandbox — с
+текущим каталогом), eval ей недоступен.
+
+На сервере роль без своей области и так ограничена каталогом сервера
+(server.dir). Рабочий каталог ochan закрыт для всех ролей, кроме master.
+
+Право: `admin`.
+
+Примеры:
+
+```
+ochan role scope dan /srv/configs/team-a
+ochan role scope dan --clear
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--clear` | bool | — | снять область |
+
+## ochan role show
+
+Показать роль целиком: права, запреты, область, пределы.
+
+```
+ochan role show [роль]
+```
+
+Право: `свободная — доступна любой роли`.
+
+## ochan role undeny
+
+Снять с роли запреты.
+
+```
+ochan role undeny <роль> <право>...
 ```
 
 Право: `admin`.

@@ -112,6 +112,8 @@ type Interpreter struct {
 
 	// sandbox непуст, если встроенным функциям доступно не всё.
 	sandbox *Sandbox
+	// protected — каталоги, закрытые для встроенных функций (SetProtected).
+	protected []string
 	// dir — каталог для относительных путей; пусто — текущий.
 	dir string
 	// dry непуст в режиме плана: записи попадают сюда, а не на диск.

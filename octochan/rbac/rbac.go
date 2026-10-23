@@ -39,7 +39,10 @@ var Groups = map[string][]string{
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
 	"install": {"!install", "inspect"},
 	"auth":    {"auth", "timer"},
-	"admin":   {"role.create", "role.delete", "role.grant", "role.revoke", "role.update"},
+	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
+		"role.scope", "role.undeny", "role.update"},
+	// audit — журнал аудита: кто, что и когда пытался выполнить.
+	"audit": {"audit"},
 	// server — держать общий оркестратор; remote — подключаться к чужому.
 	// Ни то ни другое не входит в потолок llm: нейросеть, подключившись
 	// к серверу, где у master нет пароля, стала бы master.
@@ -51,7 +54,7 @@ var Groups = map[string][]string{
 // и вернуться обратно. Сравнение точное: role здесь не открывает
 // role.create.
 var Free = []string{"back.role", "completion", "completion.bash", "completion.fish", "completion.powershell",
-	"completion.zsh", "help", "role", "role.list", "set.role", "shell"}
+	"completion.zsh", "help", "role", "role.list", "role.show", "set.role", "shell"}
 
 // LLMCeiling — потолок роли llm. Нейросеть предлагает, человек решает
 // (П6): выполнять, согласовывать, ставить модули и управлять ролями llm
@@ -68,6 +71,15 @@ type Role struct {
 	// Login и Password — хеши; nil — не заданы, и роль доступна без них.
 	Login    *Secret
 	Password *Secret
+
+	// Deny — запреты. Они перекрывают права, в том числе all: роли с
+	// all и запретом serve доступно всё, кроме serve.
+	Deny []string
+	// Paths — область роли: каталоги, вне которых она не работает.
+	// Пусто — области нет.
+	Paths []string
+	// Limits — пределы частоты действий.
+	Limits []Limit
 }
 
 // NeedsAuth сообщает, что для входа в роль нужен логин или пароль.
@@ -87,19 +99,44 @@ func (r *Role) Allows(command string) bool {
 	if contains(Free, command) {
 		return true
 	}
+	if r.Denies(command) {
+		return false
+	}
+	for _, perm := range r.Perms {
+		if Covers(perm, command) {
+			return true
+		}
+	}
+	return false
+}
+
+// Denies сообщает, что команда роли запрещена.
+func (r *Role) Denies(command string) bool {
+	if contains(Free, command) {
+		return false
+	}
+	for _, perm := range r.Deny {
+		if Covers(perm, command) {
+			return true
+		}
+	}
+	return false
+}
+
+// Covers сообщает, что право открывает команду: это all, сама команда,
+// команда верхнего уровня (role открывает role.create) или группа, в
+// которой есть одно из них.
+func Covers(perm, command string) bool {
 	top := command
 	if i := strings.IndexByte(command, '.'); i > 0 {
 		top = command[:i]
 	}
-
-	for _, perm := range r.Perms {
-		if perm == All || perm == command || perm == top {
+	if perm == All || perm == command || perm == top {
+		return true
+	}
+	for _, member := range Groups[perm] {
+		if member == command || member == top {
 			return true
-		}
-		for _, member := range Groups[perm] {
-			if member == command || member == top {
-				return true
-			}
 		}
 	}
 	return false

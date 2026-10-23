@@ -72,7 +72,11 @@ func (o *scriptOptions) build() (*lang.Sandbox, error) {
 		if o.any() {
 			return nil, errors.New("--root, --allow-env и --allow-live действуют только вместе с --sandbox")
 		}
-		return nil, nil
+		// Роль с областью выполняет сценарии только в песочнице: без
+		// --sandbox она ставится сама, с текущим каталогом.
+		if len(scopeOf(currentRole)) == 0 {
+			return nil, nil
+		}
 	}
 
 	roots := o.roots
@@ -83,7 +87,14 @@ func (o *scriptOptions) build() (*lang.Sandbox, error) {
 		}
 		roots = []string{cwd}
 	}
-	return lang.NewSandbox(roots, o.env, o.live)
+	box, err := lang.NewSandbox(roots, o.env, o.live)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkSandboxRoots(currentRole, box.Roots()); err != nil {
+		return nil, err
+	}
+	return box, nil
 }
 
 // scriptSetup — где и как выполняется сценарий.
@@ -100,6 +111,7 @@ func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, ou
 	interp := lang.NewInterpreter(cmd.Context(), registry, out)
 	interp.SetErr(cmd.ErrOrStderr())
 	interp.SetSandbox(s.box)
+	interp.SetProtected(protectedPaths())
 	interp.SetDir(s.dir)
 	return interp
 }
