@@ -413,9 +413,9 @@ func notify(cmd *cobra.Command, subject, body string, attachments []report.Attac
 	case err == nil:
 		cmd.Printf("Уведомление отправлено: %s\n", strings.Join(cfg.To, ", "))
 	case isNotConfigured(err):
-		cmd.PrintErrf("⚠️ уведомление не отправлено: %v\n", err)
+		cmd.PrintErrf("внимание: уведомление не отправлено: %v\n", err)
 	default:
-		cmd.PrintErrf("⚠️ не удалось отправить уведомление: %v\n", err)
+		cmd.PrintErrf("внимание: не удалось отправить уведомление: %v\n", err)
 	}
 }
 

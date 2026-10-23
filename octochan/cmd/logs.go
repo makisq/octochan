@@ -32,7 +32,7 @@ var logsCmd = &cobra.Command{
 		content, err := os.ReadFile(logFile)
 		if err != nil {
 			if os.IsNotExist(err) {
-				cmd.Println("ℹ️ Журнал ещё не создан — записей нет")
+				cmd.Println("Журнал ещё не создан — записей нет")
 				return nil
 			}
 			return fmt.Errorf("не удалось прочитать журнал: %w", err)

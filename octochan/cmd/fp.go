@@ -62,7 +62,7 @@ var fpCheckCmd = &cobra.Command{
 			return fmt.Errorf("%s: отказов %d (%s)", src.Name, n, countCodes(result.Diagnostics))
 		}
 
-		cmd.Printf("✅ %s: P ∈ ℒ, слова однозначны, Req(P) ⊆ K, жёсткие правила совместны\n", src.Name)
+		cmd.Printf("%s: P ∈ ℒ, слова однозначны, Req(P) ⊆ K, жёсткие правила совместны\n", src.Name)
 		cmd.Printf("Цель γ:  %s\n", result.Goal)
 		cmd.Printf("K:       %s\n", orNone(result.Knowledge))
 		cmd.Printf("Req(P):  %s\n", orNone(result.Required))

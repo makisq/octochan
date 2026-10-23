@@ -59,7 +59,7 @@ var applyCmd = &cobra.Command{
 		result, err := runner.Apply(cmd.Context(), parsed)
 
 		if result != nil && len(result.Refs) > 0 {
-			cmd.Println("✅ Создано:")
+			cmd.Println("Создано:")
 			for _, ref := range result.Refs {
 				cmd.Printf("  - %s\n", ref)
 			}
@@ -154,13 +154,13 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		refs = result.Refs
 	}
 	if len(refs) > 0 {
-		cmd.Println("✅ Создано:")
+		cmd.Println("Создано:")
 		for _, ref := range refs {
 			cmd.Printf("  - %s\n", ref)
 		}
 
 		if err := store.MarkApplied(request, refs); err != nil {
-			cmd.PrintErrf("⚠️ не удалось отметить заявку выполненной: %v\n", err)
+			cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
 		}
 		record(cmd, &workspace.Entry{
 			Kind:       workspace.EntryApply,
@@ -253,7 +253,7 @@ func waitForRefs(cmd *cobra.Command, runner scenario.Runner, result *scenario.Re
 		return nil
 	}
 
-	cmd.Println("\n🔄 Ожидание завершения...")
+	cmd.Println("\nОжидание завершения...")
 	for _, ref := range result.Refs {
 		status, err := waiter.Wait(cmd.Context(), ref)
 		if err != nil {
@@ -290,7 +290,7 @@ var saveScenarioCmd = &cobra.Command{
 			return err
 		}
 
-		cmd.Printf("✅ Сценарий сохранён: %s\n", path)
+		cmd.Printf("Сценарий сохранён: %s\n", path)
 		return nil
 	},
 }

@@ -525,12 +525,12 @@ func TestSlotValidation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestFailureIsToolError(t *testing.T) {
-	e := newEnv(t, withFakeEnv("FAKE_EXIT=1", "FAKE_STDERR=❌ файл повреждён", "FAKE_STDOUT=частичный вывод"))
+	e := newEnv(t, withFakeEnv("FAKE_EXIT=1", "FAKE_STDERR=ошибка: файл повреждён", "FAKE_STDOUT=частичный вывод"))
 	text, isError := e.callTool("validate", map[string]any{"source": "a.conf"})
 	if !isError {
 		t.Fatal("ненулевой код возврата не помечен как ошибка")
 	}
-	if !strings.HasPrefix(text, "❌ файл повреждён") || !strings.Contains(text, "частичный вывод") {
+	if !strings.HasPrefix(text, "ошибка: файл повреждён") || !strings.Contains(text, "частичный вывод") {
 		t.Errorf("ошибка должна идти первой, за ней вывод: %q", text)
 	}
 }
@@ -538,7 +538,7 @@ func TestFailureIsToolError(t *testing.T) {
 func TestWarningsKeptOnSuccess(t *testing.T) {
 	// Замечание «параметр ждёт перезапуска» приходит в stderr, но для
 	// модели оно так же важно, как сам результат.
-	e := newEnv(t, withFakeEnv("FAKE_STDERR=⚠️ shared_buffers ждёт перезапуска", "FAKE_STDOUT=различий нет"))
+	e := newEnv(t, withFakeEnv("FAKE_STDERR=внимание: shared_buffers ждёт перезапуска", "FAKE_STDOUT=различий нет"))
 	text, isError := e.callTool("validate", map[string]any{"source": "a.conf"})
 	if isError {
 		t.Fatalf("успешный вызов помечен как ошибка: %q", text)

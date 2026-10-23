@@ -141,10 +141,10 @@ func (p *Plan) Render(width int) string {
 	}
 
 	for _, warning := range p.Warnings {
-		fmt.Fprintf(&b, "⚠️ %s\n", warning)
+		fmt.Fprintf(&b, "внимание: %s\n", warning)
 	}
 	if p.Destructive {
-		b.WriteString("‼️ План прерывает обслуживание\n")
+		b.WriteString("ВНИМАНИЕ: план прерывает обслуживание\n")
 	}
 
 	if len(p.Changes) == 0 {

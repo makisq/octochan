@@ -92,7 +92,7 @@ var checkCmd = &cobra.Command{
 
 func reportCheck(cmd *cobra.Command, name string, problems []string) error {
 	if len(problems) == 0 {
-		cmd.Printf("✅ %s: ошибок не найдено\n", name)
+		cmd.Printf("%s: ошибок не найдено\n", name)
 		return nil
 	}
 	for _, problem := range problems {

@@ -284,7 +284,7 @@ func builtinConfig(in *Interpreter, args []Value) (Value, error) {
 	// Замечания источника показываем сразу: параметр, ждущий перезапуска,
 	// меняет смысл всего сравнения.
 	for _, note := range cfg.Notes {
-		fmt.Fprintf(in.Out(), "⚠️ %s\n", note)
+		fmt.Fprintf(in.Out(), "внимание: %s\n", note)
 	}
 	return cfg, nil
 }

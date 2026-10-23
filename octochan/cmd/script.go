@@ -320,7 +320,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	}
 	if runErr == nil || len(written) > 0 {
 		if err := store.MarkApplied(request, written); err != nil {
-			cmd.PrintErrf("⚠️ не удалось отметить заявку выполненной: %v\n", err)
+			cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
 		}
 		done := lang.BuildPlan(request.Source, effects)
 		record(cmd, &workspace.Entry{
@@ -337,9 +337,9 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	}
 
 	if !slices.Equal(fingerprints(effects), run.Effects) {
-		cmd.PrintErrln("⚠️ выполнение разошлось с согласованным планом: файлы поменялись во время выполнения")
+		cmd.PrintErrln("внимание: выполнение разошлось с согласованным планом: файлы поменялись во время выполнения")
 	}
-	cmd.Printf("✅ Заявка %s выполнена, записано файлов: %d\n", request.ID, len(written))
+	cmd.Printf("Заявка %s выполнена, записано файлов: %d\n", request.ID, len(written))
 	return nil
 }
 

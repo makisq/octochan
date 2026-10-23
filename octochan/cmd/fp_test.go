@@ -31,7 +31,7 @@ func TestFPCheckUsesAliasLibrary(t *testing.T) {
 		t.Fatalf("скилл без пакета принят: %v\n%s", err, out)
 	}
 
-	if out := e.must("fp", "check", "--standalone", example); !strings.Contains(out, "✅") {
+	if out := e.must("fp", "check", "--standalone", example); !strings.Contains(out, "P ∈ ℒ") {
 		t.Fatalf("без библиотеки скилл даёт объявленное в provides:\n%s", out)
 	}
 
@@ -53,7 +53,7 @@ func TestFPCheckUsesAliasLibrary(t *testing.T) {
 	resetAliasCache()
 
 	out = e.must("fp", "check", example)
-	for _, want := range []string{"✅", "K:       connection_limit, memory_budget, prod_limit, set_param, store",
+	for _, want := range []string{"P ∈ ℒ", "K:       connection_limit, memory_budget, prod_limit, set_param, store",
 		"Скилл:   @pgconf 1.2.0"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("в выводе нет %q:\n%s", want, out)

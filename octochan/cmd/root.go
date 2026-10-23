@@ -102,11 +102,11 @@ func Execute() int {
 	rootCmd.SetErr(os.Stderr)
 
 	if err := initConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
 		return 1
 	}
 	if err := initLogger(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
 		return 1
 	}
 
@@ -122,10 +122,10 @@ func Execute() int {
 
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
-			fmt.Fprintln(os.Stderr, "\n⚠️ Прервано пользователем")
+			fmt.Fprintln(os.Stderr, "\nПрервано пользователем")
 			return 130
 		}
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
 		return 1
 	}
 	return 0

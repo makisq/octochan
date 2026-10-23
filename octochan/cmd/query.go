@@ -79,7 +79,7 @@ var statsCmd = &cobra.Command{
 		}
 
 		for _, note := range src.Notes {
-			cmd.Printf("⚠️ %s\n", note)
+			cmd.Printf("внимание: %s\n", note)
 		}
 		cmd.Printf("Источник: %s\n", src.Name)
 		cmd.Printf("Секций: %d\n", len(cfg))

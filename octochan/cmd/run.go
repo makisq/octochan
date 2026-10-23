@@ -83,7 +83,7 @@ func aliases() (*lang.Registry, []error) {
 // один сломанный пакет не должен блокировать остальные.
 func reportAliasErrors(cmd *cobra.Command, errs []error) {
 	for _, err := range errs {
-		cmd.PrintErrf("⚠️ алиасы: %v\n", err)
+		cmd.PrintErrf("внимание: алиасы: %v\n", err)
 	}
 }
 

@@ -54,7 +54,7 @@ ochan> else config.conf server.port != 8080 "Исправьте порт на 80
 				"в одной сессии (запустите 'ochan shell')")
 		}
 		if *lastIfResult {
-			cmd.Println("ℹ️ Предыдущее условие if выполнено, else пропускается")
+			cmd.Println("Предыдущее условие if выполнено, else пропускается")
 			return nil
 		}
 
@@ -89,10 +89,10 @@ func runCondition(cmd *cobra.Command, args []string) (bool, error) {
 	}
 
 	if met {
-		cmd.Printf("✅ %s\n", message)
+		cmd.Printf("%s\n", message)
 		cmd.Printf("   %s = %s %s %s\n", paramPath, current, operator, expected)
 	} else {
-		cmd.Printf("❌ Условие не выполнено: %s %s %s\n", current, operator, expected)
+		cmd.Printf("Условие не выполнено: %s %s %s\n", current, operator, expected)
 	}
 	return met, nil
 }

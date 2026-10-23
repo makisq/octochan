@@ -58,7 +58,7 @@ var diffCmd = &cobra.Command{
 		// Замечания источника важнее самих расхождений: сервер может
 		// выглядеть настроенным, но работать по-старому, пока не перезапущен.
 		for _, note := range append(append([]string{}, left.Notes...), right.Notes...) {
-			cmd.Printf("⚠️ %s\n", note)
+			cmd.Printf("внимание: %s\n", note)
 		}
 
 		diff := config.CompareConfigs(left.Data, right.Data, left.Name, right.Name)
