@@ -311,3 +311,33 @@ func TestFileStatesKeepFirstBefore(t *testing.T) {
 		t.Fatalf("созданный файл: %+v", b)
 	}
 }
+
+// Печать в файл — запись, как write: она в плане заявки, под жёсткими
+// правилами промпта и откатывается.
+func TestPrintToFileIsAWrite(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("log.ochan"), `log = file("run.log")
+for n in [1, 2, 3] { print(log, "шаг", n) }
+print("готово")
+`)
+	e.write(e.path("task.fp"), promptHead+"hard forbid write(except = {report_txt})\n")
+
+	plan := e.must("plan", "log.ochan")
+	if !strings.Contains(plan, "записать   файл — новый файл, 27 байт") || strings.Count(plan, "run.log") != 1 {
+		t.Fatalf("печать в файл не в плане одним изменением:\n%s", plan)
+	}
+	e.fails("план нарушает жёсткие правила промпта", "plan", "log.ochan", "--prompt", "task.fp")
+
+	id := requestIDPattern.FindStringSubmatch(e.must("request", "log.ochan"))[1]
+	e.must("approve", id)
+	entry := rollbackHint.FindStringSubmatch(e.must("apply", "--request", id))[1]
+	if got := e.read("run.log"); got != "шаг 1\nшаг 2\nшаг 3\n" {
+		t.Fatalf("run.log: %q", got)
+	}
+
+	e.must("rollback", entry)
+	if _, err := os.Stat(e.path("run.log")); !os.IsNotExist(err) {
+		t.Fatal("откат не удалил файл, созданный печатью")
+	}
+}

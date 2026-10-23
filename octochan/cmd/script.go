@@ -95,6 +95,7 @@ type scriptSetup struct {
 
 func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, out io.Writer) *lang.Interpreter {
 	interp := lang.NewInterpreter(cmd.Context(), registry, out)
+	interp.SetErr(cmd.ErrOrStderr())
 	interp.SetSandbox(s.box)
 	interp.SetDir(s.dir)
 	return interp

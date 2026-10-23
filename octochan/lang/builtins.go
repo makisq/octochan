@@ -93,8 +93,23 @@ func DefaultBuiltins() map[string]Builtin {
 		},
 		{
 			Name: "print", MinArgs: 0, MaxArgs: -1, Returns: TypeString,
-			Doc: "напечатать значения",
+			Doc: "напечатать значения; первым аргументом можно передать поток: print(file(\"отчёт.txt\"), …)",
 			Fn:  builtinPrint,
+		},
+		{
+			Name: "stdout", MinArgs: 0, MaxArgs: 0, Returns: TypeStream,
+			Doc: "поток вывода на экран — туда печатает print по умолчанию",
+			Fn:  func(*Interpreter, []Value) (Value, error) { return StreamValue{Kind: StreamStdout}, nil },
+		},
+		{
+			Name: "stderr", MinArgs: 0, MaxArgs: 0, Returns: TypeStream,
+			Doc: "поток ошибок",
+			Fn:  func(*Interpreter, []Value) (Value, error) { return StreamValue{Kind: StreamStderr}, nil },
+		},
+		{
+			Name: "file", MinArgs: 1, MaxArgs: 1, Returns: TypeStream,
+			Doc: "поток в файл: print дописывает в него строку; запись — как write, видна в плане",
+			Fn:  builtinFile,
 		},
 		{
 			Name: "fail", MinArgs: 0, MaxArgs: -1,
@@ -590,20 +605,49 @@ func builtinExists(in *Interpreter, args []Value) (Value, error) {
 // Общего назначения
 // ---------------------------------------------------------------------------
 
+// builtinPrint печатает значения через пробел и переводит строку.
+//
+// Если первый аргумент — поток, печать идёт в него: на экран, в поток
+// ошибок или в конец файла. Запись в файл — действие сценария, как
+// write: в режиме плана она только попадает в план.
 func builtinPrint(in *Interpreter, args []Value) (Value, error) {
-	if len(args) == 0 {
-		fmt.Fprintln(in.Out())
-		return StringValue(""), nil
+	stream := StreamValue{Kind: StreamStdout}
+	if len(args) > 0 {
+		if s, ok := args[0].(StreamValue); ok {
+			stream, args = s, args[1:]
+		}
 	}
 
 	parts := make([]string, len(args))
 	for i, arg := range args {
 		parts[i] = Display(arg)
 	}
-
 	line := strings.Join(parts, " ")
-	fmt.Fprintln(in.Out(), line)
+
+	switch stream.Kind {
+	case StreamStderr:
+		fmt.Fprintln(in.errOut, line)
+	case StreamFile:
+		if err := in.appendFile(stream.Path, []byte(line+"\n")); err != nil {
+			return nil, fmt.Errorf("не удалось дописать %s: %w", stream.Path, err)
+		}
+	default:
+		fmt.Fprintln(in.Out(), line)
+	}
 	return StringValue(line), nil
+}
+
+// builtinFile открывает поток в файл. Путь проверяется сразу: поток за
+// пределы песочницы отвергается там, где его создали, а не при печати.
+func builtinFile(in *Interpreter, args []Value) (Value, error) {
+	s, ok := args[0].(StringValue)
+	if !ok {
+		return nil, fmt.Errorf("file: ожидался путь строкой, получено %s", args[0].TypeName())
+	}
+	if _, err := in.path(string(s)); err != nil {
+		return nil, fmt.Errorf("file: %w", err)
+	}
+	return StreamValue{Kind: StreamFile, Path: string(s)}, nil
 }
 
 func builtinFail(_ *Interpreter, args []Value) (Value, error) {

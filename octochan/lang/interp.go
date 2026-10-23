@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -32,20 +33,24 @@ func (e *RuntimeError) Error() string {
 
 // scope — окружение с переменными и ссылкой на родителя.
 //
-// Объявленные типы хранятся рядом со значениями: аннотация переменной
-// действует не только в момент объявления, но и при всех последующих
-// присваиваниях — иначе от неё было бы мало толку.
+// Переменные строго типизированы: тип задаёт объявление, а без
+// аннотации — первое значение, и дальше он не меняется. Типы хранятся
+// рядом со значениями и проверяются при каждом присваивании.
 type scope struct {
-	vars   map[string]Value
-	types  map[string]TypeName
-	parent *scope
+	vars  map[string]Value
+	types map[string]TypeName
+	// inferred — переменные, тип которых задан значением, а не написан:
+	// это нужно только для понятного сообщения об ошибке.
+	inferred map[string]bool
+	parent   *scope
 }
 
 func newScope(parent *scope) *scope {
 	return &scope{
-		vars:   make(map[string]Value),
-		types:  make(map[string]TypeName),
-		parent: parent,
+		vars:     make(map[string]Value),
+		types:    make(map[string]TypeName),
+		inferred: make(map[string]bool),
+		parent:   parent,
 	}
 }
 
@@ -58,29 +63,34 @@ func (s *scope) lookup(name string) (Value, bool) {
 	return nil, false
 }
 
-// declaredType возвращает объявленный тип переменной, если он есть.
-func (s *scope) declaredType(name string) (TypeName, bool) {
+// declaredType возвращает тип переменной и то, задан ли он значением.
+func (s *scope) declaredType(name string) (TypeName, bool, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if _, ok := cur.vars[name]; ok {
-			t, hasType := cur.types[name]
-			return t, hasType
+			return cur.types[name], cur.inferred[name], true
 		}
 	}
-	return "", false
+	return "", false, false
 }
 
-// define объявляет переменную в текущей области с типом.
+// declaredHere сообщает, что переменная объявлена в этой самой области.
+func (s *scope) declaredHere(name string) bool {
+	_, ok := s.vars[name]
+	return ok
+}
+
+// define объявляет переменную в текущей области. Без написанного типа
+// тип задаёт значение.
 func (s *scope) define(name string, declared TypeName, value Value) {
 	s.vars[name] = value
-	if declared != "" {
-		s.types[name] = declared
-	} else {
-		delete(s.types, name)
+	s.inferred[name] = declared == ""
+	if declared == "" {
+		declared = typeOf(value)
 	}
+	s.types[name] = declared
 }
 
-// set присваивает переменную в ближайшей области, где она уже объявлена,
-// иначе объявляет её в текущей.
+// set присваивает переменной в ближайшей области, где она объявлена.
 func (s *scope) set(name string, value Value) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if _, ok := cur.vars[name]; ok {
@@ -96,7 +106,9 @@ type Interpreter struct {
 	registry *Registry
 	builtins map[string]Builtin
 	out      io.Writer
-	ctx      context.Context
+	// errOut — поток ошибок для print(stderr(), …).
+	errOut io.Writer
+	ctx    context.Context
 
 	// sandbox непуст, если встроенным функциям доступно не всё.
 	sandbox *Sandbox
@@ -112,6 +124,14 @@ type Interpreter struct {
 	callIDs  []int
 	nextCall *atomic.Int64
 
+	// appending — файлы, в которые сейчас дописывает print: путь и номер
+	// действия в effects. Печать подряд в один файл — одно действие.
+	appending map[string]int
+	// deferAppends — итерация parallel for: печать в файл копится в
+	// pending и дописывается после цикла в порядке элементов.
+	deferAppends bool
+	pending      []pendingAppend
+
 	stack []string
 }
 
@@ -124,10 +144,14 @@ func NewInterpreter(ctx context.Context, registry *Registry, out io.Writer) *Int
 		registry: registry,
 		builtins: DefaultBuiltins(),
 		out:      out,
+		errOut:   os.Stderr,
 		ctx:      ctx,
 		nextCall: new(atomic.Int64),
 	}
 }
+
+// SetErr задаёт поток ошибок сценария: туда пишет print(stderr(), …).
+func (in *Interpreter) SetErr(w io.Writer) { in.errOut = w }
 
 // Context возвращает контекст выполнения.
 func (in *Interpreter) Context() context.Context { return in.ctx }
@@ -206,9 +230,12 @@ func (in *Interpreter) execStmt(stmt Stmt, env *scope) error {
 		return err
 
 	case *Assign:
-		value, err := in.eval(s.Value, env)
-		if err != nil {
-			return err
+		var value Value
+		if s.Value != nil {
+			var err error
+			if value, err = in.eval(s.Value, env); err != nil {
+				return err
+			}
 		}
 		return in.assign(s, env, value)
 
@@ -250,13 +277,26 @@ func (in *Interpreter) execStmt(stmt Stmt, env *scope) error {
 	return in.errorf(stmt.Position(), "неизвестная инструкция %T", stmt)
 }
 
-// assign выполняет присваивание с учётом объявленного типа.
+// assign объявляет переменную или присваивает ей.
 //
-// Написанная аннотация объявляет переменную заново в текущей области.
-// Без аннотации значение кладётся туда, где переменная уже есть, и при
-// этом обязано соответствовать её прежнему объявленному типу.
+// Объявление заводит переменную в текущей области; повторное объявление
+// в той же области — ошибка, во вложенной — новая переменная, которая
+// затеняет внешнюю. Присваивание пишет туда, где переменная объявлена,
+// и значение обязано подходить её типу. Присваивание необъявленной
+// переменной объявляет её с типом значения.
 func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
-	if node.Declared != "" {
+	if node.Declare {
+		if env.declaredHere(node.Name) {
+			return in.errorf(node.Pos, "переменная %s уже объявлена в этой области; "+
+				"чтобы изменить значение, присвойте без var и без типа: %s = …", node.Name, node.Name)
+		}
+		if value == nil {
+			zero, err := zeroValue(node.Declared)
+			if err != nil {
+				return in.wrap(node.Pos, fmt.Errorf("переменная %s: %w", node.Name, err))
+			}
+			value = zero
+		}
 		if err := checkType(node.Declared, fmt.Sprintf("переменная %s", node.Name), value); err != nil {
 			return in.wrap(node.Pos, err)
 		}
@@ -264,12 +304,14 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 		return nil
 	}
 
-	if declared, ok := env.declaredType(node.Name); ok {
-		if err := checkType(declared, fmt.Sprintf("переменная %s", node.Name), value); err != nil {
-			return in.wrap(node.Pos, err)
-		}
+	declared, inferred, exists := env.declaredType(node.Name)
+	if !exists {
+		env.define(node.Name, "", value)
+		return nil
 	}
-
+	if !declared.Accepts(value) {
+		return in.wrap(node.Pos, reassignError(node.Name, declared, inferred, value))
+	}
 	env.set(node.Name, value)
 	return nil
 }

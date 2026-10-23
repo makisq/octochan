@@ -41,6 +41,20 @@ type Effect struct {
 	// из Invocation), от внешнего к внутреннему. По ним арбитр знает, что
 	// записал вызов, которому промпт запретил писать.
 	Calls []int
+	// Append — запись дописала файл: print в файловый поток. Печать
+	// подряд в один файл — одно действие: Before — файл до первой строки,
+	// After — после последней, Calls — все вызовы, которые в него писали.
+	Append bool
+}
+
+// pendingAppend — печать в файл из итерации parallel for: дописывается
+// после цикла, в порядке элементов, как и вывод на экран. Иначе строки
+// итераций легли бы в файл в порядке завершения, и план не совпал бы
+// с выполнением.
+type pendingAppend struct {
+	path  string
+	chunk []byte
+	calls []int
 }
 
 // Invocation — вызов алиаса при выполнении сценария.
@@ -243,8 +257,130 @@ func (in *Interpreter) writeFile(kind EffectKind, name string, data []byte) erro
 		return err
 	}
 
+	// Файл переписан целиком: следующая печать в него — новое действие.
+	delete(in.appending, path)
 	in.effects = append(in.effects, effect)
 	return nil
+}
+
+// appendFile дописывает строку в файл — print(file(…), …).
+func (in *Interpreter) appendFile(name string, chunk []byte) error {
+	path, err := in.path(name)
+	if err != nil {
+		return err
+	}
+	if in.deferAppends {
+		in.pending = append(in.pending, pendingAppend{path: path, chunk: chunk, calls: in.activeCalls()})
+		return nil
+	}
+	return in.appendResolved(path, chunk, in.activeCalls())
+}
+
+// appendResolved дописывает в файл с уже проверенным путём.
+//
+// Если предыдущая запись в этот файл — тоже печать, действие одно: оно
+// растёт, а не множится. Так тысяча строк журнала — одно изменение в
+// плане и одна копия файла в памяти, а не тысяча.
+func (in *Interpreter) appendResolved(path string, chunk []byte, calls []int) error {
+	if i, open := in.appending[path]; open {
+		effect := &in.effects[i]
+		if err := in.appendBytes(path, chunk); err != nil {
+			return err
+		}
+		effect.After = append(effect.After, chunk...)
+		effect.Calls = unionCalls(effect.Calls, calls)
+		if in.dry != nil {
+			in.dry.put(path, effect.After)
+		}
+		return nil
+	}
+
+	effect := Effect{Kind: EffectWrite, Path: path, Calls: calls, Append: true}
+	if before, ok := in.dry.get(path); ok {
+		effect.Existed, effect.Before = true, before
+	} else if info, err := os.Stat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s — не обычный файл", path)
+		}
+		effect.Existed = true
+		if effect.Before, err = os.ReadFile(path); err != nil {
+			return err
+		}
+	} else if in.dry != nil {
+		if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
+			return fmt.Errorf("каталог для %s не существует", path)
+		}
+	}
+
+	// After — своя копия: Before может принадлежать записям режима плана.
+	after := make([]byte, 0, len(effect.Before)+len(chunk))
+	after = append(append(after, effect.Before...), chunk...)
+	if err := in.appendBytes(path, chunk); err != nil {
+		return err
+	}
+	effect.After = after
+	if in.dry != nil {
+		in.dry.put(path, after)
+	}
+
+	if in.appending == nil {
+		in.appending = make(map[string]int)
+	}
+	in.appending[path] = len(in.effects)
+	in.effects = append(in.effects, effect)
+	return nil
+}
+
+// appendBytes дописывает в файл на диске; в режиме плана — ничего.
+func (in *Interpreter) appendBytes(path string, chunk []byte) error {
+	if in.dry != nil {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(chunk); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// flushAppends дописывает печать итераций parallel for в порядке
+// элементов.
+func (in *Interpreter) flushAppends(workers []*Interpreter) error {
+	for _, worker := range workers {
+		if worker == nil {
+			continue
+		}
+		for _, p := range worker.pending {
+			if in.deferAppends {
+				in.pending = append(in.pending, p)
+				continue
+			}
+			if err := in.appendResolved(p.path, p.chunk, p.calls); err != nil {
+				return fmt.Errorf("не удалось дописать %s: %w", p.path, err)
+			}
+		}
+	}
+	return nil
+}
+
+func unionCalls(have, add []int) []int {
+	for _, id := range add {
+		found := false
+		for _, h := range have {
+			if h == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			have = append(have, id)
+		}
+	}
+	return have
 }
 
 // loadLive читает живой источник, если песочница это разрешает.
@@ -305,6 +441,9 @@ func planWrite(plan *config.Plan, e Effect) {
 		detail = "новый файл, " + byteCount(len(e.After))
 	case bytes.Equal(e.Before, e.After):
 		return // запись того же содержимого ничего не меняет
+	case e.Append:
+		detail = fmt.Sprintf("дописать %s: было %s, станет %s",
+			byteCount(len(e.After)-len(e.Before)), byteCount(len(e.Before)), byteCount(len(e.After)))
 	default:
 		detail = fmt.Sprintf("перезапись: было %s, станет %s", byteCount(len(e.Before)), byteCount(len(e.After)))
 	}

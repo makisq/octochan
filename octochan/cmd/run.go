@@ -110,6 +110,7 @@ var runCmd = &cobra.Command{
 		reportAliasErrors(cmd, errs)
 
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
+		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetSandbox(box)
 
 		target := args[0]
@@ -201,6 +202,7 @@ var evalCmd = &cobra.Command{
 		}
 
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
+		interp.SetErr(cmd.ErrOrStderr())
 
 		// Одиночное выражение печатаем: иначе eval был бы бесполезен.
 		if len(file.Stmts) == 1 {

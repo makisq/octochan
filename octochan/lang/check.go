@@ -134,25 +134,49 @@ func (c *checker) sorted() []Problem {
 // область, присваивание без аннотации пишет туда, где переменная уже есть,
 // иначе объявляет её в текущей. Поэтому переменная, заведённая внутри if,
 // после него не видна — ровно как при выполнении.
+//
+// Тип переменной — написанный или тип первого значения, если он виден
+// без выполнения; пустой — станет известен при выполнении.
 type checkScope struct {
-	vars   map[string]TypeName
-	parent *checkScope
+	vars     map[string]TypeName
+	inferred map[string]bool
+	parent   *checkScope
 }
 
 func newCheckScope(parent *checkScope) *checkScope {
-	return &checkScope{vars: make(map[string]TypeName), parent: parent}
+	return &checkScope{vars: make(map[string]TypeName), inferred: make(map[string]bool), parent: parent}
 }
 
 func (s *checkScope) lookup(name string) (TypeName, bool) {
+	t, _, ok := s.lookupInferred(name)
+	return t, ok
+}
+
+func (s *checkScope) lookupInferred(name string) (TypeName, bool, bool) {
 	for cur := s; cur != nil; cur = cur.parent {
 		if t, ok := cur.vars[name]; ok {
-			return t, true
+			return t, cur.inferred[name], true
 		}
 	}
-	return "", false
+	return "", false, false
 }
 
 func (s *checkScope) define(name string, declared TypeName) { s.vars[name] = declared }
+
+// infer объявляет переменную с типом первого значения: null типа не
+// задаёт, и такая переменная — any, как при выполнении.
+func (s *checkScope) infer(name string, actual TypeName) {
+	if actual == typeNull {
+		actual = TypeAny
+	}
+	s.vars[name] = actual
+	s.inferred[name] = true
+}
+
+func (s *checkScope) declaredHere(name string) bool {
+	_, ok := s.vars[name]
+	return ok
+}
 
 func (s *checkScope) names() []string {
 	var names []string
@@ -252,10 +276,25 @@ func (c *checker) loopControl(what string, pos Position, f flow) {
 }
 
 func (c *checker) assign(s *Assign, scope *checkScope) {
-	actual := c.expr(s.Value, scope)
+	var actual TypeName
+	if s.Value != nil {
+		actual = c.expr(s.Value, scope)
+	}
 
-	if s.Declared != "" {
-		if !compatible(s.Declared, actual) {
+	if s.Declare {
+		if scope.declaredHere(s.Name) {
+			c.report(s.Pos, "переменная %s уже объявлена в этой области; чтобы изменить значение, "+
+				"присвойте без var и без типа: %s = …", s.Name, s.Name)
+		}
+		switch {
+		case s.Declared == "":
+			scope.infer(s.Name, actual)
+			return
+		case s.Value == nil:
+			if _, err := zeroValue(s.Declared); err != nil {
+				c.report(s.Pos, "переменная %s: %v", s.Name, err)
+			}
+		case !compatible(s.Declared, actual):
 			c.report(s.Pos, "переменная %s: объявлен тип %s, присваивается значение типа %s",
 				s.Name, s.Declared.Russian(), actual.Russian())
 		}
@@ -263,21 +302,21 @@ func (c *checker) assign(s *Assign, scope *checkScope) {
 		return
 	}
 
-	declared, exists := scope.lookup(s.Name)
+	declared, inferred, exists := scope.lookupInferred(s.Name)
 	if !exists {
-		scope.define(s.Name, "")
+		scope.infer(s.Name, actual)
 		return
 	}
 	if !compatible(declared, actual) {
-		c.report(s.Pos, "переменная %s: объявлен тип %s, присваивается значение типа %s",
-			s.Name, declared.Russian(), actual.Russian())
+		c.report(s.Pos, "переменная %s: %s, присваивается значение типа %s%s",
+			s.Name, typeOrigin(declared, inferred), actual.Russian(), reassignHint(s.Name, declared, actual))
 	}
 }
 
 func (c *checker) forLoop(s *For, scope *checkScope, f flow) {
 	iterable := c.expr(s.Iterable, scope)
 	switch iterable {
-	case TypeInt, TypeFloat, TypeNumber, TypeBool:
+	case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream:
 		c.report(s.Pos, "по значению типа %s нельзя пройти циклом", iterable.Russian())
 	}
 
@@ -334,7 +373,7 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		switch operand {
 		case TypeInt, TypeFloat:
 			return operand
-		case TypeList, TypeMap, TypeConfig, typeNull:
+		case TypeList, TypeMap, TypeConfig, TypeStream, typeNull:
 			c.report(x.Pos, "унарный минус применим только к числу, получено %s", operand.Russian())
 		}
 		return ""
@@ -349,7 +388,7 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		target := c.expr(x.Target, scope)
 		c.expr(x.Index, scope)
 		switch target {
-		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, typeNull:
+		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, typeNull:
 			c.report(x.Pos, "индексировать можно список, словарь или конфиг, получено %s", target.Russian())
 		case TypeConfig:
 			return TypeString
@@ -394,7 +433,7 @@ func (c *checker) binary(x *Binary, scope *checkScope) TypeName {
 	// ("5" - 1 даёт 4), поэтому отвергаются только заведомо нечисловые типы.
 	for _, operand := range []TypeName{left, right} {
 		switch operand {
-		case TypeList, TypeMap, TypeConfig, typeNull:
+		case TypeList, TypeMap, TypeConfig, TypeStream, typeNull:
 			c.report(x.Pos, "оператор %s неприменим к %s", x.Op, operand.Russian())
 			return ""
 		}
