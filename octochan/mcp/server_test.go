@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1065,4 +1066,23 @@ func TestRankLogsArgv(t *testing.T) {
 
 	e.assertRejected("rank_logs", map[string]any{"file": "/etc/passwd"}, "вне разрешённых каталогов")
 	e.assertRejected("rank_logs", map[string]any{"file": "pg.log", "min": "--tail"}, "недопустимое значение")
+}
+
+// Заголовки и описания инструментов и параметров читает модель, поэтому
+// они, как и протокол, по-английски — при любых настройках сервера.
+func TestToolDescriptionsAreEnglish(t *testing.T) {
+	cyrillic := regexp.MustCompile(`[\p{Cyrillic}]`)
+	for _, live := range [][]string{nil, {"postgres"}} {
+		for _, tool := range buildTools(live) {
+			texts := []string{tool.Title, tool.Description}
+			for _, s := range tool.Slots {
+				texts = append(texts, s.Description)
+			}
+			for _, text := range texts {
+				if text == "" || cyrillic.MatchString(text) {
+					t.Errorf("инструмент %s: описание пустое или не на английском: %q", tool.Name, text)
+				}
+			}
+		}
+	}
 }
