@@ -37,6 +37,69 @@ type Effect struct {
 	Before  []byte
 	// After — записанное содержимое.
 	After []byte
+	// Calls — вызовы алиасов, внутри которых случилось действие (их ID
+	// из Invocation), от внешнего к внутреннему. По ним арбитр знает, что
+	// записал вызов, которому промпт запретил писать.
+	Calls []int
+}
+
+// Invocation — вызов алиаса при выполнении сценария.
+type Invocation struct {
+	ID int
+	// Name — имя алиаса, Module — его пакет (пусто — алиас пользователя
+	// или самого сценария).
+	Name   string
+	Module string
+	// Args — значения аргументов текстом: строки как есть, конфиг — его
+	// источником.
+	Args []string
+}
+
+// Qualified возвращает имя вызова вида пакет.алиас.
+func (c Invocation) Qualified() string {
+	if c.Module == "" {
+		return c.Name
+	}
+	return c.Module + "." + c.Name
+}
+
+// Invocations возвращает вызовы алиасов в порядке выполнения. Вызовы
+// итераций parallel for идут в порядке элементов.
+func (in *Interpreter) Invocations() []Invocation { return append([]Invocation(nil), in.calls...) }
+
+// beginCall запоминает вызов алиаса и делает его текущим.
+func (in *Interpreter) beginCall(decl *AliasDecl, args []Value) func() {
+	id := int(in.nextCall.Add(1))
+	call := Invocation{ID: id, Name: decl.Name, Module: decl.Module}
+	for _, arg := range args {
+		call.Args = append(call.Args, argText(arg))
+	}
+	in.calls = append(in.calls, call)
+	in.callIDs = append(in.callIDs, id)
+	return func() { in.callIDs = in.callIDs[:len(in.callIDs)-1] }
+}
+
+func argText(v Value) string {
+	var text string
+	switch val := v.(type) {
+	case StringValue:
+		text = string(val)
+	case ConfigValue:
+		text = val.Name
+	default:
+		text = Display(v)
+	}
+	if len(text) > 256 {
+		text = text[:256]
+	}
+	return text
+}
+
+func (in *Interpreter) activeCalls() []int {
+	if len(in.callIDs) == 0 {
+		return nil
+	}
+	return append([]int(nil), in.callIDs...)
 }
 
 // Fingerprint — отпечаток действия. По отпечаткам согласованный план
@@ -158,7 +221,7 @@ func (in *Interpreter) writeFile(kind EffectKind, name string, data []byte) erro
 		return err
 	}
 
-	effect := Effect{Kind: kind, Path: path, After: data}
+	effect := Effect{Kind: kind, Path: path, After: data, Calls: in.activeCalls()}
 	if before, ok := in.dry.get(path); ok {
 		effect.Existed, effect.Before = true, before
 	} else if info, err := os.Stat(path); err == nil {
@@ -195,7 +258,7 @@ func (in *Interpreter) loadLive(ref, scheme string, opts config.SourceOptions) (
 	if err != nil {
 		return nil, err
 	}
-	in.effects = append(in.effects, Effect{Kind: EffectLive, Path: loaded.Name})
+	in.effects = append(in.effects, Effect{Kind: EffectLive, Path: loaded.Name, Calls: in.activeCalls()})
 	return loaded, nil
 }
 

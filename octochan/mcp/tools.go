@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -22,6 +23,10 @@ type tool struct {
 	// Обязательно для инструментов, которые выполняют сценарий, пусть
 	// и в режиме плана: чтение файлов в нём настоящее.
 	Sandboxed bool
+	// Bundle — тексты из слотов идут на stdin одним JSON-объектом
+	// {слот: текст}, а в Fixed стоит --bundle: stdin у ochan один, а
+	// сценарий, промпт и отчёт — три текста.
+	Bundle bool
 	// Writes — инструмент что-то создаёт (заявку, документ).
 	Writes bool
 	// Remote — инструмент ходит во внешнюю систему независимо от
@@ -69,16 +74,43 @@ func checkTable(tools []tool) error {
 			return err
 		}
 
-		// stdin у ochan один: два текста в одном вызове перемешались бы.
-		stdin := 0
-		for _, s := range t.Slots {
-			if stdinSlot(s.Kind) {
-				stdin++
-			}
+		if err := checkStdin(t); err != nil {
+			return err
 		}
-		if stdin > 1 {
-			return fmt.Errorf("инструмент %s: через stdin передаётся только один текст", t.Name)
+	}
+	return nil
+}
+
+// bundleKeys — тексты, которые ochan принимает с --bundle.
+var bundleKeys = map[string]bool{"script": true, "prompt": true, "report": true}
+
+// checkStdin проверяет, как тексты попадают на stdin. stdin у ochan
+// один: два текста подряд перемешались бы, поэтому их несколько только
+// в JSON-объекте --bundle, и ключи в нём — те, что ochan знает.
+func checkStdin(t tool) error {
+	texts, script := 0, false
+	for _, s := range t.Slots {
+		if !stdinSlot(s.Kind) {
+			continue
 		}
+		texts++
+		if t.Bundle && !bundleKeys[s.Name] {
+			return fmt.Errorf("инструмент %s: текст %s ochan с --bundle не принимает", t.Name, s.Name)
+		}
+		script = script || s.Kind == slotScript
+	}
+	flag := false
+	for _, f := range t.Fixed {
+		flag = flag || f == "--bundle"
+	}
+
+	switch {
+	case t.Bundle != flag:
+		return fmt.Errorf("инструмент %s: Bundle и флаг --bundle задаются вместе", t.Name)
+	case t.Bundle && !script:
+		return fmt.Errorf("инструмент %s: --bundle несёт сценарий, а слота сценария нет", t.Name)
+	case texts > 1 && !t.Bundle:
+		return fmt.Errorf("инструмент %s: через stdin передаётся только один текст", t.Name)
 	}
 	return nil
 }
@@ -144,6 +176,21 @@ func promptSlot() slot {
 	return slot{Name: "prompt", Kind: slotText, Required: true,
 		Description: "текст формального промпта; язык описан в протоколе (инструмент protocol). " +
 			"Отчёт report: дописывается к промпту и проверяется вместе с ним"}
+}
+
+// scriptPromptSlot и reportSlot — промпт, по которому модель написала
+// сценарий, и её отчёт. ochan проверяет их до плана, а жёсткие правила
+// промпта — по плану, и кладёт в заявку.
+func scriptPromptSlot() slot {
+	return slot{Name: "prompt", Kind: slotText,
+		Description: "формальный промпт, по которому написан сценарий: он проверяется, а его жёсткие " +
+			"правила (hard forbid/require) проверяются по плану — план, который их нарушает, отвергается"}
+}
+
+func reportSlot() slot {
+	return slot{Name: "report", Kind: slotText,
+		Description: "отчёт (раздел report:) о решениях, которые промпт оставил открытыми; " +
+			"проверяется вместе с промптом и попадает в заявку. Без prompt не принимается"}
 }
 
 func nameSlot() slot {
@@ -340,11 +387,13 @@ func buildTools(live []string) []tool {
 			Description: "Проверяет сценарий и выполняет его в режиме плана: write и save ничего не записывают, " +
 				"а план показывает, какие файлы и параметры изменились бы. Сценарий работает в песочнице " +
 				"сервера: файлы только внутри разрешённых каталогов, переменные окружения и живые источники — " +
-				"только разрешённые. Выводит то, что напечатал сценарий, и план.",
+				"только разрешённые. Выводит то, что напечатал сценарий, и план. С prompt проверяет по плану " +
+				"жёсткие правила промпта.",
 			Command:   "plan",
-			Fixed:     []string{"--script"},
+			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
-			Slots:     []slot{scriptSlot(), nameSlot()},
+			Bundle:    true,
+			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot()},
 		},
 		{
 			Name:  "request_script",
@@ -352,11 +401,13 @@ func buildTools(live []string) []tool {
 			Description: "Проверяет сценарий, строит план в песочнице сервера и создаёт заявку в состоянии " +
 				"«ждёт решения». В заявке сохраняются текст сценария, план и песочница. Сама заявка ничего " +
 				"не выполняет: согласует и выполняет её человек, и перед выполнением план строится заново " +
-				"и должен совпасть с согласованным.",
+				"и должен совпасть с согласованным. С prompt и report в заявку попадают промпт и отчёт, " +
+				"а заявка на план, нарушающий жёсткое правило промпта, не создаётся.",
 			Command:   "request",
-			Fixed:     []string{"--script"},
+			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
-			Slots:     []slot{scriptSlot(), nameSlot(), docSlot()},
+			Bundle:    true,
+			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), docSlot()},
 			Writes:    true,
 		},
 		{
@@ -402,6 +453,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 	var (
 		positional []string
 		stdin      string
+		texts      = map[string]string{}
 	)
 
 	for _, s := range t.Slots {
@@ -418,6 +470,10 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 			if err != nil {
 				return nil, "", err
 			}
+			if t.Bundle {
+				texts[s.Name] = text
+				continue
+			}
 			stdin = text
 			positional = append(positional, "-")
 			continue
@@ -432,6 +488,16 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 		} else {
 			positional = append(positional, values...)
 		}
+	}
+
+	if t.Bundle {
+		// Ключи json.Marshal сортирует: одинаковый вызов — одинаковый stdin.
+		data, err := json.Marshal(texts)
+		if err != nil {
+			return nil, "", err
+		}
+		stdin = string(data)
+		positional = append(positional, "-")
 	}
 
 	if t.check != nil {

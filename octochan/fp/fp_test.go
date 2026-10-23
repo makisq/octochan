@@ -481,3 +481,15 @@ func TestVersionMatches(t *testing.T) {
 		}
 	}
 }
+
+// Операции среды выполнения известны без скиллов: правило о них
+// проверяется по плану, а в K они не перечисляются.
+func TestBuiltinsSatisfyRules(t *testing.T) {
+	src := head + "hard forbid save(except = {prod_conf})\n"
+	expect(t, check(t, src, Options{}), ErrUndef, "действие save неизвестно")
+	r := check(t, src, Options{Builtins: []string{"write", "save"}})
+	expectClean(t, r)
+	if contains(r.Knowledge, "save") {
+		t.Fatalf("операция среды попала в K: %v", r.Knowledge)
+	}
+}

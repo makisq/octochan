@@ -28,6 +28,10 @@ type Document struct {
 	// Listing — текст сценария, если согласуют сценарий на языке алиасов:
 	// подписывают не только план, но и то, что его породило.
 	Listing string
+	// Prompt — формальный промпт, по которому модель написала сценарий;
+	// Report — решения, которые модель приняла сама.
+	Prompt string
+	Report []string
 }
 
 // Field — строка сводной таблицы в шапке документа.
@@ -123,6 +127,22 @@ func documentXML(doc Document) string {
 		// Строка на абзац: перевод строки внутри w:t Word показывает пробелом.
 		for _, line := range strings.Split(strings.TrimRight(doc.Listing, "\n"), "\n") {
 			b.WriteString(codeParagraph(strings.TrimRight(line, "\r")))
+		}
+	}
+
+	if doc.Prompt != "" {
+		b.WriteString(paragraph(""))
+		b.WriteString(heading("Формальный промпт", 26))
+		for _, line := range strings.Split(strings.TrimRight(doc.Prompt, "\n"), "\n") {
+			b.WriteString(codeParagraph(strings.TrimRight(line, "\r")))
+		}
+	}
+
+	if len(doc.Report) > 0 {
+		b.WriteString(paragraph(""))
+		b.WriteString(heading("Отчёт модели", 26))
+		for _, line := range doc.Report {
+			b.WriteString(paragraph("— " + line))
 		}
 	}
 

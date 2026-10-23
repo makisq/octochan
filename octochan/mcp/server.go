@@ -332,7 +332,8 @@ func (s *server) instructions() string {
 	} else {
 		text += ", переменные окружения недоступны"
 	}
-	text += "."
+	text += ". Сценарию по формальному промпту передавайте и prompt с report: жёсткие правила " +
+		"проверяются по плану, а промпт и отчёт попадают в заявку."
 
 	if s.protocol == "" {
 		return text + " Протокол формального промпта недоступен: ochan не отдал его при запуске сервера."
@@ -391,7 +392,7 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 	outcome := s.runner.run(callCtx, args, stdin)
 	script := ""
 	if stdin != "" {
-		script = fmt.Sprintf(" (сценарий %d байт)", len(stdin))
+		script = fmt.Sprintf(" (stdin %d байт)", len(stdin))
 	}
 	s.logger.Printf("%s: ochan %s%s → код %d за %s", t.Name, maskSecrets(strings.Join(args, " ")),
 		script, outcome.code, time.Since(started).Round(time.Millisecond))

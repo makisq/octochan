@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"octochan/arbiter"
 	"octochan/fp"
 
 	"github.com/spf13/cobra"
@@ -49,7 +50,7 @@ var fpCheckCmd = &cobra.Command{
 			src.Name = fpName
 		}
 
-		opts, err := fpOptions(cmd)
+		opts, err := fpOptions(cmd, fpStandalone)
 		if err != nil {
 			return err
 		}
@@ -87,8 +88,9 @@ var fpProtocolCmd = &cobra.Command{
 }
 
 // fpOptions собирает настройки проверки: то, что задаётся в конфигурации,
-// а не в промпте, и библиотеку скиллов.
-func fpOptions(cmd *cobra.Command) (fp.Options, error) {
+// а не в промпте, и библиотеку скиллов. standalone — без библиотеки:
+// скилл даёт то, что объявлено в его provides:.
+func fpOptions(cmd *cobra.Command, standalone bool) (fp.Options, error) {
 	opts := fp.Options{
 		MaxMeanings: viper.GetInt("fp.max_meanings"),
 		Consistency: fp.Consistency(viper.GetString("fp.consistency")),
@@ -100,9 +102,12 @@ func fpOptions(cmd *cobra.Command) (fp.Options, error) {
 		return opts, fmt.Errorf("fp.consistency: %q, допустимо strict или reconcile", opts.Consistency)
 	}
 
-	if fpStandalone {
+	if standalone {
 		return opts, nil
 	}
+	// write и save — операции самого ochan: правило о них арбитр
+	// проверяет по плану сценария, и скилл для них не нужен.
+	opts.Builtins = arbiter.Builtins
 
 	// Скилл — пакет алиасов: его операции — алиасы пакета. Проверка не
 	// верит объявлению в import на слово, а смотрит в библиотеку.

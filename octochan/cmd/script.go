@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"octochan/fp"
 	"octochan/lang"
 	"octochan/workspace"
 
@@ -127,15 +128,16 @@ func loadScript(registry *lang.Registry, src source) (*lang.File, error) {
 	return file, nil
 }
 
-// planScript выполняет сценарий в режиме плана и возвращает его действия.
+// planScript выполняет сценарий в режиме плана и возвращает его действия
+// и вызовы алиасов — по ним проверяются жёсткие правила промпта.
 //
 // План сценария, прервавшегося ошибкой, неполон: это говорится в самом
 // плане, а не замалчивается.
-func planScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, out io.Writer) ([]lang.Effect, error) {
+func planScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, out io.Writer) ([]lang.Effect, []lang.Invocation, error) {
 	interp := setup.interpreter(cmd, registry, out)
 	interp.SetPlanMode()
 	err := interp.RunFile(file)
-	return interp.Effects(), err
+	return interp.Effects(), interp.Invocations(), err
 }
 
 // fingerprints — отпечатки действий, по которым план сверяется с выполнением.
@@ -188,7 +190,11 @@ func fileHash(path string) (string, error) {
 }
 
 // scriptRequest оформляет заявку на выполнение сценария на языке алиасов.
-func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*workspace.Request, error) {
+//
+// Если сценарий написан по формальному промпту, промпт и отчёт модели
+// проверяются до плана, а жёсткие правила промпта — по плану: заявка на
+// план, который нарушает абсолютное правило, не оформляется.
+func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts *promptOptions) (*workspace.Request, error) {
 	if len(args) > 1 {
 		return nil, errors.New("сценарий на языке алиасов параметров не принимает: значения пишутся в его тексте")
 	}
@@ -196,7 +202,12 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*wor
 	if err != nil {
 		return nil, fmt.Errorf("укажите файл сценария или подайте его на stdin: %w", err)
 	}
-	src, err := opts.source(target)
+	input, err := loadScriptInput(opts, popts, target)
+	if err != nil {
+		return nil, err
+	}
+	src := input.script
+	prompt, err := checkPrompt(cmd, input)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +231,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*wor
 	}
 
 	var output strings.Builder
-	effects, err := planScript(cmd, registry, file, setup, &output)
+	effects, calls, err := planScript(cmd, registry, file, setup, &output)
 	if output.Len() > 0 {
 		cmd.Print("Вывод сценария в режиме плана:\n" + output.String() + "\n")
 	}
@@ -228,6 +239,10 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*wor
 		// Заявка на сценарий, который падает уже при планировании, — это
 		// заявка на ошибку: согласовывать нечего.
 		return nil, fmt.Errorf("сценарий прервался при построении плана: %w", err)
+	}
+	rules, err := checkRules(cmd, prompt, effects, calls)
+	if err != nil {
+		return nil, err
 	}
 
 	libraries, packages, err := libraryHashes(file, registry)
@@ -241,6 +256,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions) (*wor
 		Libraries: libraries,
 		Packages:  packages,
 		Effects:   fingerprints(effects),
+		Prompt:    input.stored(rules),
 	}
 	if box != nil {
 		run.Sandboxed = true
@@ -294,7 +310,17 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		return fmt.Errorf("сохранённый в заявке сценарий: %w", err)
 	}
 
-	planned, err := planScript(cmd, registry, file, setup, io.Discard)
+	// Промпт проверяется заново: скилл, на который он ссылается, мог
+	// пропасть из библиотеки или смениться версией.
+	var prompt *fp.Result
+	if run.Prompt != nil {
+		prompt, err = checkPrompt(cmd, storedInput(run.Prompt))
+		if err != nil {
+			return fmt.Errorf("промпт заявки %s: %w", request.ID, err)
+		}
+	}
+
+	planned, calls, err := planScript(cmd, registry, file, setup, io.Discard)
 	if err != nil {
 		return fmt.Errorf("сценарий прервался при повторном построении плана: %w", err)
 	}
@@ -304,6 +330,9 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 			"выполнилось бы не то, что согласовали; оформите новую заявку.\n%s\nТекущий план:\n%s",
 			request.ID, describeDrift(run.Effects, planned), current.Render(60))
 	}
+	if _, err := checkRules(cmd, prompt, planned, calls); err != nil {
+		return fmt.Errorf("заявка %s: %w", request.ID, err)
+	}
 
 	cmd.Printf("Заявка %s, сценарий %s\n", request.ID, request.Source)
 
@@ -312,7 +341,10 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	effects := interp.Effects()
 
 	// След остаётся и при ошибке: записанное до сбоя уже записано.
-	var written []string
+	var (
+		written []string
+		entry   *workspace.Entry
+	)
 	for _, effect := range effects {
 		if effect.Kind != lang.EffectLive {
 			written = append(written, effect.Path)
@@ -322,17 +354,31 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		if err := store.MarkApplied(request, written); err != nil {
 			cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
 		}
+		// Файлы до сценария — в журнал: по ним выполнение откатывается,
+		// в том числе прерванное.
+		files := fileStates(effects)
+		if size := stateBytes(files); size > maxRollbackBytes {
+			cmd.PrintErrf("внимание: откат недоступен: прежнее содержимое файлов занимает %d МиБ, "+
+				"журнал хранит не больше %d МиБ\n", size>>20, maxRollbackBytes>>20)
+			files = nil
+		}
 		done := lang.BuildPlan(request.Source, effects)
-		record(cmd, &workspace.Entry{
-			Kind:    workspace.EntryApply,
-			Command: "apply --request " + request.ID,
-			Source:  request.Source,
-			Summary: fmt.Sprintf("сценарий %s, изменений: %d", filepath.Base(request.Source), done.Len()),
-			Changes: done.Changes,
-		})
+		entry = &workspace.Entry{
+			Kind:       workspace.EntryScript,
+			Command:    "apply --request " + request.ID,
+			Source:     request.Source,
+			Summary:    fmt.Sprintf("сценарий %s, изменений: %d", filepath.Base(request.Source), done.Len()),
+			Changes:    done.Changes,
+			Files:      files,
+			Reversible: len(files) > 0,
+		}
+		record(cmd, entry)
 		notify(cmd, fmt.Sprintf("Заявка %s выполнена", request.ID), requestMailBody(request), nil)
 	}
 	if runErr != nil {
+		if entry != nil && entry.Reversible && entry.ID != "" {
+			cmd.PrintErrf("сценарий прерван; записанное до сбоя откатывается: ochan rollback %s\n", entry.ID)
+		}
 		return runErr
 	}
 
@@ -340,7 +386,45 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		cmd.PrintErrln("внимание: выполнение разошлось с согласованным планом: файлы поменялись во время выполнения")
 	}
 	cmd.Printf("Заявка %s выполнена, записано файлов: %d\n", request.ID, len(written))
+	if entry != nil && entry.Reversible && entry.ID != "" {
+		cmd.Printf("Откат: ochan rollback %s\n", entry.ID)
+	}
 	return nil
+}
+
+// maxRollbackBytes — сколько прежнего содержимого файлов журнал хранит
+// для отката одного сценария. Конфиги весят килобайты; предел отсекает
+// сценарий, который переписал гигабайтный файл, а не настоящие правки.
+const maxRollbackBytes = 16 << 20
+
+// fileStates — файлы, которые записал сценарий, в состоянии до него.
+// Файл, записанный дважды, помнит состояние до первой записи и то, что
+// оставила последняя.
+func fileStates(effects []lang.Effect) []workspace.FileState {
+	index := make(map[string]int)
+	var states []workspace.FileState
+	for _, effect := range effects {
+		if effect.Kind == lang.EffectLive {
+			continue
+		}
+		i, seen := index[effect.Path]
+		if !seen {
+			i = len(states)
+			index[effect.Path] = i
+			states = append(states, workspace.FileState{
+				Path: effect.Path, Existed: effect.Existed, Content: effect.Before})
+		}
+		states[i].After = workspace.StateHash(true, effect.After)
+	}
+	return states
+}
+
+func stateBytes(states []workspace.FileState) int {
+	size := 0
+	for _, state := range states {
+		size += len(state.Content)
+	}
+	return size
 }
 
 // describeDrift объясняет, чем текущий план отличается от согласованного.

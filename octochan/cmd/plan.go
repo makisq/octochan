@@ -14,6 +14,7 @@ import (
 var (
 	planScriptMode bool
 	planOpts       scriptOptions
+	planPrompt     promptOptions
 )
 
 var planCmd = &cobra.Command{
@@ -42,6 +43,9 @@ var planCmd = &cobra.Command{
 		if planOpts.any() {
 			return fmt.Errorf("песочница относится к сценариям на языке алиасов: укажите --script")
 		}
+		if planPrompt.any() {
+			return fmt.Errorf("промпт и отчёт модели относятся к сценариям на языке алиасов: укажите --script")
+		}
 		if len(args) == 0 {
 			return fmt.Errorf("укажите сценарий, пару конфигов или --script")
 		}
@@ -68,7 +72,12 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	src, err := planOpts.source(target)
+	input, err := loadScriptInput(&planOpts, &planPrompt, target)
+	if err != nil {
+		return err
+	}
+	src := input.script
+	prompt, err := checkPrompt(cmd, input)
 	if err != nil {
 		return err
 	}
@@ -83,14 +92,24 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	effects, runErr := planScript(cmd, registry, file, scriptSetup{box: box}, cmd.OutOrStdout())
+	effects, calls, runErr := planScript(cmd, registry, file, scriptSetup{box: box}, cmd.OutOrStdout())
 
 	plan := lang.BuildPlan(file.Name, effects)
 	if runErr != nil {
 		plan.Warn("план неполный: сценарий прервался с ошибкой, показано то, что успело произойти")
 	}
 	cmd.Print("\n" + plan.Render(60))
-	return runErr
+	printReport(cmd, input)
+	if runErr != nil {
+		// По неполному плану правило «всегда X» не проверить: X мог
+		// стоять после места, где сценарий упал.
+		if prompt != nil && len(prompt.Program.Rules) > 0 {
+			cmd.Println("\nЖёсткие правила промпта не проверялись: план неполный")
+		}
+		return runErr
+	}
+	_, err = checkRules(cmd, prompt, effects, calls)
+	return err
 }
 
 // isOverride отличает переопределение параметра key=value от имени файла.
@@ -167,4 +186,5 @@ func planScenario(cmd *cobra.Command, args []string) error {
 func init() {
 	planCmd.Flags().BoolVar(&planScriptMode, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")
 	planOpts.register(planCmd)
+	planPrompt.register(planCmd)
 }

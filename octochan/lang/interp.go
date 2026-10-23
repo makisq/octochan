@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync/atomic"
 )
 
 // maxCallDepth защищает от бесконечной рекурсии: alias a() { a() }
@@ -105,6 +106,11 @@ type Interpreter struct {
 	dry *overlay
 	// effects — действия сценария за пределами интерпретатора.
 	effects []Effect
+	// calls — вызовы алиасов; callIDs — стек текущих вызовов; nextCall —
+	// счётчик ID, общий для итераций parallel for.
+	calls    []Invocation
+	callIDs  []int
+	nextCall *atomic.Int64
 
 	stack []string
 }
@@ -119,6 +125,7 @@ func NewInterpreter(ctx context.Context, registry *Registry, out io.Writer) *Int
 		builtins: DefaultBuiltins(),
 		out:      out,
 		ctx:      ctx,
+		nextCall: new(atomic.Int64),
 	}
 }
 
@@ -762,6 +769,7 @@ func (in *Interpreter) invoke(decl *AliasDecl, args []Value, pos Position) (Valu
 
 	in.stack = append(in.stack, decl.Name)
 	defer func() { in.stack = in.stack[:len(in.stack)-1] }()
+	defer in.beginCall(decl, args)()
 
 	env := newScope(nil) // алиас не видит переменные вызывающего
 	for i, param := range decl.Params {

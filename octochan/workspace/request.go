@@ -106,6 +106,24 @@ type ScriptRun struct {
 	// Effects — отпечатки действий из плана, по порядку. Перед выполнением
 	// план строится заново и сверяется с ними.
 	Effects []string `json:"effects"`
+
+	// Prompt непуст, если сценарий написан по формальному промпту.
+	Prompt *ScriptPrompt `json:"prompt,omitempty"`
+}
+
+// ScriptPrompt — формальный промпт, по которому модель написала сценарий,
+// и её отчёт о решениях, которые промпт оставил открытыми.
+//
+// Согласующий видит не только сценарий, но и задачу, и то, что модель
+// решила сама. Жёсткие правила промпта проверены по плану при оформлении
+// заявки и проверяются снова перед выполнением.
+type ScriptPrompt struct {
+	Name       string `json:"name"`
+	Text       string `json:"text"`
+	ReportName string `json:"report_name,omitempty"`
+	Report     string `json:"report,omitempty"`
+	// Rules — жёсткие правила промпта, которые план соблюдает.
+	Rules []string `json:"rules,omitempty"`
 }
 
 // Describe возвращает однострочное описание для списка.

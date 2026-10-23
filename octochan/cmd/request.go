@@ -25,6 +25,7 @@ var (
 	notifyMail     bool
 	requestScript  bool
 	requestOpts    scriptOptions
+	requestPrompt  promptOptions
 )
 
 // requestStore открывает хранилище заявок.
@@ -88,10 +89,13 @@ var requestCmd = &cobra.Command{
 // buildRequest строит заявку из сценария или из пары конфигов.
 func buildRequest(cmd *cobra.Command, args []string) (*workspace.Request, error) {
 	if requestScript || (len(args) == 1 && filepath.Ext(args[0]) == lang.AliasExtension) {
-		return scriptRequest(cmd, args, &requestOpts)
+		return scriptRequest(cmd, args, &requestOpts, &requestPrompt)
 	}
 	if requestOpts.any() {
 		return nil, fmt.Errorf("песочница относится к сценариям на языке алиасов: укажите --script")
+	}
+	if requestPrompt.any() {
+		return nil, fmt.Errorf("промпт и отчёт модели относятся к сценариям на языке алиасов: укажите --script")
 	}
 	if len(args) == 0 {
 		return nil, fmt.Errorf("укажите сценарий, пару конфигов или --script")
@@ -199,6 +203,14 @@ func writeRequestDoc(request *workspace.Request, path string) error {
 				report.Field{Name: "Пакет " + name, Value: versionOrNone(request.Script.Packages[name])})
 		}
 		doc.Listing = request.Payload
+		if p := request.Script.Prompt; p != nil {
+			doc.Fields = append(doc.Fields, report.Field{Name: "Промпт", Value: p.Name})
+			for _, rule := range p.Rules {
+				doc.Fields = append(doc.Fields, report.Field{Name: "Жёсткое правило", Value: rule + " — соблюдено в плане"})
+			}
+			doc.Prompt = p.Text
+			doc.Report = describeReport(storedInput(p))
+		}
 	}
 	if request.DecidedBy != "" {
 		doc.Fields = append(doc.Fields,
@@ -252,6 +264,12 @@ var requestsCmd = &cobra.Command{
 	},
 }
 
+func printListing(cmd *cobra.Command, text string) {
+	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		cmd.Printf("  | %s\n", line)
+	}
+}
+
 func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	cmd.Printf("Заявка:    %s\n", request.ID)
 	cmd.Printf("Состояние: %s\n", request.State.Russian())
@@ -288,8 +306,20 @@ func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 		}
 		// Согласуют не только план, но и текст, который его породил.
 		cmd.Print("\nСценарий:\n")
-		for _, line := range strings.Split(strings.TrimRight(request.Payload, "\n"), "\n") {
-			cmd.Printf("  | %s\n", line)
+		printListing(cmd, request.Payload)
+
+		// И задачу, по которой модель его написала, и то, что модель
+		// решила сама.
+		if p := request.Script.Prompt; p != nil {
+			cmd.Printf("\nПромпт %s:\n", p.Name)
+			printListing(cmd, p.Text)
+			if len(p.Rules) > 0 {
+				cmd.Print("\nЖёсткие правила промпта (план их соблюдает):\n")
+				for _, rule := range p.Rules {
+					cmd.Printf("  %s\n", rule)
+				}
+			}
+			printReport(cmd, storedInput(p))
 		}
 	}
 
@@ -430,6 +460,7 @@ func init() {
 	applyCmd.Flags().StringVar(&applyRequestID, "request", "", "выполнить согласованную заявку")
 	requestCmd.Flags().BoolVar(&requestScript, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")
 	requestOpts.register(requestCmd)
+	requestPrompt.register(requestCmd)
 	applyCmd.Flags().BoolVar(&notifyMail, "notify", false, "отправить уведомление по почте")
 	approveCmd.Flags().BoolVar(&notifyMail, "notify", false, "отправить уведомление по почте")
 	rejectCmd.Flags().BoolVar(&notifyMail, "notify", false, "отправить уведомление по почте")

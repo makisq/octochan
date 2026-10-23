@@ -132,6 +132,7 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 	for _, worker := range workers {
 		if worker != nil {
 			in.effects = append(in.effects, worker.effects...)
+			in.calls = append(in.calls, worker.calls...)
 		}
 	}
 
@@ -196,6 +197,8 @@ func (in *Interpreter) fork(out io.Writer) *Interpreter {
 		sandbox:  in.sandbox,
 		dir:      in.dir,
 		dry:      in.dry,
+		callIDs:  append([]int{}, in.callIDs...),
+		nextCall: in.nextCall,
 		stack:    append([]string{}, in.stack...),
 	}
 }
