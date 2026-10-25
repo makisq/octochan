@@ -2,18 +2,23 @@ package lang
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"sort"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // maxCallDepth защищает от бесконечной рекурсии: alias a() { a() }
-// не должен вешать процесс.
-const maxCallDepth = 200
+// не должен вешать процесс. Обычной рекурсии — обходу дерева, счёту по
+// списку — этой глубины хватает с запасом.
+const maxCallDepth = 1000
 
 // RuntimeError — ошибка выполнения с указанием места и цепочки вызовов.
 type RuntimeError struct {
@@ -26,7 +31,16 @@ func (e *RuntimeError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s: %s", e.Pos, e.Msg)
 	for i := len(e.Stack) - 1; i >= 0; i-- {
-		fmt.Fprintf(&b, "\n  в алиасе %s", e.Stack[i])
+		switch frame := e.Stack[i]; {
+		case frame == "fn":
+			b.WriteString("\n  в функции")
+		case strings.HasPrefix(frame, "fn "):
+			fmt.Fprintf(&b, "\n  в функции %s", strings.TrimPrefix(frame, "fn "))
+		case frame == "eval":
+			b.WriteString("\n  в eval")
+		default:
+			fmt.Fprintf(&b, "\n  в алиасе %s", frame)
+		}
 	}
 	return b.String()
 }
@@ -42,7 +56,12 @@ type scope struct {
 	// inferred — переменные, тип которых задан значением, а не написан:
 	// это нужно только для понятного сообщения об ошибке.
 	inferred map[string]bool
-	parent   *scope
+	// consts — переменные, объявленные через let.
+	consts map[string]bool
+	// frozen — снимок переменных, который видит функция: значения на
+	// момент её создания, и присвоить им нельзя.
+	frozen bool
+	parent *scope
 }
 
 func newScope(parent *scope) *scope {
@@ -50,8 +69,41 @@ func newScope(parent *scope) *scope {
 		vars:     make(map[string]Value),
 		types:    make(map[string]TypeName),
 		inferred: make(map[string]bool),
+		consts:   make(map[string]bool),
 		parent:   parent,
 	}
+}
+
+// owner — область, в которой объявлена переменная.
+func (s *scope) owner(name string) *scope {
+	for cur := s; cur != nil; cur = cur.parent {
+		if _, ok := cur.vars[name]; ok {
+			return cur
+		}
+	}
+	return nil
+}
+
+// capture — снимок видимых переменных для функции. Значения не
+// копируются: словарь, изменённый через put, — тот же словарь; но
+// присвоить переменной снимка функция не может.
+func (s *scope) capture() *scope {
+	flat := newScope(nil)
+	flat.frozen = true
+
+	var chain []*scope
+	for cur := s; cur != nil; cur = cur.parent {
+		chain = append(chain, cur)
+	}
+	for i := len(chain) - 1; i >= 0; i-- {
+		for name, value := range chain[i].vars {
+			flat.vars[name] = value
+			flat.types[name] = chain[i].types[name]
+			flat.inferred[name] = chain[i].inferred[name]
+			flat.consts[name] = chain[i].consts[name]
+		}
+	}
+	return flat
 }
 
 func (s *scope) lookup(name string) (Value, bool) {
@@ -112,6 +164,8 @@ type Interpreter struct {
 
 	// sandbox непуст, если встроенным функциям доступно не всё.
 	sandbox *Sandbox
+	// protected — каталоги, закрытые для встроенных функций (SetProtected).
+	protected []string
 	// dir — каталог для относительных путей; пусто — текущий.
 	dir string
 	// dry непуст в режиме плана: записи попадают сюда, а не на диск.
@@ -133,6 +187,16 @@ type Interpreter struct {
 	pending      []pendingAppend
 
 	stack []string
+
+	// conforming — интерфейсы, соответствие которым проверяется сейчас.
+	conforming map[*InterfaceDecl]bool
+
+	// clock — время запуска сценария: его отдаёт now(). seed — зерно
+	// rand(). Оба фиксируются в заявке: план и выполнение видят одно
+	// время и одну случайность, иначе выполнилось бы не согласованное.
+	clock time.Time
+	seed  int64
+	rng   *rand.Rand
 }
 
 // NewInterpreter создаёт вычислитель поверх реестра алиасов.
@@ -140,15 +204,43 @@ func NewInterpreter(ctx context.Context, registry *Registry, out io.Writer) *Int
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &Interpreter{
+	in := &Interpreter{
 		registry: registry,
 		builtins: DefaultBuiltins(),
 		out:      out,
 		errOut:   os.Stderr,
 		ctx:      ctx,
 		nextCall: new(atomic.Int64),
+		clock:    time.Now(),
 	}
+	in.SetSeed(NewSeed())
+	return in
 }
+
+// NewSeed — случайное зерно для rand().
+func NewSeed() int64 {
+	var raw [8]byte
+	if _, err := cryptorand.Read(raw[:]); err != nil {
+		return time.Now().UnixNano()
+	}
+	return int64(binary.BigEndian.Uint64(raw[:]) >> 1)
+}
+
+// SetClock задаёт время запуска сценария: его вернёт now().
+func (in *Interpreter) SetClock(t time.Time) { in.clock = t }
+
+// Clock — время запуска сценария.
+func (in *Interpreter) Clock() time.Time { return in.clock }
+
+// SetSeed задаёт зерно rand(): с одним зерном сценарий выдаёт одни и те же
+// случайные числа — в плане и при выполнении.
+func (in *Interpreter) SetSeed(seed int64) {
+	in.seed = seed
+	in.rng = rand.New(rand.NewSource(seed))
+}
+
+// Seed — зерно rand().
+func (in *Interpreter) Seed() int64 { return in.seed }
 
 // SetErr задаёт поток ошибок сценария: туда пишет print(stderr(), …).
 func (in *Interpreter) SetErr(w io.Writer) { in.errOut = w }
@@ -207,8 +299,13 @@ func (in *Interpreter) EvalExpr(expr Expr) (Value, error) {
 }
 
 // CallAlias вызывает алиас по имени с готовыми значениями аргументов.
+// Алиас пакета называется пакет.алиас, как и в тексте сценария.
 func (in *Interpreter) CallAlias(name string, args []Value) (Value, error) {
-	decl, err := in.registry.Lookup("", name)
+	module, alias, qualified := strings.Cut(name, ".")
+	if !qualified {
+		module, alias = "", name
+	}
+	decl, err := in.registry.Lookup(module, alias)
 	if err != nil {
 		return nil, err
 	}
@@ -272,9 +369,44 @@ func (in *Interpreter) execStmt(stmt Stmt, env *scope) error {
 
 	case *Continue:
 		return errContinue
+
+	case *SetStmt:
+		return in.execSet(s, env)
 	}
 
 	return in.errorf(stmt.Position(), "неизвестная инструкция %T", stmt)
+}
+
+// execSet — x.поле = значение и x[ключ] = значение. Меняется сам объект,
+// а не переменная, поэтому так можно и с переменной из let.
+func (in *Interpreter) execSet(s *SetStmt, env *scope) error {
+	value, err := in.eval(s.Value, env)
+	if err != nil {
+		return err
+	}
+	switch target := s.Target.(type) {
+	case *Field:
+		object, err := in.eval(target.Target, env)
+		if err != nil {
+			return err
+		}
+		if err := in.setMember(object, target.Name, value); err != nil {
+			return in.wrap(s.Pos, err)
+		}
+	case *Index:
+		object, err := in.eval(target.Target, env)
+		if err != nil {
+			return err
+		}
+		index, err := in.eval(target.Index, env)
+		if err != nil {
+			return err
+		}
+		if err := in.setIndex(object, index, value); err != nil {
+			return in.wrap(s.Pos, err)
+		}
+	}
+	return nil
 }
 
 // assign объявляет переменную или присваивает ей.
@@ -297,10 +429,13 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 			}
 			value = zero
 		}
-		if err := checkType(node.Declared, fmt.Sprintf("переменная %s", node.Name), value); err != nil {
+		if err := in.checkType(node.Declared, fmt.Sprintf("переменная %s", node.Name), value); err != nil {
 			return in.wrap(node.Pos, err)
 		}
 		env.define(node.Name, node.Declared, value)
+		if node.Const {
+			env.consts[node.Name] = true
+		}
 		return nil
 	}
 
@@ -309,7 +444,14 @@ func (in *Interpreter) assign(node *Assign, env *scope, value Value) error {
 		env.define(node.Name, "", value)
 		return nil
 	}
-	if !declared.Accepts(value) {
+	if owner := env.owner(node.Name); owner.consts[node.Name] {
+		return in.errorf(node.Pos, "%s объявлена через let, и её значение не меняется; "+
+			"для изменяемой переменной объявите var %s", node.Name, node.Name)
+	} else if owner.frozen {
+		return in.errorf(node.Pos, "%s — переменная снаружи функции: функция видит её значение "+
+			"на момент создания и не меняет его; объявите свою: var %s = …", node.Name, node.Name)
+	}
+	if !in.accepts(declared, value) {
 		return in.wrap(node.Pos, reassignError(node.Name, declared, inferred, value))
 	}
 	env.set(node.Name, value)
@@ -352,7 +494,7 @@ func (in *Interpreter) execFor(node *For, env *scope) error {
 		}
 
 		if node.Declared != "" {
-			if err := checkType(node.Declared,
+			if err := in.checkType(node.Declared,
 				fmt.Sprintf("элемент цикла %s", node.Variable), item); err != nil {
 				return in.wrap(node.Pos, err)
 			}
@@ -466,6 +608,31 @@ func (in *Interpreter) eval(expr Expr, env *scope) (Value, error) {
 
 	case *Index:
 		return in.evalIndex(e, env)
+
+	case *FuncLit:
+		return &FuncValue{
+			Name:       e.Name,
+			Params:     e.Params,
+			ParamTypes: e.ParamTypes,
+			Returns:    e.Returns,
+			Body:       e.Body,
+			Expr:       e.Expr,
+			env:        env.capture(),
+		}, nil
+
+	case *FuncRef:
+		return in.funcRef(e.Target, env)
+
+	case *Field:
+		target, err := in.eval(e.Target, env)
+		if err != nil {
+			return nil, err
+		}
+		value, err := in.fieldOf(target, e.Name)
+		if err != nil {
+			return nil, in.wrap(e.Pos, err)
+		}
+		return value, nil
 	}
 
 	return nil, in.errorf(expr.Position(), "неизвестное выражение %T", expr)
@@ -485,6 +652,16 @@ func (in *Interpreter) evalIdent(e *Ident, env *scope) (Value, error) {
 			return nil, in.errorf(e.Pos, "%s — встроенная функция, вызывайте её со скобками: %s()", e.Name, e.Name)
 		}
 		return nil, in.errorf(e.Pos, "неизвестное имя %q%s", e.Name, in.suggest(e.Name))
+	}
+
+	// x.поле, где x — переменная: переменная перекрывает пакет с тем же
+	// именем, как и везде.
+	if value, ok := env.lookup(e.Module); ok {
+		field, err := in.fieldOf(value, e.Name)
+		if err != nil {
+			return nil, in.wrap(e.Pos, err)
+		}
+		return field, nil
 	}
 
 	decl, err := in.registry.Lookup(e.Module, e.Name)
@@ -580,6 +757,12 @@ func (in *Interpreter) evalBinary(e *Binary, env *scope) (Value, error) {
 
 	case TokenPipe:
 		return in.evalPipe(e, env)
+
+	case TokenCompose:
+		return in.evalCompose(e, env)
+
+	case TokenArrow:
+		return in.evalArrow(e, env)
 	}
 
 	left, err := in.eval(e.Left, env)
@@ -630,23 +813,26 @@ func (in *Interpreter) evalPipe(e *Binary, env *scope) (Value, error) {
 
 	switch right := e.Right.(type) {
 	case *Call:
-		args := make([]Value, 0, len(right.Args)+1)
-		args = append(args, left)
-		for _, arg := range right.Args {
-			value, err := in.eval(arg, env)
-			if err != nil {
-				return nil, err
-			}
-			args = append(args, value)
-		}
-		return in.dispatch(right.Callee, args, right.Pos)
+		return in.evalCallWith(right, env, left)
 
 	case *Ident:
 		// Имя без скобок: a | печать эквивалентно печать(a).
-		return in.dispatch(right, []Value{left}, right.Pos)
+		fn, err := in.varFunc(right, env)
+		if err != nil {
+			return nil, err
+		}
+		if fn != nil {
+			return in.callValue(fn, []Value{left}, right.Pos)
+		}
+		return in.dispatch(right, []Value{left}, nil, right.Pos)
 
 	default:
-		return nil, in.errorf(e.Pos, "справа от | должен быть вызов алиаса или встроенной функции")
+		// Справа — выражение, дающее функцию: x | f >> g, x | fn(v) => v * 2.
+		fn, err := in.funcOperand(e.Right, env)
+		if err != nil {
+			return nil, err
+		}
+		return in.callValue(fn, []Value{left}, e.Pos)
 	}
 }
 
@@ -760,35 +946,509 @@ func (in *Interpreter) evalIndex(e *Index, env *scope) (Value, error) {
 }
 
 func (in *Interpreter) evalCall(e *Call, env *scope) (Value, error) {
-	args := make([]Value, 0, len(e.Args))
-	for _, arg := range e.Args {
-		value, err := in.eval(arg, env)
+	return in.evalCallWith(e, env, nil)
+}
+
+// evalCallWith вычисляет вызов; piped — значение слева от конвейера, оно
+// становится первым аргументом.
+//
+// x.f(a): если у записи или словаря x есть поле f с функцией — вызывается
+// она; иначе это f(x, a) — для алиаса, встроенной функции или переменной
+// с функцией. a.b(…), где a — переменная, — то же самое: переменная
+// перекрывает пакет с тем же именем.
+func (in *Interpreter) evalCallWith(e *Call, env *scope, piped Value) (Value, error) {
+	callee := e.Callee
+	var receiver Value
+	hasReceiver := false
+	switch {
+	case e.Receiver != nil:
+		value, err := in.eval(e.Receiver, env)
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, value)
+		receiver, hasReceiver = value, true
+	case callee != nil && callee.Module != "":
+		if value, ok := env.lookup(callee.Module); ok {
+			receiver, hasReceiver = value, true
+			callee = &Ident{Pos: callee.Pos, Name: callee.Name}
+		}
 	}
-	return in.dispatch(e.Callee, args, e.Pos)
+
+	var args []Value
+	var names []string
+	if hasReceiver {
+		if member, ok := memberOf(receiver, callee.Name); ok && isCallable(member) {
+			// Поле-функция: вызывается без самого значения.
+			args, names, err := in.callArgs(e, env, piped)
+			if err != nil {
+				return nil, err
+			}
+			return in.callNamed(member, args, names, e.Pos)
+		}
+		args = append(args, receiver)
+		names = append(names, "")
+	}
+
+	fn, err := in.callTarget(&Call{Pos: e.Pos, Callee: callee, Fn: e.Fn}, env)
+	if err != nil {
+		return nil, err
+	}
+	rest, restNames, err := in.callArgs(e, env, piped)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, rest...)
+	names = append(names, restNames...)
+	if fn != nil {
+		return in.callNamed(fn, args, names, e.Pos)
+	}
+	return in.dispatch(callee, args, names, e.Pos)
+}
+
+// callArgs вычисляет аргументы вызова; piped — первым.
+func (in *Interpreter) callArgs(e *Call, env *scope, piped Value) ([]Value, []string, error) {
+	args := make([]Value, 0, len(e.Args)+1)
+	names := make([]string, 0, len(e.Args)+1)
+	if piped != nil {
+		args = append(args, piped)
+		names = append(names, "")
+	}
+	for i, arg := range e.Args {
+		value, err := in.eval(arg, env)
+		if err != nil {
+			return nil, nil, err
+		}
+		args = append(args, value)
+		name := ""
+		if i < len(e.Names) {
+			name = e.Names[i]
+		}
+		names = append(names, name)
+	}
+	return args, names, nil
+}
+
+// unnamed — нет ли среди имён аргументов ни одного.
+func unnamed(names []string) bool {
+	for _, name := range names {
+		if name != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// isCallable — значение, которое можно вызвать: функция, морфизм или
+// функтор.
+func isCallable(v Value) bool {
+	switch v.(type) {
+	case *FuncValue, *MorphValue, *FunctorValue:
+		return true
+	}
+	return false
+}
+
+// callValue вызывает функцию, применяет морфизм или функтор.
+func (in *Interpreter) callValue(target Value, args []Value, pos Position) (Value, error) {
+	return in.callNamed(target, args, nil, pos)
+}
+
+// callNamed — callValue с именами аргументов.
+func (in *Interpreter) callNamed(target Value, args []Value, names []string, pos Position) (Value, error) {
+	if !unnamed(names) {
+		fn, ok := target.(*FuncValue)
+		var params []string
+		switch {
+		case ok && fn.Decl != nil:
+			params = fn.Decl.Params
+		case ok && fn.Builtin == "" && fn.Base == nil && fn.Chain == nil:
+			params = fn.Params
+		default:
+			return nil, in.errorf(pos, "%s принимает аргументы только по порядку", Display(target))
+		}
+		bound, err := fillArgs(Display(target), params, args, names)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		args = bound
+	}
+	switch t := target.(type) {
+	case *FuncValue:
+		return in.callFunc(t, args, pos)
+
+	case *MorphValue:
+		if len(args) != 1 {
+			return nil, in.errorf(pos, "морфизм применяется к одному конфигу: m(c), передано %d", len(args))
+		}
+		c, err := objectOf(in, args[0])
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		out, err := in.applyMorph(t, c)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return out, nil
+
+	case *FunctorValue:
+		if len(args) < 1 || len(args) > 2 {
+			return nil, in.errorf(pos, "функтор применяется к конфигу F(c) или к морфизму F(m[, c]), передано %d", len(args))
+		}
+		if m, ok := args[0].(*MorphValue); ok {
+			var at *ConfigValue
+			if len(args) == 2 {
+				c, err := objectOf(in, args[1])
+				if err != nil {
+					return nil, in.wrap(pos, err)
+				}
+				at = &c
+			}
+			out, err := in.functorMorph(t, m, at)
+			if err != nil {
+				return nil, in.wrap(pos, err)
+			}
+			return out, nil
+		}
+		if len(args) == 2 {
+			return nil, in.errorf(pos, "второй аргумент функтора — объект для морфизма: F(m, c)")
+		}
+		c, err := objectOf(in, args[0])
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		out, err := in.functorObject(t, c)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return out, nil
+	}
+	return nil, in.errorf(pos, "вызвать можно функцию, морфизм или функтор, получено %s (%s)", target.TypeName(), Display(target))
+}
+
+// callTarget находит значение, которое вызывает выражение: вычисленное
+// выражение или переменную с функцией, морфизмом, функтором. nil —
+// вызывается алиас или встроенная функция по имени.
+func (in *Interpreter) callTarget(e *Call, env *scope) (Value, error) {
+	if e.Fn == nil {
+		return in.varFunc(e.Callee, env)
+	}
+	value, err := in.eval(e.Fn, env)
+	if err != nil {
+		return nil, err
+	}
+	if !isCallable(value) {
+		return nil, in.errorf(e.Pos, "вызвать можно функцию, морфизм или функтор, получено %s (%s)", value.TypeName(), Display(value))
+	}
+	return value, nil
+}
+
+// varFunc — то, что лежит в переменной с этим именем, если это можно
+// вызвать. Переменная с другим значением вызов не перехватывает: имя
+// остаётся за алиасом или встроенной функцией, как было до функций-значений.
+func (in *Interpreter) varFunc(callee *Ident, env *scope) (Value, error) {
+	if callee.Module != "" {
+		return nil, nil
+	}
+	value, ok := env.lookup(callee.Name)
+	if !ok {
+		return nil, nil
+	}
+	if isCallable(value) {
+		return value, nil
+	}
+	if _, err := in.registry.Lookup("", callee.Name); err == nil {
+		return nil, nil
+	}
+	if _, ok := in.builtins[callee.Name]; ok {
+		return nil, nil
+	}
+	return nil, in.errorf(callee.Pos, "%s — не функция, а %s (%s)", callee.Name, value.TypeName(), Display(value))
+}
+
+// funcRef — алиас или встроенная функция как значение: fn имя. Имя
+// переменной даёт то, что в ней, если это можно вызвать.
+func (in *Interpreter) funcRef(target *Ident, env *scope) (Value, error) {
+	if target.Module == "" {
+		if value, ok := env.lookup(target.Name); ok {
+			if isCallable(value) {
+				return value, nil
+			}
+			return nil, in.errorf(target.Pos, "%s — не функция, а %s (%s)", target.Name, value.TypeName(), Display(value))
+		}
+	}
+	decl, err := in.registry.Lookup(target.Module, target.Name)
+	if err == nil {
+		return &FuncValue{Decl: decl}, nil
+	}
+	if _, ok := in.builtins[target.Qualified()]; ok {
+		return &FuncValue{Builtin: target.Qualified()}, nil
+	}
+	if target.Module != "" {
+		return nil, in.wrap(target.Pos, err)
+	}
+	return nil, in.errorf(target.Pos, "неизвестная функция %q%s", target.Qualified(), in.suggest(target.Name))
+}
+
+// funcOperand вычисляет операнд, который должен быть функцией: часть
+// композиции или правую часть конвейера. Голое имя алиаса здесь — сама
+// функция, а не её вызов: в f >> g нужны функции, а не их результаты.
+func (in *Interpreter) funcOperand(expr Expr, env *scope) (Value, error) {
+	if id, ok := expr.(*Ident); ok {
+		return in.funcRef(id, env)
+	}
+	value, err := in.eval(expr, env)
+	if err != nil {
+		return nil, err
+	}
+	if !isCallable(value) {
+		return nil, in.errorf(expr.Position(), "ожидалась функция, морфизм или функтор, получено %s (%s)",
+			value.TypeName(), Display(value))
+	}
+	return value, nil
+}
+
+// evalCompose — f >> g: сначала f, потом g. Для функций — функция, для
+// морфизмов — морфизм со склейкой и проверкой стыковки, для функторов —
+// функтор. id() нейтрален для всех трёх.
+func (in *Interpreter) evalCompose(e *Binary, env *scope) (Value, error) {
+	left, err := in.funcOperand(e.Left, env)
+	if err != nil {
+		return nil, err
+	}
+	right, err := in.funcOperand(e.Right, env)
+	if err != nil {
+		return nil, err
+	}
+	out, err := compose(left, right)
+	if err != nil {
+		return nil, in.wrap(e.Pos, err)
+	}
+	return out, nil
+}
+
+// evalArrow — a -> b: морфизм, переводящий конфиг a в конфиг b.
+func (in *Interpreter) evalArrow(e *Binary, env *scope) (Value, error) {
+	var objects [2]ConfigValue
+	for i, operand := range []Expr{e.Left, e.Right} {
+		value, err := in.eval(operand, env)
+		if err != nil {
+			return nil, err
+		}
+		if objects[i], err = objectOf(in, value); err != nil {
+			return nil, in.errorf(operand.Position(), "-> соединяет конфиги: %v", err)
+		}
+	}
+	return deltaBetween(objects[0], objects[1]), nil
+}
+
+// compose склеивает два вызываемых значения.
+func compose(left, right Value) (Value, error) {
+	if left == Value(identity) {
+		return right, nil
+	}
+	if right == Value(identity) {
+		return left, nil
+	}
+	lf, lFunctor := left.(*FunctorValue)
+	rf, rFunctor := right.(*FunctorValue)
+	switch {
+	case lFunctor && rFunctor:
+		var chain []*FunctorValue
+		for _, f := range []*FunctorValue{lf, rf} {
+			if f.chain != nil {
+				chain = append(chain, f.chain...)
+			} else {
+				chain = append(chain, f)
+			}
+		}
+		return &FunctorValue{chain: chain}, nil
+	case lFunctor || rFunctor:
+		return nil, fmt.Errorf("функтор композируется только с функтором, получено %s и %s", left.TypeName(), right.TypeName())
+	}
+
+	_, lMorph := left.(*MorphValue)
+	_, rMorph := right.(*MorphValue)
+	if lMorph || rMorph {
+		a, err := morphArg(">>", left)
+		if err != nil {
+			return nil, err
+		}
+		b, err := morphArg(">>", right)
+		if err != nil {
+			return nil, err
+		}
+		return composeMorph(a, b)
+	}
+	return composeFuncs(left.(*FuncValue), right.(*FuncValue)), nil
+}
+
+// composeFuncs склеивает цепочки, чтобы f >> g >> h была одной цепочкой
+// из трёх шагов, а не вложенной.
+func composeFuncs(fns ...*FuncValue) *FuncValue {
+	var chain []*FuncValue
+	for _, fn := range fns {
+		if fn.Chain != nil {
+			chain = append(chain, fn.Chain...)
+		} else {
+			chain = append(chain, fn)
+		}
+	}
+	return &FuncValue{Chain: chain}
+}
+
+// callFunc вызывает функцию-значение.
+func (in *Interpreter) callFunc(fn *FuncValue, args []Value, pos Position) (Value, error) {
+	switch {
+	case fn.Decl != nil:
+		return in.invoke(fn.Decl, args, pos)
+
+	case fn.Builtin != "":
+		builtin, ok := in.builtins[fn.Builtin]
+		if !ok {
+			return nil, in.errorf(pos, "неизвестная функция %q", fn.Builtin)
+		}
+		if err := builtin.checkArity(len(args)); err != nil {
+			return nil, in.errorf(pos, "%s: %v", fn.Builtin, err)
+		}
+		result, err := builtin.Fn(in, args)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return result, nil
+
+	case fn.Base != nil:
+		all := make([]Value, 0, len(fn.Bound)+len(args))
+		all = append(all, fn.Bound...)
+		all = append(all, args...)
+		return in.callFunc(fn.Base, all, pos)
+
+	case fn.Chain != nil:
+		value, err := in.callFunc(fn.Chain[0], args, pos)
+		if err != nil {
+			return nil, err
+		}
+		for _, step := range fn.Chain[1:] {
+			if value, err = in.callFunc(step, []Value{value}, pos); err != nil {
+				return nil, err
+			}
+		}
+		return value, nil
+	}
+	return in.callLambda(fn, args, pos)
+}
+
+// callLambda выполняет функцию, написанную через fn(…).
+func (in *Interpreter) callLambda(fn *FuncValue, args []Value, pos Position) (Value, error) {
+	frame := "fn"
+	if fn.Name != "" {
+		frame = "fn " + fn.Name
+	}
+	if len(args) != len(fn.Params) {
+		return nil, in.errorf(pos, "функция %s принимает %d %s, передано %d", fn.Text(),
+			len(fn.Params), plural(len(fn.Params), "аргумент", "аргумента", "аргументов"), len(args))
+	}
+	if len(in.stack) >= maxCallDepth {
+		return nil, in.errorf(pos, "слишком глубокая вложенность вызовов (%d); похоже на бесконечную рекурсию", maxCallDepth)
+	}
+	in.stack = append(in.stack, frame)
+	defer func() { in.stack = in.stack[:len(in.stack)-1] }()
+
+	env := newScope(fn.env)
+	if fn.Name != "" {
+		// Под своим именем функция видит саму себя: так работает рекурсия.
+		env.define(fn.Name, TypeFunc, fn)
+		env.consts[fn.Name] = true
+	}
+	for i, param := range fn.Params {
+		declared := fn.ParamTypes[i]
+		if declared != "" {
+			if err := in.checkType(declared, fmt.Sprintf("параметр %s функции %s", param, fn.Text()), args[i]); err != nil {
+				return nil, in.wrap(pos, err)
+			}
+		}
+		env.define(param, declared, args[i])
+		delete(env.consts, param)
+	}
+
+	var result Value = NullValue{}
+	if fn.Expr != nil {
+		value, err := in.eval(fn.Expr, env)
+		if err != nil {
+			return nil, err
+		}
+		result = value
+	} else {
+		for _, stmt := range fn.Body.Stmts {
+			err := in.execStmt(stmt, env)
+			if err == nil {
+				continue
+			}
+			var ret returnSignal
+			if errors.As(err, &ret) {
+				result = ret.value
+				break
+			}
+			if errors.Is(err, errBreak) || errors.Is(err, errContinue) {
+				return nil, in.errorf(stmt.Position(), "break и continue допустимы только внутри for")
+			}
+			return nil, err
+		}
+	}
+
+	if fn.Returns != "" {
+		if err := in.checkType(fn.Returns, "результат функции "+fn.Text(), result); err != nil {
+			return nil, in.wrap(pos, err)
+		}
+	}
+	return result, nil
 }
 
 // dispatch вызывает алиас или встроенную функцию с готовыми аргументами.
 // Общая точка для обычного вызова и для конвейера.
-func (in *Interpreter) dispatch(callee *Ident, args []Value, pos Position) (Value, error) {
+func (in *Interpreter) dispatch(callee *Ident, args []Value, names []string, pos Position) (Value, error) {
 	// Алиасы имеют приоритет: пользователь может переопределить встроенное имя
 	// собственным алиасом, и это его осознанный выбор.
-	if decl, err := in.registry.Lookup(callee.Module, callee.Name); err == nil {
-		return in.invoke(decl, args, pos)
-	} else if callee.Module != "" {
-		return nil, in.wrap(pos, err)
+	decl, aliasErr := in.registry.Lookup(callee.Module, callee.Name)
+	if aliasErr == nil {
+		bound, err := fillArgs("алиас "+decl.Name, decl.Params, args, names)
+		if err != nil {
+			return nil, in.wrap(pos, err)
+		}
+		return in.invoke(decl, bound, pos)
 	}
 
-	builtin, ok := in.builtins[callee.Name]
+	// Запись создаётся вызовом по имени: Сервер("db1", порт: 5433).
+	if typeDecl, err := in.registry.LookupType(callee.Module, callee.Name); err == nil {
+		switch d := typeDecl.(type) {
+		case *RecordDecl:
+			record, err := in.construct(d, args, names)
+			if err != nil {
+				return nil, in.wrap(pos, err)
+			}
+			return record, nil
+		case *InterfaceDecl:
+			return nil, in.errorf(pos, "%s — интерфейс: его не создают, ему соответствуют", d.Qualified())
+		}
+	}
+
+	if callee.Module != "" {
+		// Встроенные функции с точкой — time.now, time.sleep — живут в
+		// своём пространстве; пакет с тем же именем их перекрывает.
+		if _, ok := in.builtins[callee.Qualified()]; !ok {
+			return nil, in.wrap(pos, aliasErr)
+		}
+	}
+
+	builtin, ok := in.builtins[callee.Qualified()]
 	if !ok {
 		return nil, in.errorf(pos, "неизвестная функция %q%s", callee.Qualified(), in.suggest(callee.Name))
 	}
+	if !unnamed(names) {
+		return nil, in.errorf(pos, "%s: встроенные функции принимают аргументы только по порядку", callee.Qualified())
+	}
 
 	if err := builtin.checkArity(len(args)); err != nil {
-		return nil, in.errorf(pos, "%s: %v", callee.Name, err)
+		return nil, in.errorf(pos, "%s: %v", callee.Qualified(), err)
 	}
 
 	result, err := builtin.Fn(in, args)
@@ -823,7 +1483,7 @@ func (in *Interpreter) invoke(decl *AliasDecl, args []Value, pos Position) (Valu
 		// Проверка на входе — главный смысл аннотаций: ошибка всплывает
 		// на границе алиаса, а не в его середине.
 		if declared != "" {
-			if err := checkType(declared,
+			if err := in.checkType(declared,
 				fmt.Sprintf("параметр %s алиаса %s", param, decl.Name), args[i]); err != nil {
 				return nil, in.wrap(pos, err)
 			}

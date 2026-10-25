@@ -40,6 +40,11 @@ const (
 	TokenTrue
 	TokenFalse
 	TokenNull
+	TokenFn
+	TokenLet
+	TokenRecord
+	TokenInterface
+	TokenImport
 
 	// Знаки
 	TokenLParen
@@ -65,6 +70,9 @@ const (
 	TokenStar
 	TokenSlash
 	TokenPercent
+	TokenFatArrow
+	TokenCompose
+	TokenArrow
 )
 
 var tokenNames = map[TokenKind]string{
@@ -92,6 +100,11 @@ var tokenNames = map[TokenKind]string{
 	TokenTrue:      "true",
 	TokenFalse:     "false",
 	TokenNull:      "null",
+	TokenFn:        "fn",
+	TokenLet:       "let",
+	TokenRecord:    "record",
+	TokenInterface: "interface",
+	TokenImport:    "import",
 	TokenLParen:    "(",
 	TokenRParen:    ")",
 	TokenLBrace:    "{",
@@ -115,6 +128,9 @@ var tokenNames = map[TokenKind]string{
 	TokenStar:      "*",
 	TokenSlash:     "/",
 	TokenPercent:   "%",
+	TokenFatArrow:  "=>",
+	TokenCompose:   ">>",
+	TokenArrow:     "->",
 }
 
 func (k TokenKind) String() string {
@@ -127,24 +143,32 @@ func (k TokenKind) String() string {
 // keywords — зарезервированные слова. Записаны латиницей намеренно:
 // имена алиасов и переменных при этом могут быть на любом языке.
 var keywords = map[string]TokenKind{
-	"alias":    TokenAlias,
-	"var":      TokenVar,
-	"if":       TokenIf,
-	"else":     TokenElse,
-	"for":      TokenFor,
-	"in":       TokenIn,
-	"return":   TokenReturn,
-	"try":      TokenTry,
-	"catch":    TokenCatch,
-	"parallel": TokenParallel,
-	"break":    TokenBreak,
-	"continue": TokenContinue,
-	"and":      TokenAnd,
-	"or":       TokenOr,
-	"not":      TokenNot,
-	"true":     TokenTrue,
-	"false":    TokenFalse,
-	"null":     TokenNull,
+	"alias":     TokenAlias,
+	"var":       TokenVar,
+	"if":        TokenIf,
+	"else":      TokenElse,
+	"for":       TokenFor,
+	"in":        TokenIn,
+	"return":    TokenReturn,
+	"try":       TokenTry,
+	"catch":     TokenCatch,
+	"parallel":  TokenParallel,
+	"break":     TokenBreak,
+	"continue":  TokenContinue,
+	"and":       TokenAnd,
+	"or":        TokenOr,
+	"not":       TokenNot,
+	"true":      TokenTrue,
+	"false":     TokenFalse,
+	"null":      TokenNull,
+	"fn":        TokenFn,
+	"let":       TokenLet,
+	"record":    TokenRecord,
+	"interface": TokenInterface,
+	// trait — то же, что interface: методы по умолчанию — алиасы, первый
+	// параметр которых объявлен этим интерфейсом.
+	"trait":  TokenInterface,
+	"import": TokenImport,
 }
 
 // Position — место в исходном тексте, нужное для внятных сообщений об ошибках.

@@ -181,9 +181,56 @@ func checkPrompt(cmd *cobra.Command, in *scriptInput) (*fp.Result, error) {
 			name, pos.Line = in.report.Name, pos.Line-offset
 		}
 		lines = append(lines, fmt.Sprintf("  %s:%s: %s: %s", name, pos, d.Code, d.Msg))
+		if d.Hint != "" {
+			lines = append(lines, "      подсказка: "+d.Hint)
+		}
 	}
 	return nil, fmt.Errorf("промпт не прошёл проверку, отказов: %d (%s)\n%s",
 		result.Errors(), countCodes(result.Diagnostics), strings.Join(lines, "\n"))
+}
+
+// checkSkills — сценарий по промпту берёт «как» только из скиллов,
+// которые промпт подключил: алиас пакета, которого в промпте нет, — то же
+// пополнение знания самой моделью, что и операция без скилла (П5).
+func checkSkills(prompt *fp.Result, file *lang.File, registry *lang.Registry) error {
+	if prompt == nil {
+		return nil
+	}
+	known := map[string]bool{}
+	for _, op := range prompt.Knowledge {
+		known[op] = true
+	}
+	missing := map[string][]string{}
+	var lines []string
+	for _, dep := range lang.Dependencies(file, registry) {
+		if dep.Module == "" {
+			continue
+		}
+		if _, ok := prompt.Skills[dep.Module]; !ok {
+			missing[dep.Module] = append(missing[dep.Module], dep.Module+"."+dep.Name)
+			continue
+		}
+		// Скилл подключён, но provides: перечисляет не всё: операция вне
+		// перечня — тоже вне знания промпта.
+		if dep.Kind == "alias" && !known[dep.Name] {
+			lines = append(lines, fmt.Sprintf("  сценарий вызывает %s.%s, а в provides: промпта для @%s её нет\n"+
+				"      подсказка: добавьте %s в provides: import @%s — или обойдитесь операциями из provides:",
+				dep.Module, dep.Name, dep.Module, dep.Name, dep.Module))
+		}
+	}
+	if len(missing) == 0 && len(lines) == 0 {
+		return nil
+	}
+	for _, module := range sortedPaths(missing) {
+		version := ""
+		if pkg, ok := registry.Package(module); ok && pkg.Version != "" {
+			version = " v" + pkg.Version
+		}
+		lines = append(lines, fmt.Sprintf("  сценарий использует %s, а промпт не подключает @%s\n"+
+			"      подсказка: добавьте в промпт import @%s%s — или обойдитесь операциями подключённых скиллов",
+			strings.Join(missing[module], ", "), module, module, version))
+	}
+	return fmt.Errorf("сценарий выходит за знание промпта (П5):\n%s", strings.Join(lines, "\n"))
 }
 
 // checkRules проверяет план по жёстким правилам промпта и печатает итог.
@@ -207,6 +254,9 @@ func checkRules(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, ca
 		cmd.Printf("  НАРУШЕНО   %s\n", rule)
 		for _, v := range o.Violations {
 			cmd.Printf("             %s\n", v)
+		}
+		if hint := arbiter.Hint(o.Rule); hint != "" {
+			cmd.Printf("             подсказка: %s\n", hint)
 		}
 		failed = append(failed, rule)
 	}

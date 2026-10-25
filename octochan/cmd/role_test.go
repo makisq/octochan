@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"octochan/rbac"
 
@@ -188,4 +189,60 @@ func TestModuleCommandWithSubcommandsIsGrantable(t *testing.T) {
 			t.Fatalf("своя команда %s выдаётся по имени: %v", own, extra)
 		}
 	}
+}
+
+// Временная роль возвращается сама, временное право пропадает само, и
+// оба события видны в журнале аудита.
+func TestTemporaryRolesAndPerms(t *testing.T) {
+	e := newScriptEnv(t)
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.Local)
+	rbac.Now = func() time.Time { return now }
+	t.Cleanup(func() { rbac.Now = time.Now })
+
+	e.must("role", "create", "dan", "--allow", "read,plan")
+	if out := e.must("role", "grant", "dan", "apply", "--for", "2h"); !strings.Contains(out, "Роль dan: apply до 2026-10-23 14:00 (осталось 2h)") {
+		t.Fatalf("выдача на время:\n%s", out)
+	}
+	e.must("role", "deny", "dan", "rollback", "--until", "12:30")
+	if out := e.must("role", "show", "dan"); !strings.Contains(out, "На время:  apply до 2026-10-23 14:00") ||
+		!strings.Contains(out, "Запреты на время: rollback до 2026-10-23 12:30 (осталось 30m)") {
+		t.Fatalf("карточка роли:\n%s", out)
+	}
+
+	if out := e.must("set", "role", "dan", "--for", "1h"); !strings.Contains(out, "Роль: dan до 2026-10-23 13:00 (осталось 1h), затем master") {
+		t.Fatalf("роль на время:\n%s", out)
+	}
+	e.fails("команда rollback роли dan запрещена", "rollback", "x")
+	if out := e.must("role"); !strings.Contains(out, "До:           2026-10-23 13:00 (осталось 1h), затем master") {
+		t.Fatalf("срок роли:\n%s", out)
+	}
+
+	// Через полчаса запрет кончился, право ещё действует.
+	now = now.Add(45 * time.Minute)
+	e.fails(`запись "1" не найдена`, "rollback", "1")
+
+	// Через час роль вернулась сама.
+	now = now.Add(20 * time.Minute)
+	out := e.must("role")
+	if !strings.Contains(out, "Срок роли dan истёк: текущая роль master") || !strings.Contains(out, "Текущая роль: master") {
+		t.Fatalf("возврат роли:\n%s", out)
+	}
+
+	// Через два часа и право пропало.
+	now = now.Add(time.Hour)
+	e.must("set", "role", "dan")
+	e.fails("роль dan не может выполнять apply: нужно право apply", "apply", "--request", "x")
+	e.must("back", "role")
+
+	journal := e.must("audit")
+	for _, want := range []string{"role grant --for=2h dan apply", "role: set role --for=1h dan", "role: role expire master",
+		"role: set role dan\n"} {
+		if !strings.Contains(journal, want) {
+			t.Fatalf("в журнале нет %q:\n%s", want, journal)
+		}
+	}
+
+	e.fails("выше потолка роли llm", "role", "grant", "llm", "apply", "--for", "1h")
+	e.fails("укажите --for или --until, не оба", "role", "grant", "dan", "apply", "--for", "1h", "--until", "13:00")
+	e.fails("уже прошёл", "role", "grant", "dan", "apply", "--until", "2001-01-01 00:00")
 }

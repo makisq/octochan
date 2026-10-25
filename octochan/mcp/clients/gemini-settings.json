@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "octochan": {
+      "httpUrl": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer $OCHAN_MCP_TOKEN"
+      },
+      "timeout": 120000
+    }
+  }
+}

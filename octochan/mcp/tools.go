@@ -233,8 +233,8 @@ func changesNotOverride(positional []string) error {
 		return nil
 	}
 	if second := positional[1]; strings.Contains(second[1:], "=") {
-		return slotError("changes", "%s содержит «=», и ochan примет его за переопределение "+
-			"параметра сценария; уберите «=» из пути или параметров ссылки", second)
+		return slotError("changes", "%s contains \"=\", and ochan would take it for a scenario parameter override; "+
+			"remove \"=\" from the path or the link parameters", second)
 	}
 	return nil
 }
@@ -404,8 +404,8 @@ func buildTools(live []string) []tool {
 			Title: "Plan an alias-language script",
 			Description: "Checks a script and runs it in plan mode: write, save and print to a file write nothing, " +
 				"and the plan shows which files and parameters would change. The script runs in the server " +
-				"sandbox: files only inside the allowed directories, environment variables and live sources " +
-				"only as allowed. Prints what the script printed and the plan. With prompt, checks the hard " +
+				"sandbox: files only inside the allowed directories, environment variables, live sources and " +
+				"network hosts only as allowed. Prints what the script printed and the plan. With prompt, checks the hard " +
 				"rules of the prompt against the plan.",
 			Command:   "plan",
 			Fixed:     []string{"--script", "--bundle"},
@@ -452,8 +452,11 @@ func buildTools(live []string) []tool {
 			Title:       "Task status",
 			Description: "Shows the status and log of a task in the executor's external system.",
 			Command:     "status",
-			Slots: []slot{{Name: "task_id", Kind: slotTaskID, Required: true,
-				Description: "task ID"}},
+			Slots: []slot{
+				{Name: "task_id", Kind: slotTaskID, Required: true, Description: "task ID"},
+				{Name: "executor", Kind: slotParam, Flag: "executor",
+					Description: "the executor that created the task, for example rlm; needed only when several executors can show a status"},
+			},
 			Remote: true,
 		},
 	}
@@ -480,7 +483,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
-		return nil, "", fmt.Errorf("неизвестные параметры: %s", strings.Join(unknown, ", "))
+		return nil, "", fmt.Errorf("unknown parameters: %s", strings.Join(unknown, ", "))
 	}
 
 	command := append([]string{t.Command}, t.Fixed...)
@@ -497,7 +500,7 @@ func (t *tool) argv(box *sandbox, args map[string]any) ([]string, string, error)
 		raw, present := args[s.Name]
 		if !present || raw == nil {
 			if s.Required {
-				return nil, "", slotError(s.Name, "обязательный параметр не задан")
+				return nil, "", slotError(s.Name, "a required parameter is missing")
 			}
 			continue
 		}

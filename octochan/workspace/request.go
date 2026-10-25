@@ -52,6 +52,10 @@ type Request struct {
 	State   RequestState `json:"state"`
 	Created time.Time    `json:"created"`
 	Author  string       `json:"author"`
+	// Role — роль, в которой заявку создали. Своя заявка роли не
+	// согласуется ею же, а заявку нейросети (llm) согласуют с явным
+	// подтверждением.
+	Role string `json:"role,omitempty"`
 
 	// Source — откуда взят план: файл сценария или пара конфигов.
 	Source string `json:"source"`
@@ -93,6 +97,13 @@ type ScriptRun struct {
 	Roots     []string `json:"roots,omitempty"`
 	Env       []string `json:"env,omitempty"`
 	Live      []string `json:"live,omitempty"`
+	// Net — хосты, к которым сценарию можно обращаться fetch и curl.
+	Net []string `json:"net,omitempty"`
+
+	// Seed и Clock — зерно rand() и время now(), с которыми строился план:
+	// выполнение видит те же, иначе выполнилось бы не согласованное.
+	Seed  int64  `json:"seed,omitempty"`
+	Clock string `json:"clock,omitempty"`
 
 	// Libraries — файлы алиасов, которые вызывает сценарий, и их суммы
 	// SHA-256 на момент создания заявки.

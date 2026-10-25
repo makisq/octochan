@@ -132,6 +132,7 @@ func fpOptions(cmd *cobra.Command, standalone bool) (fp.Options, error) {
 		skill, ok := packages[name]
 		return skill, ok
 	}
+	opts.Skills = func() []string { return sortedPaths(packages) }
 	return opts, nil
 }
 

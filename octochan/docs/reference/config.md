@@ -17,8 +17,8 @@
 | `api_url` | `""` | адрес API исполнителя RLM; без него сценарии RLM не планируются и не выполняются |
 | `http_timeout` | `30s` | предел одного запроса к API |
 | `auto_check_status` | `false` | `true` — `apply` всегда ждёт завершения задач, как с `--wait` |
-| `token_timer_enabled` | `true` | напоминать о смене токена API (`ochan timer on\|off`) |
-| `token_lifetime` | `20m` | время жизни токена для напоминания |
+| `token_timer_enabled` | `false` | напоминать в оболочке о смене токена API (`ochan timer on\|off`); только для токена, сохранённого `ochan auth` |
+| `token_lifetime` | `20m` | время жизни токена для напоминания, от его сохранения |
 | `max_parallel_tasks` | `5` | одновременных итераций `parallel for` |
 | `scenario_path` | `~/.octochan/scenarios` | куда `ochan srs` сохраняет сценарии |
 | `log_path` | `~/.octochan/logs` | каталог журнала ochan |
@@ -79,6 +79,14 @@
 
 Подробнее — [«Серверный режим»](../guide/server.md).
 
+## sandbox — песочница ОС
+
+| Ключ | По умолчанию | |
+|---|---|---|
+| `strict` | `false` | `true` — не выполнять сценарий с `--sandbox`, если ядро не даёт полной изоляции (`ochan sandbox` покажет, чего нет) |
+
+Подробнее — [«Безопасность»](../guide/security.md).
+
 ## Переменные окружения
 
 | Переменная | |
@@ -91,11 +99,16 @@
 | `PGPASSWORD`, `~/.pgpass` | пароль живого PostgreSQL — не в строке подключения |
 
 Служебные, их задаёт сам ochan: `OCTOCHAN_ROLE_GRANT` — допуск сервера
-для дочернего процесса; `OCTOCHAN_PLUGIN` и `OCTOCHAN_PLUGIN_LOG_LEVEL` —
-рукопожатие и журнал модулей.
+для дочернего процесса; `OCTOCHAN_REMOTE_ADDR` — адрес клиента сервера или
+ochan-mcp для журнала аудита; `OCTOCHAN_SANDBOX_STAGE` — шаг процесса
+песочницы; `OCTOCHAN_PLUGIN` и `OCTOCHAN_PLUGIN_LOG_LEVEL` — рукопожатие и
+журнал модулей.
 
 ## Сервер MCP
 
 `ochan-mcp` настраивается флагами (`--root`, `--allow-live`, `--allow-env`,
-`--ochan`, `--timeout`, `--max-output`), а `ochan` под ним — этим же
-конфигом. См. [mcp/README.md](../../mcp/README.md).
+`--ochan`, `--timeout`, `--max-output`; для HTTP — `--listen`, `--path`,
+`--token-file`, `--tls-cert`, `--tls-key`, `--allow-plaintext`,
+`--allow-origin`, `--session-idle`), а `ochan` под ним — этим же конфигом.
+Токен HTTP можно задать окружением `OCHAN_MCP_TOKEN`. См.
+[mcp/README.md](../../mcp/README.md).

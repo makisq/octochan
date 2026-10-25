@@ -46,6 +46,8 @@ var authCmd = &cobra.Command{
 		}
 
 		cmd.Printf("Токен сохранён: %s\n", fm.TokenFilePath())
+		// В оболочке напоминание отсчитывается от нового токена.
+		restartTokenReminder()
 		return nil
 	},
 }
@@ -85,6 +87,9 @@ var timerCmd = &cobra.Command{
 			}
 			cmd.Printf("Напоминание о смене токена: %s (время жизни %s)\n",
 				status, tokenLifetime())
+			if _, ok := tokenSavedAt(); !ok {
+				cmd.Println("Токен командой auth не сохранён — напоминать не о чем")
+			}
 			return nil
 		}
 
@@ -104,6 +109,7 @@ var timerCmd = &cobra.Command{
 		if err := viper.WriteConfig(); err != nil {
 			return fmt.Errorf("не удалось сохранить настройки: %w", err)
 		}
+		restartTokenReminder()
 		return nil
 	},
 }
@@ -118,53 +124,87 @@ func tokenLifetime() time.Duration {
 // Напоминание работает только в интерактивной оболочке: в одноразовом
 // вызове CLI процесс завершается раньше, чем таймер успевает сработать.
 //
-// Прежняя реализация писала «токен истечёт через 5 минут», затем делала
-// time.Sleep(10 * time.Minute) внутри AfterFunc и в конце обнуляла токен
-// в viper, ничего на самом деле не отзывая.
+// Отсчёт идёт от того, когда токен сохранили командой auth, а не от входа в
+// оболочку: иначе ochan напоминал бы «смените токен» тому, кто его не
+// вводил и RLM не пользуется. Токен из окружения не напоминается вовсе —
+// когда его выдали, ochan не знает.
 var (
 	tokenTimerMu   sync.Mutex
 	tokenTimerStop chan struct{}
+	// reminderOut — куда напоминать; задан только в оболочке.
+	reminderOut func(string)
 )
 
-func startTokenReminder(out func(string)) {
-	if !viper.GetBool("defaults.token_timer_enabled") {
-		return
+// tokenSavedAt — когда токен сохранили командой auth; false — не сохраняли.
+func tokenSavedAt() (time.Time, bool) {
+	fm, err := mustFileManager()
+	if err != nil {
+		return time.Time{}, false
 	}
+	info, err := os.Stat(fm.TokenFilePath())
+	if err != nil || info.Size() == 0 {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
+}
 
+func startTokenReminder(out func(string)) {
+	tokenTimerMu.Lock()
+	reminderOut = out
+	tokenTimerMu.Unlock()
+	restartTokenReminder()
+}
+
+// restartTokenReminder заводит напоминание заново: после auth или timer on.
+func restartTokenReminder() {
 	tokenTimerMu.Lock()
 	defer tokenTimerMu.Unlock()
 
 	if tokenTimerStop != nil {
 		close(tokenTimerStop)
+		tokenTimerStop = nil
 	}
-	stop := make(chan struct{})
-	tokenTimerStop = stop
+	out := reminderOut
+	if out == nil || !viper.GetBool("defaults.token_timer_enabled") {
+		return
+	}
+	saved, ok := tokenSavedAt()
+	if !ok {
+		return
+	}
 
 	lifetime := tokenLifetime()
-	warnAfter := lifetime - 5*time.Minute
-	if warnAfter <= 0 {
-		warnAfter = lifetime / 2
+	warnAt := saved.Add(lifetime - 5*time.Minute)
+	if lifetime <= 5*time.Minute {
+		warnAt = saved.Add(lifetime / 2)
 	}
+	expireAt := saved.Add(lifetime)
 
+	stop := make(chan struct{})
+	tokenTimerStop = stop
 	go func() {
-		warn := time.NewTimer(warnAfter)
-		defer warn.Stop()
-		expire := time.NewTimer(lifetime)
-		defer expire.Stop()
-
-		select {
-		case <-warn.C:
-			out("Внимание: токен станет недействителен примерно через " +
-				(lifetime - warnAfter).String() + ". Обновите его командой 'auth'.")
-		case <-stop:
-			return
+		now := time.Now()
+		if now.Before(warnAt) {
+			warn := time.NewTimer(warnAt.Sub(now))
+			defer warn.Stop()
+			select {
+			case <-warn.C:
+				out("Внимание: токен станет недействителен примерно через " +
+					time.Until(expireAt).Round(time.Minute).String() + ". Обновите его командой 'auth'.")
+			case <-stop:
+				return
+			}
 		}
-
-		select {
-		case <-expire.C:
-			out("Внимание: время жизни токена истекло. Обновите его командой 'auth'.")
-		case <-stop:
+		if wait := time.Until(expireAt); wait > 0 {
+			expire := time.NewTimer(wait)
+			defer expire.Stop()
+			select {
+			case <-expire.C:
+			case <-stop:
+				return
+			}
 		}
+		out("Внимание: время жизни токена истекло. Обновите его командой 'auth'.")
 	}()
 }
 
@@ -172,6 +212,7 @@ func stopTokenReminder() {
 	tokenTimerMu.Lock()
 	defer tokenTimerMu.Unlock()
 
+	reminderOut = nil
 	if tokenTimerStop != nil {
 		close(tokenTimerStop)
 		tokenTimerStop = nil

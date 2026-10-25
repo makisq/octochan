@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"octochan/fp"
 	"octochan/lang"
@@ -29,6 +30,7 @@ type scriptOptions struct {
 	roots   []string
 	env     []string
 	live    []string
+	net     []string
 	// name — имя сценария, поданного на stdin: оно попадает в сообщения
 	// об ошибках, в план и в заявку вместо безликого «stdin».
 	name string
@@ -37,13 +39,15 @@ type scriptOptions struct {
 func (o *scriptOptions) register(cmd *cobra.Command) {
 	flags := cmd.Flags()
 	flags.BoolVar(&o.sandbox, "sandbox", false,
-		"песочница: файлы только внутри --root, окружение и живые источники — только разрешённые")
+		"песочница: файлы только внутри --root, окружение, живые источники и сеть — только разрешённые")
 	flags.StringArrayVar(&o.roots, "root", nil,
 		"разрешённый каталог песочницы; можно указать несколько раз (по умолчанию — текущий)")
 	flags.StringArrayVar(&o.env, "allow-env", nil,
 		"разрешить в песочнице переменную окружения; можно указать несколько раз")
 	flags.StringArrayVar(&o.live, "allow-live", nil,
 		"разрешить в песочнице живые источники этой схемы, например postgres")
+	flags.StringArrayVar(&o.net, "allow-net", nil,
+		"разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз")
 	flags.StringVar(&o.name, "name", "", "имя сценария, поданного на stdin")
 }
 
@@ -63,16 +67,20 @@ func (o *scriptOptions) source(target string) (source, error) {
 }
 
 func (o *scriptOptions) any() bool {
-	return o.sandbox || len(o.roots) > 0 || len(o.env) > 0 || len(o.live) > 0
+	return o.sandbox || len(o.roots) > 0 || len(o.env) > 0 || len(o.live) > 0 || len(o.net) > 0
 }
 
 // build строит песочницу; nil — песочницы нет.
 func (o *scriptOptions) build() (*lang.Sandbox, error) {
 	if !o.sandbox {
 		if o.any() {
-			return nil, errors.New("--root, --allow-env и --allow-live действуют только вместе с --sandbox")
+			return nil, errors.New("--root, --allow-env, --allow-live и --allow-net действуют только вместе с --sandbox")
 		}
-		return nil, nil
+		// Роль с областью выполняет сценарии только в песочнице: без
+		// --sandbox она ставится сама, с текущим каталогом.
+		if len(scopeOf(currentRole)) == 0 {
+			return nil, nil
+		}
 	}
 
 	roots := o.roots
@@ -83,7 +91,17 @@ func (o *scriptOptions) build() (*lang.Sandbox, error) {
 		}
 		roots = []string{cwd}
 	}
-	return lang.NewSandbox(roots, o.env, o.live)
+	box, err := lang.NewSandbox(roots, o.env, o.live)
+	if err != nil {
+		return nil, err
+	}
+	if err := box.AllowNet(o.net); err != nil {
+		return nil, err
+	}
+	if err := checkSandboxRoots(currentRole, box.Roots()); err != nil {
+		return nil, err
+	}
+	return box, nil
 }
 
 // scriptSetup — где и как выполняется сценарий.
@@ -91,13 +109,39 @@ type scriptSetup struct {
 	box *lang.Sandbox
 	// dir — каталог для относительных путей; пусто — текущий.
 	dir string
+	// script — текст сценария: в песочнице его разбирает процесс
+	// песочницы заново.
+	script source
+	// seed и clock — зерно rand() и время now(); нулевые — случайное
+	// зерно и текущее время.
+	seed  int64
+	clock time.Time
+}
+
+// fixed возвращает установку с зафиксированными зерном и временем: так
+// строится план заявки, и с ними же она потом выполняется.
+func (s scriptSetup) fixed() scriptSetup {
+	if s.seed == 0 {
+		s.seed = lang.NewSeed()
+	}
+	if s.clock.IsZero() {
+		s.clock = time.Now()
+	}
+	return s
 }
 
 func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, out io.Writer) *lang.Interpreter {
 	interp := lang.NewInterpreter(cmd.Context(), registry, out)
 	interp.SetErr(cmd.ErrOrStderr())
 	interp.SetSandbox(s.box)
+	interp.SetProtected(protectedPaths())
 	interp.SetDir(s.dir)
+	if s.seed != 0 {
+		interp.SetSeed(s.seed)
+	}
+	if !s.clock.IsZero() {
+		interp.SetClock(s.clock)
+	}
 	return interp
 }
 
@@ -112,10 +156,8 @@ func loadScript(registry *lang.Registry, src source) (*lang.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			return nil, err
-		}
+	if err := registry.AddFile("", file); err != nil {
+		return nil, err
 	}
 
 	if problems := lang.Check(file, registry); len(problems) > 0 {
@@ -135,8 +177,37 @@ func loadScript(registry *lang.Registry, src source) (*lang.File, error) {
 // План сценария, прервавшегося ошибкой, неполон: это говорится в самом
 // плане, а не замалчивается.
 func planScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, out io.Writer) ([]lang.Effect, []lang.Invocation, error) {
+	return execScript(cmd, registry, file, setup, true, out)
+}
+
+// execScript выполняет сценарий — в режиме плана или по-настоящему.
+//
+// В песочнице сценарий выполняется отдельным процессом под ограничениями
+// ядра: даже обойдя проверки языка, он не дотянется ни до файлов вне
+// разрешённых каталогов, ни до сети. План и выполнение идут одним путём,
+// поэтому их отпечатки сравнимы.
+func execScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, plan bool, out io.Writer) ([]lang.Effect, []lang.Invocation, error) {
+	if setup.box != nil {
+		spec := isolatedSpec{Mode: "run", Name: setup.script.Name, Content: setup.script.Content,
+			Check: true, Dir: setup.dir, Seed: setup.seed}
+		if !setup.clock.IsZero() {
+			spec.Clock = setup.clock.Format(time.RFC3339Nano)
+		}
+		if plan {
+			spec.Mode = "plan"
+		}
+		spec.setBox(setup.box)
+		result, err := isolated(cmd, spec, out)
+		if err != nil {
+			return nil, nil, err
+		}
+		return result.Effects, result.Invocations, result.err()
+	}
+
 	interp := setup.interpreter(cmd, registry, out)
-	interp.SetPlanMode()
+	if plan {
+		interp.SetPlanMode()
+	}
 	err := interp.RunFile(file)
 	return interp.Effects(), interp.Invocations(), err
 }
@@ -155,15 +226,15 @@ func fingerprints(effects []lang.Effect) []string {
 func libraryHashes(file *lang.File, registry *lang.Registry) (map[string]string, map[string]string, error) {
 	hashes := make(map[string]string)
 	packages := make(map[string]string)
-	for _, decl := range lang.Uses(file, registry) {
-		if decl.Module != "" {
+	for _, dep := range lang.Dependencies(file, registry) {
+		if dep.Module != "" {
 			version := ""
-			if pkg, ok := registry.Package(decl.Module); ok {
+			if pkg, ok := registry.Package(dep.Module); ok {
 				version = pkg.Version
 			}
-			packages[decl.Module] = version
+			packages[dep.Module] = version
 		}
-		path := decl.Pos.File
+		path := dep.File
 		if _, done := hashes[path]; done {
 			continue
 		}
@@ -221,13 +292,16 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 	if err != nil {
 		return nil, fmt.Errorf("не удалось определить текущий каталог: %w", err)
 	}
-	setup := scriptSetup{box: box, dir: dir}
+	setup := scriptSetup{box: box, dir: dir, script: src}.fixed()
 
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)
 
 	file, err := loadScript(registry, src)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkSkills(prompt, file, registry); err != nil {
 		return nil, err
 	}
 
@@ -258,12 +332,15 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 		Packages:  packages,
 		Effects:   fingerprints(effects),
 		Prompt:    input.stored(rules),
+		Seed:      setup.seed,
+		Clock:     setup.clock.Format(time.RFC3339Nano),
 	}
 	if box != nil {
 		run.Sandboxed = true
 		run.Roots = box.Roots()
 		run.Env = box.Env()
 		run.Live = box.Live()
+		run.Net = box.Net()
 	}
 
 	return &workspace.Request{
@@ -293,20 +370,32 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		}
 	}
 
-	var setup scriptSetup
-	setup.dir = run.Dir
+	setup := scriptSetup{dir: run.Dir, script: source{Name: request.Source, Content: request.Payload}, seed: run.Seed}
+	if run.Clock != "" {
+		clock, err := time.Parse(time.RFC3339Nano, run.Clock)
+		if err != nil {
+			return fmt.Errorf("время плана в заявке %s испорчено: %w", request.ID, err)
+		}
+		setup.clock = clock
+	}
 	if run.Sandboxed {
 		box, err := lang.NewSandbox(run.Roots, run.Env, run.Live)
 		if err != nil {
 			return fmt.Errorf("песочница заявки недоступна: %w", err)
 		}
+		if err := box.AllowNet(run.Net); err != nil {
+			return fmt.Errorf("песочница заявки недоступна: %w", err)
+		}
 		setup.box = box
 	}
+	// Заявка, оформленная до фиксации зерна и времени, выполняется со
+	// случайными: в её плане их не было.
+	setup = setup.fixed()
 
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)
 
-	file, err := loadScript(registry, source{Name: request.Source, Content: request.Payload})
+	file, err := loadScript(registry, setup.script)
 	if err != nil {
 		return fmt.Errorf("сохранённый в заявке сценарий: %w", err)
 	}
@@ -318,6 +407,9 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		prompt, err = checkPrompt(cmd, storedInput(run.Prompt))
 		if err != nil {
 			return fmt.Errorf("промпт заявки %s: %w", request.ID, err)
+		}
+		if err := checkSkills(prompt, file, registry); err != nil {
+			return fmt.Errorf("заявка %s: %w", request.ID, err)
 		}
 	}
 
@@ -337,9 +429,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 
 	cmd.Printf("Заявка %s, сценарий %s\n", request.ID, request.Source)
 
-	interp := setup.interpreter(cmd, registry, cmd.OutOrStdout())
-	runErr := interp.RunFile(file)
-	effects := interp.Effects()
+	effects, _, runErr := execScript(cmd, registry, file, setup, false, cmd.OutOrStdout())
 
 	// След остаётся и при ошибке: записанное до сбоя уже записано.
 	var (
@@ -469,7 +559,7 @@ func splitFingerprint(print string) (kind, path string) {
 	return kind, rest
 }
 
-func sortedPaths(set map[string]string) []string {
+func sortedPaths[V any](set map[string]V) []string {
 	paths := make([]string, 0, len(set))
 	for path := range set {
 		paths = append(paths, path)

@@ -158,6 +158,9 @@ var rollbackCmd = &cobra.Command{
 			return fmt.Errorf("запись %s необратима (%s): откатывать нечего",
 				entry.ID, entry.Kind.Russian())
 		}
+		if err := checkEntryScope(currentRole, entry); err != nil {
+			return refuse(cmd, err)
+		}
 		if entry.Reverted() && !rollbackForce {
 			return fmt.Errorf("запись %s уже отменена записью %s; используйте --force, "+
 				"чтобы применить откат повторно", entry.ID, entry.RevertedBy)

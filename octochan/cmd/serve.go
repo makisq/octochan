@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"octochan/i18n"
 	"octochan/rbac"
 	"octochan/remote"
 
@@ -130,7 +131,12 @@ func serveDirectory() (string, error) {
 // те же, что в командной строке, команды — отдельным процессом ochan.
 func newRemoteServer(dir string, logger *log.Logger) *remote.Server {
 	prepareCommandTree()
+	journal, err := auditJournal()
+	if err != nil {
+		logger.Printf("журнал аудита недоступен: %v", err)
+	}
 	return &remote.Server{
+		Audit: journal,
 		LoadRoles: func() (*rbac.Store, error) {
 			store, _, err := loadRoles()
 			return store, err
@@ -201,6 +207,9 @@ func remoteAuthorize(role *rbac.Role, args []string) error {
 	if reason, ok := remoteOnly[key]; ok {
 		return errors.New(reason)
 	}
+	if role.Denies(key) {
+		return i18n.Errorf("команда %s роли %s запрещена", strings.ReplaceAll(key, ".", " "), role.Name)
+	}
 	if !role.Allows(key) {
 		return fmt.Errorf("роль %s не может выполнять %s: нужно право %s", role.Name,
 			strings.ReplaceAll(key, ".", " "), requiredPerm(key))
@@ -238,7 +247,7 @@ func childExecutor(dir string, timeout time.Duration) remote.Executor {
 
 		c := exec.CommandContext(ctx, self, args...)
 		c.Dir = dir
-		c.Env = childEnv(role, grant)
+		c.Env = childEnv(role, grant, remote.ClientAddr(ctx))
 		if stdin != "" {
 			c.Stdin = strings.NewReader(stdin)
 		}
@@ -272,15 +281,16 @@ func childExecutor(dir string, timeout time.Duration) remote.Executor {
 
 // childEnv — окружение дочернего ochan: роль и допуск сервера поверх
 // окружения сервера, без унаследованных роли и допуска.
-func childEnv(role, grant string) []string {
+func childEnv(role, grant, client string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, EnvRole+"=") || strings.HasPrefix(kv, EnvGrant+"=") {
+		if strings.HasPrefix(kv, EnvRole+"=") || strings.HasPrefix(kv, EnvGrant+"=") ||
+			strings.HasPrefix(kv, EnvRemoteAddr+"=") {
 			continue
 		}
 		env = append(env, kv)
 	}
-	return append(env, EnvRole+"="+role, EnvGrant+"="+grant)
+	return append(env, EnvRole+"="+role, EnvGrant+"="+grant, EnvRemoteAddr+"="+client)
 }
 
 // cappedBuffer — буфер с пределом: вывод сверх предела отбрасывается

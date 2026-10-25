@@ -371,3 +371,128 @@ func TestServerGrant(t *testing.T) {
 	}
 	mustFail(t, s.CheckGrant(Master, grant, now), "подпись допуска не сходится")
 }
+
+// Временные права и запреты действуют до срока и пропадают сами.
+func TestTemporaryPerms(t *testing.T) {
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	Now = func() time.Time { return now }
+	defer func() { Now = time.Now }()
+
+	s := Default()
+	if _, err := s.Create("dan", []string{"read"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	dan := s.Find("dan")
+	if err := s.GrantFor("dan", []string{"apply"}, now.Add(2*time.Hour), nil); err != nil {
+		t.Fatal(err)
+	}
+	if !dan.Allows("apply") || !dan.Allows("run") {
+		t.Fatal("временное право не действует")
+	}
+	if err := s.DenyFor("dan", []string{"rollback"}, now.Add(time.Hour), nil); err != nil {
+		t.Fatal(err)
+	}
+	if dan.Allows("rollback") || !dan.Allows("run") {
+		t.Fatal("временный запрет не действует или задел лишнее")
+	}
+
+	now = now.Add(90 * time.Minute)
+	if !dan.Allows("rollback") {
+		t.Fatal("запрет пережил свой срок")
+	}
+	now = now.Add(time.Hour)
+	if dan.Allows("apply") {
+		t.Fatal("право пережило свой срок")
+	}
+	s.Prune(now)
+	if len(dan.TempPerms) != 0 || len(dan.TempDeny) != 0 {
+		t.Fatalf("истёкшее не убрано: %+v %+v", dan.TempPerms, dan.TempDeny)
+	}
+
+	// Потолок llm не обходится и на время.
+	if err := s.GrantFor(LLM, []string{"apply"}, now.Add(time.Hour), nil); err == nil {
+		t.Fatal("llm получила apply на время")
+	}
+	for _, until := range []time.Time{now.Add(-time.Minute), now.Add(31 * 24 * time.Hour)} {
+		if err := s.GrantFor("dan", []string{"apply"}, until, nil); err == nil {
+			t.Fatalf("срок %s принят", until)
+		}
+	}
+	// Revoke снимает и временное.
+	if err := s.GrantFor("dan", []string{"plan"}, now.Add(time.Hour), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke("dan", []string{"plan"}); err != nil || dan.Allows("plan") {
+		t.Fatalf("revoke временного: %v", err)
+	}
+}
+
+// Роль на время возвращается к исходной сама.
+func TestTemporaryRole(t *testing.T) {
+	now := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	Now = func() time.Time { return now }
+	defer func() { Now = time.Now }()
+
+	s := Default()
+	for _, name := range []string{"dan", "ops"} {
+		if _, err := s.Create(name, []string{"read"}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SwitchFor("dan", now.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// Временная поверх временной возвращает к исходной, а не к dan.
+	if err := s.SwitchFor("ops", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := s.Expire(now.Add(59 * time.Minute)); ok || s.Current != "ops" {
+		t.Fatal("роль истекла раньше срока")
+	}
+	from, to, ok := s.Expire(now.Add(time.Hour))
+	if !ok || from != "ops" || to != Master || s.Current != Master || !s.CurrentUntil.IsZero() {
+		t.Fatalf("возврат: %s -> %s, %v; текущая %s", from, to, ok, s.Current)
+	}
+
+	// Обычное переключение снимает срок.
+	if err := s.SwitchFor("dan", now.Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Switch("ops"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := s.Expire(now.Add(3 * time.Hour)); ok {
+		t.Fatal("срок пережил обычное переключение")
+	}
+
+	// Роль, к которой возвращаться, удалили — возврат к llm.
+	if err := s.SwitchFor("dan", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	s.ReturnTo = "ops"
+	if err := s.Delete("ops"); err != nil {
+		t.Fatal(err)
+	}
+	if _, to, _ := s.Expire(now.Add(2 * time.Hour)); to != LLM {
+		t.Fatalf("возврат к удалённой роли: %s", to)
+	}
+
+	// Сохраняется и читается.
+	if err := s.SwitchFor("dan", now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.GrantFor("dan", []string{"apply"}, now.Add(time.Hour), nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := s.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.ReturnTo != LLM || !back.CurrentUntil.Equal(now.Add(time.Hour)) || len(back.Find("dan").TempPerms) != 1 {
+		t.Fatalf("после чтения: %+v", back)
+	}
+}

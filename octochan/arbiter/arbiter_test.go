@@ -36,10 +36,8 @@ alias wrapper(path) { return store(config(path), path) }
 		t.Fatal(err)
 	}
 	registry := lang.NewRegistry()
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			t.Fatal(err)
-		}
+	if err := registry.AddFile("", file); err != nil {
+		t.Fatal(err)
 	}
 	interp := lang.NewInterpreter(context.Background(), registry, &strings.Builder{})
 	interp.SetDir(dir)
@@ -131,5 +129,22 @@ func TestDescribe(t *testing.T) {
 	prog, _ := fp.Parse("x", "goal: x\nclasses:\n  Goal : \"x\"\n??n_disconnect(except: {a, b})\n")
 	if got := Describe(prog.Rules[0]); got != "hard forbid disconnect(except = {a, b})" {
 		t.Fatalf("Describe: %q", got)
+	}
+}
+
+func TestHint(t *testing.T) {
+	for src, want := range map[string]string{
+		"hard forbid save(except = {prod_conf})\n": "save допустимо только для исключений except = {prod_conf}",
+		"hard forbid save()\n":                     "save запрещено без исключений",
+		"hard require verify(scope = web)\n":       "вызовите verify для каждой цели области: web",
+		"hard require verify()\n":                  "сценарий обязан вызвать verify хотя бы раз",
+	} {
+		prog, diags := fp.Parse("t.fp", "goal: g\nclasses:\n  G : \"g\"\n"+src)
+		if len(diags) > 0 || len(prog.Rules) != 1 {
+			t.Fatalf("%s: %v", src, diags)
+		}
+		if got := Hint(prog.Rules[0]); !strings.Contains(got, want) {
+			t.Errorf("%s: %q, ожидалось %q", src, got, want)
+		}
 	}
 }

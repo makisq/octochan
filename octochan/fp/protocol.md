@@ -41,9 +41,14 @@ axioms (Ж) of the manifesto, docs/formal-prompting.md.
    override of something the prompt set itself.
 4. **Hard rules.** `plan_script` with `prompt` checks the `hard` rules
    (`??n_`, `??a_`) against the plan: what the script would write and
-   which aliases it would call. A violation is an error with a list: fix
-   the script, not the rule. If the task cannot be solved without a
-   violation, return that to the operator.
+   which aliases it would call. A violation is an error with a list and a
+   hint that names what the rule allows (its `except` targets, its
+   `scope`): fix the script, not the rule. If the task cannot be solved
+   without a violation, return that to the operator.
+   A script written for a prompt may call aliases only from the skills
+   the prompt imports: an alias of a package the prompt does not import
+   is a refusal that names the missing `import @skill`. Return it to the
+   operator; do not add the import yourself.
 5. **File the request.** `request_script` with the same `script`,
    `prompt` and `report` creates a request in the "pending" state; no
    request is created for a plan that violates a rule. The prompt, the
@@ -167,7 +172,10 @@ hard require verify_config(scope = web_group)
   outside `except`; an exception excuses only what the call actually
   wrote. `require` with `scope` demands that the action wrote every target
   of the scope or received it as an argument.
-- "Never X" together with "always X" is `⊥conflict` before execution (H3).
+- "Never X" together with "always X" is `⊥conflict` before execution (H3),
+  unless the requirement lives inside the exceptions of the prohibition:
+  `hard forbid restart(except = {maintenance_window})` and
+  `hard require restart(scope = maintenance_window)` hold together.
 
 ### Cells
 
@@ -218,6 +226,12 @@ report:
 | `⊥undef` | A relation, class, operation or skill is missing | Ask the operator. Invent nothing |
 | `⊥conflict` | A contradiction: rules, priorities, a repeat, a choice against the prompt | Return the findings. The operator decides |
 | note | Not a refusal: a redundant edit, an overwrite, an unchecked version | Take it into account and continue |
+
+A refusal may carry a `подсказка` (hint): the skill in the library that
+has the missing operation, a near name, the exceptions a rule allows,
+the section of this protocol. The hint is computed by the same
+deterministic check. It tells you what to ask the operator for. It does
+not let you change the prompt or its rules yourself.
 
 ## 4. What the language does not have
 

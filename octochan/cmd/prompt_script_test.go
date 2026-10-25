@@ -107,6 +107,8 @@ save(config("x = 1\n"), "other.conf")
 		"save в " + e.path("other.conf") + " (other_conf)",
 		"НАРУШЕНО   hard require verify(scope = {prod_conf})",
 		"verify не выполняется для: prod_conf",
+		"подсказка: save допустимо только для исключений except = {prod_conf}",
+		"подсказка: вызовите verify для каждой цели области: prod_conf",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("в выводе нет %q:\n%s", want, out)
@@ -117,6 +119,31 @@ save(config("x = 1\n"), "other.conf")
 	if out := e.must("requests"); !strings.Contains(out, "Заявок нет") {
 		t.Fatalf("заявка на нарушающий план создана:\n%s", out)
 	}
+}
+
+// Сценарий по промпту берёт операции только из подключённых промптом
+// скиллов, а отказ называет, что подключить.
+func TestScriptUsesOnlyPromptSkills(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	noImport := strings.Replace(promptHead, "import @pgconf v1\n  provides: Config, store, verify\n  requires_class: Config\n", "", 1)
+	e.write(e.path("bare.fp"), noImport)
+	e.write(e.path("uses.ochan"), "c = config(\"prod.conf\")\npgconf.verify(c)\n")
+
+	out, err := e.ochan("plan", "uses.ochan", "--prompt", "bare.fp")
+	if err == nil || !strings.Contains(err.Error(), "сценарий использует pgconf.verify, а промпт не подключает @pgconf") ||
+		!strings.Contains(err.Error(), "подсказка: добавьте в промпт import @pgconf v1.2.0") {
+		t.Fatalf("сценарий вышел за знание промпта: %v\n%s", err, out)
+	}
+	e.fails("промпт не подключает @pgconf", "request", "uses.ochan", "--prompt", "bare.fp")
+
+	e.write(e.path("task.fp"), promptHead)
+	e.must("plan", "uses.ochan", "--prompt", "task.fp")
+
+	// Скилл подключён, но операции нет в provides:.
+	narrow := strings.Replace(promptHead, "provides: Config, store, verify", "provides: Config, store", 1)
+	e.write(e.path("narrow.fp"), narrow)
+	e.fails("подсказка: добавьте verify в provides: import @pgconf", "plan", "uses.ochan", "--prompt", "narrow.fp")
 }
 
 func TestPromptIsCheckedBeforePlan(t *testing.T) {
@@ -130,6 +157,9 @@ func TestPromptIsCheckedBeforePlan(t *testing.T) {
 	e.fails("report.fp:3:13: ⊥conflict: выбор huge не входит в альтернативы", "plan", "tune.ochan",
 		"--prompt", "task.fp", "--report", "bad_report.fp")
 	e.fails("действие drop неизвестно", "plan", "tune.ochan", "--prompt", "undef.fp")
+	// Отказ промпта — с подсказкой: похожая операция скилла.
+	e.write(e.path("typo.fp"), promptHead+"hard require verfy(scope = prod_conf)\n")
+	e.fails("подсказка: возможно, имелось в виду verify", "plan", "tune.ochan", "--prompt", "typo.fp")
 	e.fails("отчёт проверяется по промпту", "plan", "tune.ochan", "--report", "bad_report.fp")
 	e.fails("укажите --script", "plan", "--prompt", "task.fp", "prod.conf", "prod.conf")
 	e.fails("через --bundle", "plan", "--script", "--prompt", "-", "-")

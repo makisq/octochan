@@ -127,6 +127,9 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		return fmt.Errorf("заявка %s не согласована (%s): выполнять нельзя",
 			request.ID, request.State.Russian())
 	}
+	if err := checkRequestScope(currentRole, request); err != nil {
+		return refuse(cmd, err)
+	}
 	if request.Script != nil {
 		return applyScriptRequest(cmd, store, request)
 	}

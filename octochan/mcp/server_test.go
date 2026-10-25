@@ -40,7 +40,9 @@ func fakeOchan() {
 	if text := os.Getenv("FAKE_STDERR"); text != "" {
 		fmt.Fprint(os.Stderr, text)
 	}
-	if os.Getenv("FAKE_PRINT_ROLE") == "1" {
+	if os.Getenv("FAKE_PRINT_REMOTE") == "1" {
+		fmt.Println("remote=" + os.Getenv("OCTOCHAN_REMOTE_ADDR"))
+	} else if os.Getenv("FAKE_PRINT_ROLE") == "1" {
 		fmt.Println("role=" + os.Getenv("OCTOCHAN_ROLE"))
 	} else if text := os.Getenv("FAKE_STDOUT"); text != "" {
 		fmt.Print(text)
@@ -275,7 +277,7 @@ func (e *testEnv) assertRejected(name string, args map[string]any, reason string
 	if !isError {
 		e.t.Fatalf("%s %v: вызов принят, а должен быть отклонён", name, args)
 	}
-	if !strings.HasPrefix(text, "Вызов отклонён до запуска") {
+	if !strings.HasPrefix(text, "The call was rejected before it ran") {
 		e.t.Fatalf("%s: ochan запускался, хотя не должен был: %q", name, text)
 	}
 	if !strings.Contains(text, reason) {
@@ -400,6 +402,7 @@ func TestReadToolsArgv(t *testing.T) {
 		{"history", map[string]any{"id": "ABC1"}, []string{"history", "--", "abc1"}},
 		{"requests", map[string]any{"id": "3ff2"}, []string{"requests", "--", "3ff2"}},
 		{"task_status", map[string]any{"task_id": "1001"}, []string{"status", "--", "1001"}},
+		{"task_status", map[string]any{"task_id": "job-17", "executor": "linux"}, []string{"status", "--executor=linux", "--", "job-17"}},
 	}
 	for _, c := range cases {
 		t.Run(c.tool, func(t *testing.T) {
@@ -438,11 +441,11 @@ func TestPlanAndRequestArgv(t *testing.T) {
 func TestPathsOutsideRootsRejected(t *testing.T) {
 	e := newEnv(t)
 
-	e.assertRejected("print", map[string]any{"file": e.outside}, "вне разрешённых каталогов")
-	e.assertRejected("print", map[string]any{"file": "../outside.conf"}, "вне разрешённых каталогов")
-	e.assertRejected("diff", map[string]any{"left": "a.conf", "right": "../outside.conf"}, "вне разрешённых каталогов")
-	e.assertRejected("print", map[string]any{"file": "нет.conf"}, "не найден")
-	e.assertRejected("print", map[string]any{"file": "sub"}, "не обычный файл")
+	e.assertRejected("print", map[string]any{"file": e.outside}, "outside the allowed directories")
+	e.assertRejected("print", map[string]any{"file": "../outside.conf"}, "outside the allowed directories")
+	e.assertRejected("diff", map[string]any{"left": "a.conf", "right": "../outside.conf"}, "outside the allowed directories")
+	e.assertRejected("print", map[string]any{"file": "нет.conf"}, "not found")
+	e.assertRejected("print", map[string]any{"file": "sub"}, "not a regular file")
 }
 
 func TestSymlinkOutOfRootRejected(t *testing.T) {
@@ -452,7 +455,7 @@ func TestSymlinkOutOfRootRejected(t *testing.T) {
 		t.Skipf("символические ссылки недоступны: %v", err)
 	}
 	// Ссылка лежит внутри, а ведёт наружу: проверяется место назначения.
-	e.assertRejected("print", map[string]any{"file": "link.conf"}, "вне разрешённых каталогов")
+	e.assertRejected("print", map[string]any{"file": "link.conf"}, "outside the allowed directories")
 }
 
 func TestLiveSourcesOffByDefault(t *testing.T) {
@@ -466,7 +469,7 @@ func TestLiveSourcesWhenAllowed(t *testing.T) {
 	assertArgv(t, e.argvOf("diff", map[string]any{"left": "a.conf", "right": "postgres://dba@db1/postgres"}),
 		"diff", "--fast", "--", e.real("a.conf"), "postgres://dba@db1/postgres")
 
-	e.assertRejected("diff", map[string]any{"left": "a.conf", "right": "mysql://db1/x"}, "не разрешена")
+	e.assertRejected("diff", map[string]any{"left": "a.conf", "right": "mysql://db1/x"}, "is not allowed")
 }
 
 func TestChangesWithEqualsRejected(t *testing.T) {
@@ -476,10 +479,10 @@ func TestChangesWithEqualsRejected(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.root, "x=y.conf"), []byte("a = 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	e.assertRejected("plan_config", map[string]any{"base": "a.conf", "changes": "x=y.conf"}, "переопределение")
+	e.assertRejected("plan_config", map[string]any{"base": "a.conf", "changes": "x=y.conf"}, "override")
 
 	e.assertRejected("request_config",
-		map[string]any{"base": "a.conf", "changes": "postgres://db1/postgres?sslmode=require"}, "переопределение")
+		map[string]any{"base": "a.conf", "changes": "postgres://db1/postgres?sslmode=require"}, "override")
 }
 
 func TestDocumentNeverOverwritten(t *testing.T) {
@@ -490,7 +493,7 @@ func TestDocumentNeverOverwritten(t *testing.T) {
 	}
 
 	e.assertRejected("request_config", map[string]any{"base": "a.conf", "changes": "b.conf", "doc": "старая.docx"},
-		"перезапись запрещена")
+		"overwriting is not allowed")
 
 	data, _ := os.ReadFile(existing)
 	if string(data) != "важный документ" {
@@ -499,9 +502,9 @@ func TestDocumentNeverOverwritten(t *testing.T) {
 
 	for doc, reason := range map[string]string{
 		"заявка.txt":       ".docx",
-		"нет/заявка.docx":  "не существует",
-		"../заявка.docx":   "вне разрешённых каталогов",
-		"sub/../../x.docx": "вне разрешённых каталогов",
+		"нет/заявка.docx":  "does not exist",
+		"../заявка.docx":   "outside the allowed directories",
+		"sub/../../x.docx": "outside the allowed directories",
 	} {
 		e.assertRejected("request_config", map[string]any{"base": "a.conf", "changes": "b.conf", "doc": doc}, reason)
 	}
@@ -514,18 +517,18 @@ func TestSlotValidation(t *testing.T) {
 		args   map[string]any
 		reason string
 	}{
-		{"diff", map[string]any{"left": "a.conf"}, "обязательный параметр"},
-		{"diff", map[string]any{"left": "a.conf", "right": "b.conf", "command": "apply"}, "неизвестные параметры: command"},
-		{"history", map[string]any{"limit": "5"}, "целое число"},
-		{"history", map[string]any{"limit": 0}, "целое число"},
-		{"history", map[string]any{"limit": 2.5}, "целое число"},
-		{"history", map[string]any{"id": "../x"}, "недопустимое значение"},
-		{"find", map[string]any{"source": "a.conf", "param": "--all"}, "недопустимое значение"},
-		{"find", map[string]any{"source": "a.conf", "param": 42}, "ожидается строка"},
-		{"task_status", map[string]any{"task_id": "1; rm -rf /"}, "недопустимое значение"},
-		{"plan_scenario", map[string]any{"scenario": "scenario.yaml", "overrides": map[string]any{"--force": "1"}}, "недопустимое имя"},
-		{"plan_scenario", map[string]any{"scenario": "scenario.yaml", "overrides": []any{"a=1"}}, "ожидается объект"},
-		{"plan_scenario", map[string]any{"scenario": "scenario.yaml", "overrides": map[string]any{"a": map[string]any{}}}, "строкой, числом"},
+		{"diff", map[string]any{"left": "a.conf"}, "a required parameter"},
+		{"diff", map[string]any{"left": "a.conf", "right": "b.conf", "command": "apply"}, "unknown parameters: command"},
+		{"history", map[string]any{"limit": "5"}, "an integer"},
+		{"history", map[string]any{"limit": 0}, "an integer"},
+		{"history", map[string]any{"limit": 2.5}, "an integer"},
+		{"history", map[string]any{"id": "../x"}, "invalid value"},
+		{"find", map[string]any{"source": "a.conf", "param": "--all"}, "invalid value"},
+		{"find", map[string]any{"source": "a.conf", "param": 42}, "a string expected"},
+		{"task_status", map[string]any{"task_id": "1; rm -rf /"}, "invalid value"},
+		{"plan_scenario", map[string]any{"scenario": "scenario.yaml", "overrides": map[string]any{"--force": "1"}}, "invalid parameter name"},
+		{"plan_scenario", map[string]any{"scenario": "scenario.yaml", "overrides": []any{"a=1"}}, "an object"},
+		{"plan_scenario", map[string]any{"scenario": "scenario.yaml", "overrides": map[string]any{"a": map[string]any{}}}, "a string, a number"},
 	}
 	for _, c := range cases {
 		e.assertRejected(c.tool, c.args, c.reason)
@@ -565,7 +568,7 @@ func TestTimeoutStopsCommand(t *testing.T) {
 
 	started := time.Now()
 	text, isError := e.callTool("validate", map[string]any{"source": "a.conf"})
-	if !isError || !strings.Contains(text, "Превышено время") {
+	if !isError || !strings.Contains(text, "Time limit exceeded") {
 		t.Errorf("превышение времени не сообщено: %q", text)
 	}
 	if elapsed := time.Since(started); elapsed > 15*time.Second {
@@ -579,7 +582,7 @@ func TestOutputLimitKeepsUTF8(t *testing.T) {
 	if !utf8.ValidString(text) {
 		t.Error("обрезка разрезала символ пополам")
 	}
-	if !strings.Contains(text, "вывод обрезан") {
+	if !strings.Contains(text, "output truncated") {
 		t.Error("обрезка не отмечена")
 	}
 	if r.limit("коротко") != "коротко" {
@@ -590,7 +593,7 @@ func TestOutputLimitKeepsUTF8(t *testing.T) {
 	// обрезанным и валидным.
 	e := newEnv(t, withMaxOutput(101), withFakeEnv("FAKE_STDOUT="+strings.Repeat("я", 300)))
 	text, isError := e.callTool("print", map[string]any{"file": "a.conf"})
-	if isError || !utf8.ValidString(text) || !strings.Contains(text, "вывод обрезан") {
+	if isError || !utf8.ValidString(text) || !strings.Contains(text, "output truncated") {
 		t.Errorf("длинный вывод не обрезан корректно: ошибка=%v, %q", isError, text)
 	}
 }
@@ -872,9 +875,9 @@ func TestScriptToolsCarryPromptAndReport(t *testing.T) {
 		assertBundle(t, stdin, map[string]string{"script": script, "prompt": prompt, "report": report})
 	}
 
-	e.assertRejected("plan_script", map[string]any{"script": script, "prompt": ""}, "prompt: пустой текст")
-	e.assertRejected("plan_script", map[string]any{"script": script, "report": 1}, "report: ожидается текст строкой")
-	e.assertRejected("plan_script", map[string]any{"prompt": prompt}, "script: обязательный параметр не задан")
+	e.assertRejected("plan_script", map[string]any{"script": script, "prompt": ""}, "prompt: empty text")
+	e.assertRejected("plan_script", map[string]any{"script": script, "report": 1}, "report: text expected as a string")
+	e.assertRejected("plan_script", map[string]any{"prompt": prompt}, "script: a required parameter is missing")
 }
 
 // Песочница ochan получает ровно то, что разрешено серверу: те же
@@ -883,6 +886,9 @@ func TestScriptSandboxMirrorsServer(t *testing.T) {
 	first, second := t.TempDir(), t.TempDir()
 	box, err := newSandbox([]string{first, second}, []string{"postgres"}, "PGPASSWORD", "APP_ENV")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := box.allowNet([]string{"Status.Example.com", "10.0.0.5:8080"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -898,7 +904,14 @@ func TestScriptSandboxMirrorsServer(t *testing.T) {
 	}
 	assertArgv(t, args, "plan", "--script", "--bundle", "--sandbox",
 		"--root="+box.roots[0], "--root="+box.roots[1],
-		"--allow-live=postgres", "--allow-env=APP_ENV", "--allow-env=PGPASSWORD", "--", "-")
+		"--allow-live=postgres", "--allow-env=APP_ENV", "--allow-env=PGPASSWORD",
+		"--allow-net=10.0.0.5:8080", "--allow-net=status.example.com", "--", "-")
+
+	for _, bad := range []string{"https://example.com", "example.com/path", "user@example.com", "-x", "a b"} {
+		if err := box.allowNet([]string{bad}); err == nil {
+			t.Errorf("хост %q принят", bad)
+		}
+	}
 
 	// check только читает текст: песочница ему не нужна.
 	args, _, err = byName["check_script"].argv(box, map[string]any{"script": "print(1)"})
@@ -914,11 +927,11 @@ func TestScriptValidation(t *testing.T) {
 		value  any
 		reason string
 	}{
-		{"", "пустой текст"},
-		{"  \n\t", "пустой текст"},
-		{42, "ожидается текст строкой"},
-		{"print(1)\x00", "недопустимые символы"},
-		{strings.Repeat("#", maxScript+1), "длиннее"},
+		{"", "empty text"},
+		{"  \n\t", "empty text"},
+		{42, "text expected as a string"},
+		{"print(1)\x00", "invalid characters"},
+		{strings.Repeat("#", maxScript+1), "longer than"},
 	}
 	for _, tc := range cases {
 		e.assertRejected("plan_script", map[string]any{"script": tc.value}, tc.reason)
@@ -926,14 +939,14 @@ func TestScriptValidation(t *testing.T) {
 
 	// Через JSON некорректный UTF-8 не приходит — декодер заменяет его
 	// на U+FFFD, — поэтому проверка вызывается напрямую.
-	if _, err := scriptText("script", "\xff\xfe"); err == nil || !strings.Contains(err.Error(), "недопустимые символы") {
+	if _, err := scriptText("script", "\xff\xfe"); err == nil || !strings.Contains(err.Error(), "invalid characters") {
 		t.Errorf("некорректный UTF-8 принят: %v", err)
 	}
-	e.assertRejected("plan_script", map[string]any{}, "обязательный параметр не задан")
+	e.assertRejected("plan_script", map[string]any{}, "a required parameter is missing")
 	for _, name := range []string{"../x.ochan", "a/b", "-x", "имя с пробелом"} {
-		e.assertRejected("plan_script", map[string]any{"script": "print(1)", "name": name}, "недопустимое значение")
+		e.assertRejected("plan_script", map[string]any{"script": "print(1)", "name": name}, "invalid value")
 	}
-	e.assertRejected("plan_script", map[string]any{"script": "print(1)", "root": "/"}, "неизвестные параметры: root")
+	e.assertRejected("plan_script", map[string]any{"script": "print(1)", "root": "/"}, "unknown parameters: root")
 }
 
 func TestScriptToolsRequireSandbox(t *testing.T) {
@@ -993,7 +1006,7 @@ func TestPromptToolsArgv(t *testing.T) {
 		t.Errorf("протоколу stdin не нужен, получено %q", stdin)
 	}
 
-	e.assertRejected("check_prompt", map[string]any{"prompt": ""}, "пустой текст")
+	e.assertRejected("check_prompt", map[string]any{"prompt": ""}, "empty text")
 }
 
 // Модель получает протокол первым — в instructions при подключении.
@@ -1064,8 +1077,8 @@ func TestRankLogsArgv(t *testing.T) {
 	args, _ := e.scriptCall("rank_logs", map[string]any{"file": "pg.log", "min": "error", "summary": true, "top": 3})
 	assertArgv(t, args, "logs", "rank", "--min=error", "--summary", "--top=3", "--", filepath.Join(e.root, "pg.log"))
 
-	e.assertRejected("rank_logs", map[string]any{"file": "/etc/passwd"}, "вне разрешённых каталогов")
-	e.assertRejected("rank_logs", map[string]any{"file": "pg.log", "min": "--tail"}, "недопустимое значение")
+	e.assertRejected("rank_logs", map[string]any{"file": "/etc/passwd"}, "outside the allowed directories")
+	e.assertRejected("rank_logs", map[string]any{"file": "pg.log", "min": "--tail"}, "invalid value")
 }
 
 // Заголовки и описания инструментов и параметров читает модель, поэтому
@@ -1084,5 +1097,26 @@ func TestToolDescriptionsAreEnglish(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Песочница нейросети не накрывает рабочий каталог ochan: там роли и
+// ключ сервера.
+func TestSandboxRefusesOchanDirectory(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(filepath.Join(home, ".octochan"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSandbox([]string{home}, nil); err == nil || !strings.Contains(err.Error(), "рабочий каталог ochan") {
+		t.Fatalf("корень поверх ~/.octochan принят: %v", err)
+	}
+	project := filepath.Join(home, "project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newSandbox([]string{project}, nil); err != nil {
+		t.Fatalf("каталог проекта отвергнут: %v", err)
 	}
 }

@@ -202,6 +202,58 @@ func TestScriptRequestKeepsSandbox(t *testing.T) {
 	}
 }
 
+// now() и rand() при выполнении заявки возвращают то же, что при
+// построении плана: иначе согласованный план не совпал бы с выполнением.
+func TestScriptRequestFixesClockAndSeed(t *testing.T) {
+	e := newScriptEnv(t)
+	e.write(e.path("stamp.ochan"), "write(\"stamp.txt\", format(\"%s %d\", now(), rand(1000000000)))\n")
+
+	for _, sandboxed := range []bool{false, true} {
+		args := []string{"request", "stamp.ochan"}
+		if sandboxed {
+			args = []string{"request", "--sandbox", "--root", e.work, "stamp.ochan"}
+		}
+		created := e.must(args...)
+		id := requestIDPattern.FindStringSubmatch(created)[1]
+		if card := e.must("requests", id); !strings.Contains(card, "Время:     ") {
+			t.Fatalf("в карточке нет времени плана:\n%s", card)
+		}
+		e.must("approve", id)
+		e.must("apply", "--request", id)
+		if got := e.read("stamp.txt"); !strings.Contains(got, "T") {
+			t.Fatalf("stamp.txt: %q", got)
+		}
+		if err := os.Remove(e.path("stamp.txt")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Запись из библиотеки — такая же зависимость заявки, как алиас: её
+// правка после согласования отменяет выполнение.
+func TestScriptRequestTracksLibraryRecords(t *testing.T) {
+	e := newScriptEnv(t)
+	types := filepath.Join(e.home, ".octochan", "aliases", "types.ochan")
+	e.write(types, "record Настройка {\n    имя: string\n    значение: string = \"200\"\n}\n")
+	e.write(e.path("rec.ochan"), `н = Настройка("max_connections")
+c = config("prod.conf")
+c[н.имя] = н.значение
+save(c, "prod.conf")
+`)
+	resetAliasCache()
+
+	created := e.must("request", "rec.ochan")
+	id := requestIDPattern.FindStringSubmatch(created)[1]
+	if card := e.must("requests", id); !strings.Contains(card, "Алиасы:    "+types) {
+		t.Fatalf("файл записи не попал в заявку:\n%s", card)
+	}
+	e.must("approve", id)
+
+	e.write(types, "record Настройка {\n    имя: string\n    значение: string = \"1\"\n}\n")
+	resetAliasCache()
+	e.fails("файл алиасов "+types+" изменился", "apply", "--request", id)
+}
+
 func TestScriptFlagsNeedSandbox(t *testing.T) {
 	e := newScriptEnv(t)
 	e.fails("действуют только вместе с --sandbox", "plan", "--root", e.work, "tune.ochan")

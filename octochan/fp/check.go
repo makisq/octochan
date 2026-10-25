@@ -30,6 +30,9 @@ type Options struct {
 	// Library — библиотека скиллов: есть ли скилл, его операции и версия.
 	// nil — библиотеки нет, и скилл даёт ровно то, что объявлено в import.
 	Library func(name string) (*Skill, bool)
+	// Skills — имена всех скиллов библиотеки: по ним подсказка находит
+	// скилл, в котором есть недостающая операция.
+	Skills func() []string
 	// Builtins — операции самой среды выполнения (в ochan — write и save):
 	// они известны арбитру без скиллов, и правило о них проверяется по плану.
 	Builtins []string
@@ -166,6 +169,89 @@ type checker struct {
 
 func (c *checker) report(pos Pos, code Code, format string, args ...any) {
 	c.diags = append(c.diags, Diagnostic{Pos: pos, Code: code, Msg: fmt.Sprintf(format, args...)})
+}
+
+// hint дописывает подсказку к последней находке.
+func (c *checker) hint(format string, args ...any) {
+	if n := len(c.diags); n > 0 {
+		c.diags[n-1].Hint = fmt.Sprintf(format, args...)
+	}
+}
+
+// skillsWith — скиллы библиотеки, в которых есть операция, с версиями.
+func (c *checker) skillsWith(op string) []string {
+	if c.opts.Skills == nil || c.opts.Library == nil {
+		return nil
+	}
+	var found []string
+	for _, name := range c.opts.Skills() {
+		skill, ok := c.opts.Library(name)
+		if !ok || !contains(skill.Ops, op) {
+			continue
+		}
+		if skill.Version != "" {
+			found = append(found, "@"+name+" v"+skill.Version)
+		} else {
+			found = append(found, "@"+name)
+		}
+	}
+	sort.Strings(found)
+	return found
+}
+
+// missingOpHint — где взять недостающую операцию: скилл библиотеки, в
+// котором она есть, или похожее имя из того, что уже известно.
+func (c *checker) missingOpHint(op string) string {
+	if skills := c.skillsWith(op); len(skills) > 0 {
+		imports := make([]string, len(skills))
+		for i, s := range skills {
+			imports[i] = "import " + s
+		}
+		return fmt.Sprintf("%s есть в %s — подключите: %s (протокол, «Knowledge: requirements and skills»)",
+			op, strings.Join(skills, ", "), strings.Join(imports, " или "))
+	}
+	known := append(sortedSet(c.knowledge), c.opts.Builtins...)
+	if near := nearest(op, known); near != "" {
+		return fmt.Sprintf("возможно, имелось в виду %s", near)
+	}
+	return "операцию даёт скилл: import @скилл { provides: " + op + " } (протокол, «Knowledge: requirements and skills»)"
+}
+
+// nearest — самое похожее имя на расстоянии не больше двух правок.
+func nearest(name string, candidates []string) string {
+	best, bestDist := "", 3
+	sorted := append([]string(nil), candidates...)
+	sort.Strings(sorted)
+	for _, cand := range sorted {
+		if cand == name {
+			continue
+		}
+		if d := levenshtein(name, cand); d < bestDist {
+			best, bestDist = cand, d
+		}
+	}
+	return best
+}
+
+func levenshtein(a, b string) int {
+	ar, br := []rune(a), []rune(b)
+	prev := make([]int, len(br)+1)
+	cur := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ar); i++ {
+		cur[0] = i
+		for j := 1; j <= len(br); j++ {
+			cost := 1
+			if ar[i-1] == br[j-1] {
+				cost = 0
+			}
+			cur[j] = min(cur[j-1]+1, prev[j]+1, prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(br)]
 }
 
 func (c *checker) require(name Name, from string) {
@@ -571,6 +657,15 @@ func (c *checker) checkImports() {
 			skill, ok := c.opts.Library(imp.Skill)
 			if !ok {
 				c.report(imp.Pos, ErrUndef, "скилла @%s нет в библиотеке", imp.Skill)
+				if c.opts.Skills != nil {
+					if near := nearest(imp.Skill, c.opts.Skills()); near != "" {
+						c.hint("возможно, имелось в виду @%s", near)
+					} else if names := c.opts.Skills(); len(names) > 0 {
+						sorted := append([]string(nil), names...)
+						sort.Strings(sorted)
+						c.hint("в библиотеке: @%s", strings.Join(sorted, ", @"))
+					}
+				}
 				continue
 			}
 			libraryOps = skill.Ops
@@ -585,6 +680,7 @@ func (c *checker) checkImports() {
 				continue
 			case !VersionMatches(imp.Version, skill.Version):
 				c.report(imp.Pos, ErrUndef, "промпт требует @%s %s, а в библиотеке версия %s", imp.Skill, imp.Version, skill.Version)
+				c.hint("версия — решение оператора: промпт с import @%s v%s или скилл нужной версии в библиотеке", imp.Skill, skill.Version)
 				continue
 			}
 		}
@@ -601,6 +697,11 @@ func (c *checker) checkImports() {
 			declaredOps = true
 			if c.opts.Library != nil && !contains(libraryOps, item.Text) {
 				c.report(item.Pos, ErrUndef, "в скилле @%s нет операции %s", imp.Skill, item.Text)
+				if near := nearest(item.Text, libraryOps); near != "" {
+					c.hint("в @%s есть %s", imp.Skill, near)
+				} else if skills := c.skillsWith(item.Text); len(skills) > 0 {
+					c.hint("%s есть в %s", item.Text, strings.Join(skills, ", "))
+				}
 				continue
 			}
 			c.knowledge[item.Text] = true
@@ -650,17 +751,53 @@ func (c *checker) checkRules() {
 		seen[key] = rule
 
 		// Ж3: приоритета между абсолютными правилами нет, поэтому
-		// «никогда X» и «всегда X» вместе — ошибка до исполнения.
+		// «никогда X» и «всегда X» вместе — ошибка до исполнения. Кроме
+		// одного случая: требование действует только там, где запрет
+		// сделал исключение, — тогда оба выполнимы сразу.
 		opposite := Forbid
 		if rule.Kind == Forbid {
 			opposite = Require
 		}
 		if prev, clash := seen[string(opposite)+" "+rule.Action]; clash {
-			c.report(rule.Pos, ErrConflict, "правило %s %s несовместно с правилом %s %s в строке %d: "+
-				"между жёсткими правилами нет приоритета (Ж3)", rule.Kind, rule.Action, prev.Kind, prev.Action, prev.Pos.Line)
+			forbid, require := rule, prev
+			if rule.Kind == Require {
+				forbid, require = prev, rule
+			}
+			if !withinExceptions(require, forbid) {
+				c.report(rule.Pos, ErrConflict, "правило %s %s несовместно с правилом %s %s в строке %d: "+
+					"между жёсткими правилами нет приоритета (Ж3)", rule.Kind, rule.Action, prev.Kind, prev.Action, prev.Pos.Line)
+				c.hint("совместны, если требование ограничено исключениями запрета: "+
+					"hard forbid %s(except = {окно}) и hard require %s(scope = окно) (протокол, «Hard rules»)",
+					rule.Action, rule.Action)
+			}
 		}
 		c.rules[rule.Action] = rule
 	}
+}
+
+// withinExceptions — область требования лежит внутри исключений запрета:
+// тогда «никогда, кроме E» и «всегда на S ⊆ E» выполнимы вместе.
+func withinExceptions(require, forbid *Rule) bool {
+	var except, scope []string
+	for _, arg := range forbid.Args {
+		if arg.Name == "except" {
+			except = append(except, arg.Values...)
+		}
+	}
+	for _, arg := range require.Args {
+		if arg.Name == "scope" {
+			scope = append(scope, arg.Values...)
+		}
+	}
+	if len(scope) == 0 || len(except) == 0 {
+		return false
+	}
+	for _, name := range scope {
+		if !contains(except, name) {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -685,6 +822,7 @@ func (c *checker) checkKnowledge() {
 			c.report(r.name.Pos, ErrUndef, "операция %s (%s) не дана ни одним скиллом: «как» приходит из скилла (П5)",
 				r.name.Text, r.from)
 		}
+		c.hint("%s", c.missingOpHint(r.name.Text))
 	}
 }
 

@@ -37,9 +37,18 @@ ochan apply restart.yaml                    выполнить
 ochan apply restart.yaml restart=cluster    переопределить параметр
 ochan apply restart.yaml --wait             дождаться завершения задач
 ochan status <task_id>                      статус и журнал задачи
+ochan status <task_id> --rlm                то же, у исполнителя RLM явно
 ochan srs restart.yaml                      сохранить в ~/.octochan/scenarios
 ochan request restart.yaml --doc заявка.docx   заявка на выполнение
 ```
+
+`status` — общая команда ядра, а не часть RLM: статус показывает
+исполнитель, который создал задачу, а команда выбирает его флагом —
+`--executor rlm` или коротко `--rlm`. Такой флаг появляется у каждого
+подключённого исполнителя, который умеет показывать статус: подключите
+исполнитель для Linux — появится `--linux`. Если такой исполнитель один,
+флаг не нужен. Свой исполнитель — Go-пакет, который регистрирует сервисы
+(`scenario.Register`) и реализует `scenario.StatusReporter`.
 
 Переопределения `key=value` заменяют параметры сценария, не меняя файл.
 
@@ -75,15 +84,20 @@ defaults:
   api_url: https://rlm.example.internal/api/tasks.json
   http_timeout: 30s
   auto_check_status: false     # true — apply всегда ждёт завершения задач, как с --wait
-  token_timer_enabled: true    # напоминать о смене токена
+  token_timer_enabled: false   # true — напоминать о смене токена
   token_lifetime: 20m
 ```
 
 ```
 ochan auth                     # токен: ввод скрыт, хранится в ~/.octochan/.env (0600)
 export OCTOCHAN_API_TOKEN=...  # либо через окружение
-ochan timer off                # выключить напоминание о смене токена
+ochan timer on                 # напоминать в оболочке, когда срок токена подходит к концу
 ```
+
+Напоминание по умолчанию выключено. Включённое, оно отсчитывает
+`token_lifetime` от того, когда токен сохранили командой `auth`, и молчит,
+пока токен не сохранён: тому, кто RLM не пользуется, напоминать не о чем.
+Токен из окружения не напоминается — когда его выдали, ochan не знает.
 
 Без `defaults.api_url` план и выполнение откажут с объяснением; остальные
 команды ochan от него не зависят.

@@ -11,8 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"octochan/i18n"
+	"octochan/audit"
 	"octochan/rbac"
+	"octochan/workspace"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -124,26 +125,39 @@ func moduleCommands() []string {
 }
 
 // authorize проверяет права текущей роли перед каждой командой —
-// и в командной строке, и в оболочке.
-func authorize(cmd *cobra.Command, _ []string) error {
+// и в командной строке, и в оболочке — и пишет решение в журнал аудита.
+func authorize(cmd *cobra.Command, args []string) error {
+	currentRole = nil
 	key := commandKey(cmd)
 	if key == "" {
 		return nil // сама программа: оболочка или справка
 	}
 
-	store, _, err := loadRoles()
+	store, path, err := loadRoles()
 	if err != nil {
 		return err
+	}
+	if os.Getenv(EnvRole) == "" {
+		if err := expireRole(cmd, store, path); err != nil {
+			return err
+		}
 	}
 	role, _, err := activeRole(store)
 	if err != nil {
+		// Роль из окружения не прошла: несуществующая роль или чужой
+		// допуск — это тоже то, что журнал должен помнить.
+		if journal, jerr := auditJournal(); jerr == nil && !unaudited(key) {
+			_ = journal.Append(audit.Record{Event: audit.EventCommand, Role: os.Getenv(EnvRole), Command: key,
+				Reason: err.Error(), Remote: os.Getenv(EnvRemoteAddr), User: workspace.CurrentUser()},
+				func(audit.Recent) error { return err })
+		}
 		return err
 	}
-	if role.Allows(key) {
-		return nil
+	if err := admit(cmd, role, key, args); err != nil {
+		return err
 	}
-	return i18n.Errorf("роль %s не может выполнять %s: нужно право %s", role.Name,
-		strings.ReplaceAll(key, ".", " "), requiredPerm(key))
+	currentRole = role
+	return nil
 }
 
 // requiredPerm называет право, которое открыло бы команду.
@@ -248,6 +262,9 @@ var roleCmd = &cobra.Command{
 			cmd.Printf("Задана окружением %s; переключение недоступно\n", EnvRole)
 			return nil
 		}
+		if !store.CurrentUntil.IsZero() {
+			cmd.Printf("До:           %s, затем %s\n", formatUntil(store.CurrentUntil, rbac.Now()), store.ReturnTo)
+		}
 		cmd.Printf("История:      %s\n", strings.Join(store.History, " -> "))
 		return nil
 	},
@@ -281,6 +298,21 @@ var roleListCmd = &cobra.Command{
 			if role.Password != nil {
 				notes = append(notes, "пароль")
 			}
+			if len(role.Deny) > 0 {
+				notes = append(notes, "запреты: "+strings.Join(role.Deny, ","))
+			}
+			if role.Scoped() {
+				notes = append(notes, "область")
+			}
+			if len(role.Limits) > 0 {
+				notes = append(notes, "пределы")
+			}
+			if temp := role.ActiveTemp(); len(temp) > 0 {
+				notes = append(notes, "на время: "+strings.Join(tempPermNames(temp), ","))
+			}
+			if temp := role.ActiveTempDeny(); len(temp) > 0 {
+				notes = append(notes, "запреты на время: "+strings.Join(tempPermNames(temp), ","))
+			}
 			cmd.Printf("%s %-16s %-32s %s\n", marker, role.Name, strings.Join(role.Perms, ", "), strings.Join(notes, ", "))
 		}
 		return nil
@@ -292,17 +324,26 @@ var roleCreateCmd = &cobra.Command{
 	Short: "Создать роль и выдать ей права",
 	Args:  cobra.ExactArgs(1),
 	Example: "ochan role create slave --allow read,plan\n" +
-		"ochan role create Dan --allow read,plan,request,approve --nlogin dan --npsw",
+		"ochan role create Dan --allow read,plan,request,approve --nlogin dan --npsw\n" +
+		"ochan role create ops --allow all --deny serve,admin",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return mutateRoles(func(store *rbac.Store) error {
 			role, err := store.Create(args[0], splitPerms(roleAllow), moduleCommands())
 			if err != nil {
 				return err
 			}
+			if len(roleDeny) > 0 {
+				if err := store.DenyPerms(role.Name, splitPerms(roleDeny), moduleCommands()); err != nil {
+					return err
+				}
+			}
 			if err := applyCredentialFlags(cmd, store, role.Name); err != nil {
 				return err
 			}
 			cmd.Printf("Роль %s создана: %s\n", role.Name, strings.Join(role.Perms, ", "))
+			if len(role.Deny) > 0 {
+				cmd.Printf("Запрещено: %s\n", strings.Join(role.Deny, ", "))
+			}
 			return nil
 		})
 	},
@@ -323,14 +364,34 @@ var roleDeleteCmd = &cobra.Command{
 	},
 }
 
+var grantTemp tempFlags
+
 var roleGrantCmd = &cobra.Command{
-	Use:     "grant <роль> <право>...",
-	Short:   "Выдать роли права",
-	Args:    cobra.MinimumNArgs(2),
-	Example: "ochan role grant slave approve\nochan role grant slave patch rollback",
+	Use:   "grant <роль> <право>... [--for <срок> | --until <момент>]",
+	Short: "Выдать роли права, навсегда или на время",
+	Long: "С --for или --until право действует до срока и пропадает само:\n" +
+		"отзывать нечего и забыть отозвать нельзя. Выдать на время может и CI\n" +
+		"или скрипт — той же командой, в роли с правом admin; каждая выдача —\n" +
+		"в журнале аудита.",
+	Args: cobra.MinimumNArgs(2),
+	Example: "ochan role grant slave approve\nochan role grant slave patch rollback\n" +
+		"ochan role grant dan apply --for 2h\nochan role grant dan apply --until \"2026-10-24 18:00\"",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		now := rbac.Now()
+		until, temporary, err := grantTemp.until(now)
+		if err != nil {
+			return err
+		}
 		return mutateRoles(func(store *rbac.Store) error {
-			if err := store.Grant(args[0], splitPerms(args[1:]), moduleCommands()); err != nil {
+			perms := splitPerms(args[1:])
+			if temporary {
+				if err := store.GrantFor(args[0], perms, until, moduleCommands()); err != nil {
+					return err
+				}
+				cmd.Printf("Роль %s: %s до %s\n", store.Find(args[0]).Name, strings.Join(perms, ", "), formatUntil(until, now))
+				return nil
+			}
+			if err := store.Grant(args[0], perms, moduleCommands()); err != nil {
 				return err
 			}
 			cmd.Printf("Роль %s: %s\n", store.Find(args[0]).Name, strings.Join(store.Find(args[0]).Perms, ", "))
@@ -433,14 +494,26 @@ var setCmd = &cobra.Command{
 	Short: "Переключение: set role <роль>",
 }
 
+var setRoleTemp tempFlags
+
 var setRoleCmd = &cobra.Command{
-	Use:   "role <роль>",
-	Short: "Переключиться на роль",
+	Use:   "role <роль> [--for <срок> | --until <момент>]",
+	Short: "Переключиться на роль, навсегда или на время",
 	Long: "Если у роли задан логин или пароль, их спросят. В роль, в которую\n" +
-		"уже входили, можно вернуться без них: back role.",
+		"уже входили, можно вернуться без них: back role.\n\n" +
+		"С --for или --until роль действует до срока, а потом сама возвращается\n" +
+		"прежняя: поднять права на полчаса и не забыть их опустить.",
 	Args:    cobra.ExactArgs(1),
-	Example: "ochan set role slave\nochan set role Dan",
+	Example: "ochan set role slave\nochan set role Dan\nochan set role master --for 30m",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		now := rbac.Now()
+		until, temporary, err := setRoleTemp.until(now)
+		if err != nil {
+			return err
+		}
+		if temporary {
+			return switchRoleFor(cmd, args[0], until, now)
+		}
 		return switchRole(cmd, func(store *rbac.Store) (*rbac.Role, error) {
 			role := store.Find(args[0])
 			if role == nil {
@@ -500,6 +573,30 @@ func switchRole(cmd *cobra.Command, pick func(*rbac.Store) (*rbac.Role, error)) 
 	})
 }
 
+// switchRoleFor переключает роль до срока.
+func switchRoleFor(cmd *cobra.Command, name string, until, now time.Time) error {
+	if env := os.Getenv(EnvRole); env != "" {
+		return fmt.Errorf("роль задана окружением %s=%s: переключение недоступно", EnvRole, env)
+	}
+	return mutateRoles(func(store *rbac.Store) error {
+		role := store.Find(name)
+		if role == nil {
+			return fmt.Errorf("роли %s нет", name)
+		}
+		if role.Name == store.Current {
+			return fmt.Errorf("роль %s уже текущая", role.Name)
+		}
+		if err := login(cmd, role); err != nil {
+			return err
+		}
+		if err := store.SwitchFor(role.Name, until); err != nil {
+			return err
+		}
+		cmd.Printf("Роль: %s до %s, затем %s\n", role.Name, formatUntil(until, now), store.ReturnTo)
+		return nil
+	})
+}
+
 // login спрашивает логин и пароль, если они заданы у роли.
 func login(cmd *cobra.Command, role *rbac.Role) error {
 	if !role.NeedsAuth() {
@@ -535,6 +632,7 @@ func mutateRoles(change func(*rbac.Store) error) error {
 	if err := change(store); err != nil {
 		return err
 	}
+	store.Prune(rbac.Now())
 	return store.Save(path)
 }
 
@@ -550,7 +648,17 @@ func splitPerms(values []string) []string {
 	return perms
 }
 
+func tempPermNames(list []rbac.TempPerm) []string {
+	names := make([]string, len(list))
+	for i, t := range list {
+		names[i] = t.Perm
+	}
+	return names
+}
+
 func init() {
+	grantTemp.add(roleGrantCmd, "выдать")
+	setRoleTemp.add(setRoleCmd, "переключиться")
 	roleCreateCmd.Flags().StringSliceVar(&roleAllow, "allow", nil, "права роли через запятую")
 	for _, c := range []*cobra.Command{roleCreateCmd, roleUpdateCmd} {
 		c.Flags().StringVar(&roleNewLogin, "nlogin", "", "задать логин роли")

@@ -15,16 +15,19 @@ import (
 type TypeName string
 
 const (
-	TypeAny    TypeName = "any"
-	TypeInt    TypeName = "int"
-	TypeFloat  TypeName = "float"
-	TypeNumber TypeName = "number"
-	TypeString TypeName = "string"
-	TypeBool   TypeName = "bool"
-	TypeList   TypeName = "list"
-	TypeMap    TypeName = "map"
-	TypeConfig TypeName = "config"
-	TypeStream TypeName = "stream"
+	TypeAny     TypeName = "any"
+	TypeInt     TypeName = "int"
+	TypeFloat   TypeName = "float"
+	TypeNumber  TypeName = "number"
+	TypeString  TypeName = "string"
+	TypeBool    TypeName = "bool"
+	TypeList    TypeName = "list"
+	TypeMap     TypeName = "map"
+	TypeConfig  TypeName = "config"
+	TypeStream  TypeName = "stream"
+	TypeFunc    TypeName = "fn"
+	TypeMorph   TypeName = "morph"
+	TypeFunctor TypeName = "functor"
 )
 
 // typeAliases позволяет писать имена типов и латиницей, и по-русски:
@@ -52,6 +55,13 @@ var typeAliases = map[string]TypeName{
 	"конфиг":     TypeConfig,
 	"stream":     TypeStream,
 	"поток":      TypeStream,
+	"fn":         TypeFunc,
+	"func":       TypeFunc,
+	"функция":    TypeFunc,
+	"morph":      TypeMorph,
+	"морфизм":    TypeMorph,
+	"functor":    TypeFunctor,
+	"функтор":    TypeFunctor,
 }
 
 // ParseTypeName распознаёт имя типа.
@@ -99,6 +109,12 @@ func (t TypeName) Russian() string {
 		return "конфиг"
 	case TypeStream:
 		return "поток"
+	case TypeFunc:
+		return "функция"
+	case TypeMorph:
+		return "морфизм"
+	case TypeFunctor:
+		return "функтор"
 	default:
 		return string(t)
 	}
@@ -148,6 +164,15 @@ func (t TypeName) Accepts(v Value) bool {
 	case TypeStream:
 		_, ok := v.(StreamValue)
 		return ok
+	case TypeFunc:
+		_, ok := v.(*FuncValue)
+		return ok
+	case TypeMorph:
+		_, ok := v.(*MorphValue)
+		return ok
+	case TypeFunctor:
+		_, ok := v.(*FunctorValue)
+		return ok
 	}
 	return false
 }
@@ -155,7 +180,7 @@ func (t TypeName) Accepts(v Value) bool {
 // typeOf — тип значения: им становится тип переменной, объявленной без
 // аннотации. null типа не задаёт: такая переменная — any.
 func typeOf(v Value) TypeName {
-	switch v.(type) {
+	switch val := v.(type) {
 	case IntValue:
 		return TypeInt
 	case FloatValue:
@@ -172,6 +197,14 @@ func typeOf(v Value) TypeName {
 		return TypeConfig
 	case StreamValue:
 		return TypeStream
+	case *FuncValue:
+		return TypeFunc
+	case *MorphValue:
+		return TypeMorph
+	case *FunctorValue:
+		return TypeFunctor
+	case *RecordValue:
+		return TypeName(val.Decl.Qualified())
 	}
 	return TypeAny
 }
@@ -218,15 +251,4 @@ func reassignHint(name string, declared, actual TypeName) string {
 		want = TypeNumber
 	}
 	return fmt.Sprintf(": тип переменной не меняется; для таких значений объявите её как var %s: %s", name, want)
-}
-
-// checkType проверяет значение и возвращает понятную ошибку.
-func checkType(declared TypeName, what string, v Value) error {
-	if declared.Accepts(v) {
-		return nil
-	}
-	// Формулировка нейтральна по роду: what бывает и переменной,
-	// и параметром, и элементом цикла.
-	return fmt.Errorf("%s: объявлен тип %s, получено значение типа %s (%s)",
-		what, declared.Russian(), v.TypeName(), Display(v))
 }

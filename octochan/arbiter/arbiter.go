@@ -45,6 +45,34 @@ func Describe(rule *fp.Rule) string {
 	return fmt.Sprintf("hard %s %s(%s)", rule.Kind, rule.Action, strings.Join(args, ", "))
 }
 
+// Hint — законный путь для нарушенного правила: что правило допускает.
+// Правило задаёт оператор, и подсказка не предлагает его менять: только
+// как написать сценарий, который его соблюдает.
+func Hint(rule *fp.Rule) string {
+	except := values(rule, "except")
+	scope := values(rule, "scope")
+	where := ""
+	if len(scope) > 0 {
+		where = " в области {" + strings.Join(scope, ", ") + "}"
+	}
+	const ref = " (протокол, «Hard rules»)"
+	switch rule.Kind {
+	case fp.Forbid:
+		if len(except) > 0 {
+			return fmt.Sprintf("%s%s допустимо только для исключений except = {%s}: пишите только в эти цели "+
+				"(файл prod.conf — цель prod_conf)%s", rule.Action, where, strings.Join(except, ", "), ref)
+		}
+		return fmt.Sprintf("%s%s запрещено без исключений: сценарий не должен его вызывать%s", rule.Action, where, ref)
+	case fp.Require:
+		if len(scope) > 0 {
+			return fmt.Sprintf("вызовите %s для каждой цели области: %s — записью или аргументом%s",
+				rule.Action, strings.Join(scope, ", "), ref)
+		}
+		return fmt.Sprintf("сценарий обязан вызвать %s хотя бы раз%s", rule.Action, ref)
+	}
+	return ""
+}
+
 // Check проверяет правила по трассе плана.
 func Check(rules []*fp.Rule, effects []lang.Effect, calls []lang.Invocation) []Outcome {
 	t := newTrace(effects, calls)

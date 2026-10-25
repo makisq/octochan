@@ -18,10 +18,8 @@ func run(t *testing.T, src string) (string, error) {
 	}
 
 	registry := NewRegistry()
-	for _, decl := range file.Aliases {
-		if err := registry.Add("", decl); err != nil {
-			return "", err
-		}
+	if err := registry.AddFile("", file); err != nil {
+		return "", err
 	}
 
 	var out strings.Builder

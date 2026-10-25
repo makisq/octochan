@@ -24,16 +24,27 @@ const (
 )
 
 // Diagnostic — находка разбора или проверки.
+//
+// Hint — законный путь: чем закрыть отказ, не нарушая протокола, —
+// скилл, в котором есть операция, исключение правила, раздел протокола.
+// Подсказку строит та же детерминированная проверка, она не догадка.
 type Diagnostic struct {
 	Pos  Pos
 	Code Code
 	Msg  string
+	Hint string
 }
 
 // IsError сообщает, что находка — отказ, а не замечание.
 func (d Diagnostic) IsError() bool { return d.Code != Note }
 
-func (d Diagnostic) String() string { return fmt.Sprintf("%s: %s: %s", d.Pos, d.Code, d.Msg) }
+func (d Diagnostic) String() string {
+	text := fmt.Sprintf("%s: %s: %s", d.Pos, d.Code, d.Msg)
+	if d.Hint != "" {
+		text += "\n    подсказка: " + d.Hint
+	}
+	return text
+}
 
 type tokKind int
 

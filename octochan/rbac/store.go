@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FileName — хранилище ролей в рабочем каталоге octochan.
@@ -34,6 +35,10 @@ type Store struct {
 	// ServerKey — ключ подписи допусков сервера; пуст, пока сервер не
 	// запускался (см. grant.go).
 	ServerKey []byte
+	// CurrentUntil — срок текущей роли; нулевой — бессрочно. По
+	// истечении текущей становится ReturnTo (temporary.go).
+	CurrentUntil time.Time
+	ReturnTo     string
 }
 
 // Default — хранилище сразу после установки: master — первая и
@@ -42,7 +47,10 @@ func Default() *Store {
 	return &Store{
 		Roles: []*Role{
 			{Name: Master, Perms: []string{All}, Builtin: true},
-			{Name: LLM, Perms: append([]string(nil), LLMCeiling...), Builtin: true},
+			// Нейросеть, которой подсунули вредную инструкцию, может
+			// завалить людей заявками: тридцати в час хватает для работы.
+			{Name: LLM, Perms: append([]string(nil), LLMCeiling...), Builtin: true,
+				Limits: []Limit{{Perm: "request", Count: 30, Window: time.Hour}}},
 		},
 		Current: Master,
 		History: []string{Master},
@@ -115,6 +123,16 @@ func (s *Store) Grant(name string, perms, extra []string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkGrant(role, perms, extra); err != nil {
+		return err
+	}
+	role.Perms = dedupe(append(role.Perms, perms...))
+	return nil
+}
+
+// checkGrant — можно ли выдать роли права: у master их и так все, а llm
+// не поднимается выше потолка ни навсегда, ни на время.
+func checkGrant(role *Role, perms, extra []string) error {
 	if role.Name == Master {
 		return errors.New("у master все права, выдавать нечего")
 	}
@@ -129,7 +147,6 @@ func (s *Store) Grant(name string, perms, extra []string) error {
 			}
 		}
 	}
-	role.Perms = dedupe(append(role.Perms, perms...))
 	return nil
 }
 
@@ -148,11 +165,22 @@ func (s *Store) Revoke(name string, perms []string) error {
 			kept = append(kept, perm)
 		}
 	}
-	if len(kept) == len(role.Perms) {
+	temp := withoutPerms(role.TempPerms, perms)
+	if len(kept) == len(role.Perms) && len(temp) == len(role.TempPerms) {
 		return fmt.Errorf("у роли %s нет таких прав: %s", role.Name, strings.Join(perms, ", "))
 	}
-	role.Perms = kept
+	role.Perms, role.TempPerms = kept, temp
 	return nil
+}
+
+func withoutPerms(list []TempPerm, perms []string) []TempPerm {
+	var out []TempPerm
+	for _, t := range list {
+		if !contains(perms, t.Perm) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Rename переименовывает роль. История и текущая роль следуют за ней.
@@ -174,6 +202,9 @@ func (s *Store) Rename(name, newName string) error {
 	role.Name = newName
 	if strings.EqualFold(s.Current, old) {
 		s.Current = newName
+	}
+	if strings.EqualFold(s.ReturnTo, old) {
+		s.ReturnTo = newName
 	}
 	for i, entry := range s.History {
 		if strings.EqualFold(entry, old) {
@@ -222,6 +253,7 @@ func (s *Store) Switch(name string) error {
 		return err
 	}
 	s.Current = role.Name
+	s.CurrentUntil, s.ReturnTo = time.Time{}, ""
 	s.History = append(s.History, role.Name)
 	if len(s.History) > historyLimit {
 		s.History = s.History[len(s.History)-historyLimit:]

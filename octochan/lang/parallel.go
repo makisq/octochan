@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -107,14 +108,14 @@ func (in *Interpreter) execForParallel(node *For, env *scope, items []Value) err
 				}
 			}()
 
-			worker := in.fork(&outputs[idx], &errOutputs[idx])
+			worker := in.fork(idx, &outputs[idx], &errOutputs[idx])
 			workers[idx] = worker
 
 			iterScope := base.snapshot()
 			iterScope.define(node.Variable, node.Declared, item)
 
 			if node.Declared != "" {
-				if err := checkType(node.Declared,
+				if err := worker.checkType(node.Declared,
 					fmt.Sprintf("элемент цикла %s", node.Variable), item); err != nil {
 					errs[idx] = worker.wrap(node.Pos, err)
 					return
@@ -204,8 +205,11 @@ func (in *Interpreter) joinIterationErrors(node *For, items []Value, errs []erro
 // как общий диск, и защищены своей блокировкой. Стек вызовов, вывод
 // и список действий у каждой итерации свои; печать в файлы итерация
 // копит и отдаёт после цикла.
-func (in *Interpreter) fork(out, errOut io.Writer) *Interpreter {
-	return &Interpreter{
+//
+// Случайность итерации выводится из зерна и номера элемента: итерации
+// идут в любом порядке, а числа у каждой — те же, что в плане.
+func (in *Interpreter) fork(idx int, out, errOut io.Writer) *Interpreter {
+	worker := &Interpreter{
 		registry:     in.registry,
 		builtins:     in.builtins,
 		out:          out,
@@ -213,12 +217,16 @@ func (in *Interpreter) fork(out, errOut io.Writer) *Interpreter {
 		deferAppends: true,
 		ctx:          in.ctx,
 		sandbox:      in.sandbox,
+		protected:    in.protected,
 		dir:          in.dir,
 		dry:          in.dry,
 		callIDs:      append([]int{}, in.callIDs...),
 		nextCall:     in.nextCall,
 		stack:        append([]string{}, in.stack...),
+		clock:        in.clock,
 	}
+	worker.SetSeed(in.seed*1_000_003 + int64(idx) + 1)
+	return worker
 }
 
 // snapshot делает плоскую копию видимых переменных.
@@ -234,10 +242,12 @@ func (s *scope) snapshot() *scope {
 	}
 
 	// Идём от внешней области к внутренней, чтобы ближние переменные
-	// затеняли дальние, как при обычном поиске.
+	// затеняли дальние, как при обычном поиске. Копии общие: словарь в
+	// переменной и тот же словарь в снимке функции остаются одним словарём.
+	memo := newCopyMemo()
 	for i := len(chain) - 1; i >= 0; i-- {
 		for name, value := range chain[i].vars {
-			flat.vars[name] = copyValue(value)
+			flat.vars[name] = copyWith(value, memo)
 		}
 		for name, declared := range chain[i].types {
 			flat.types[name] = declared
@@ -245,29 +255,149 @@ func (s *scope) snapshot() *scope {
 		for name, inferred := range chain[i].inferred {
 			flat.inferred[name] = inferred
 		}
+		for name, constant := range chain[i].consts {
+			flat.consts[name] = constant
+		}
 	}
 	return flat
 }
 
 // copyValue делает глубокую копию изменяемых значений.
 func copyValue(v Value) Value {
+	return copyWith(v, newCopyMemo())
+}
+
+// copyMemo — уже скопированное: один словарь, видимый из двух мест,
+// остаётся в копии одним словарём, а функция, лежащая в словаре из
+// собственного снимка, не копируется бесконечно.
+type copyMemo struct {
+	funcs   map[*FuncValue]*FuncValue
+	records map[*RecordValue]*RecordValue
+	maps    map[uintptr]MapValue
+	configs map[uintptr]config.ConfigMap
+}
+
+func newCopyMemo() *copyMemo {
+	return &copyMemo{
+		funcs:   make(map[*FuncValue]*FuncValue),
+		records: make(map[*RecordValue]*RecordValue),
+		maps:    make(map[uintptr]MapValue),
+		configs: make(map[uintptr]config.ConfigMap),
+	}
+}
+
+func copyWith(v Value, copied *copyMemo) Value {
 	switch val := v.(type) {
 	case ListValue:
 		out := make(ListValue, len(val))
 		for i, item := range val {
-			out[i] = copyValue(item)
+			out[i] = copyWith(item, copied)
 		}
 		return out
 
 	case MapValue:
+		key := reflect.ValueOf(val).Pointer()
+		if done, ok := copied.maps[key]; ok && key != 0 {
+			return done
+		}
 		out := make(MapValue, len(val))
-		for key, item := range val {
-			out[key] = copyValue(item)
+		if key != 0 {
+			copied.maps[key] = out
+		}
+		for name, item := range val {
+			out[name] = copyWith(item, copied)
 		}
 		return out
 
+	case *FuncValue:
+		// Итерации parallel for не должны делить словари из снимка
+		// функции: каждая получает свою копию функции целиком.
+		if done, ok := copied.funcs[val]; ok {
+			return done
+		}
+		out := *val
+		copied.funcs[val] = &out
+		if val.env != nil {
+			env := newScope(nil)
+			env.frozen = true
+			for name, item := range val.env.vars {
+				env.vars[name] = copyWith(item, copied)
+				env.types[name] = val.env.types[name]
+				env.inferred[name] = val.env.inferred[name]
+				env.consts[name] = val.env.consts[name]
+			}
+			out.env = env
+		}
+		if val.Base != nil {
+			out.Base = copyWith(val.Base, copied).(*FuncValue)
+		}
+		if val.Bound != nil {
+			out.Bound = make([]Value, len(val.Bound))
+			for i, item := range val.Bound {
+				out.Bound[i] = copyWith(item, copied)
+			}
+		}
+		if val.Chain != nil {
+			out.Chain = make([]*FuncValue, len(val.Chain))
+			for i, step := range val.Chain {
+				out.Chain[i] = copyWith(step, copied).(*FuncValue)
+			}
+		}
+		return &out
+
+	case *RecordValue:
+		if done, ok := copied.records[val]; ok {
+			return done
+		}
+		out := &RecordValue{Decl: val.Decl, Fields: make(map[string]Value, len(val.Fields))}
+		copied.records[val] = out
+		for name, item := range val.Fields {
+			out.Fields[name] = copyWith(item, copied)
+		}
+		return out
+
+	case *MorphValue:
+		// Дельта неизменна; морфизм-функция несёт функцию со снимком.
+		if val.isDelta() {
+			return val
+		}
+		out := *val
+		if val.fn != nil {
+			out.fn = copyWith(val.fn, copied).(*FuncValue)
+		}
+		if val.chain != nil {
+			out.chain = make([]*MorphValue, len(val.chain))
+			for i, step := range val.chain {
+				out.chain[i] = copyWith(step, copied).(*MorphValue)
+			}
+		}
+		return &out
+
+	case *FunctorValue:
+		out := *val
+		if val.objFn != nil {
+			out.objFn = copyWith(val.objFn, copied).(*FuncValue)
+		}
+		if val.morphFn != nil {
+			out.morphFn = copyWith(val.morphFn, copied).(*FuncValue)
+		}
+		if val.chain != nil {
+			out.chain = make([]*FunctorValue, len(val.chain))
+			for i, step := range val.chain {
+				out.chain[i] = copyWith(step, copied).(*FunctorValue)
+			}
+		}
+		return &out
+
 	case ConfigValue:
+		key := reflect.ValueOf(val.Data).Pointer()
+		if done, ok := copied.configs[key]; ok && key != 0 {
+			return ConfigValue{Name: val.Name, Data: done, Notes: val.Notes}
+		}
 		data := make(config.ConfigMap, len(val.Data))
+		if key != 0 {
+			copied.configs[key] = data
+		}
 		for section, params := range val.Data {
 			copied := make(map[string]string, len(params))
 			for key, value := range params {
