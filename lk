@@ -1,7 +1,0 @@
-Ошибка: 
-
-2025-09-23 04:08:46.703 [streampro_notification_processor-1] [ERROR] [o.h.e.jdbc.spi.SqlExceptionHelper.logExceptions] - ERROR: fetchPreparedStatementMapping. Client session: 1551965763462496512 doesnt exist
-
-Ошибка из лога БД:
-
-2025-09-23 04:08:46 MSK [2660713]: [7986-1] app=PostgreSQL JDBC Driver,user=aeset_appl,db=dbaesetift,client=tvldd-pprb00856.delta.sbrf.ru ERROR:  fetchPreparedStatementMapping. Client session: 1551965763462496512 doesnt exist
