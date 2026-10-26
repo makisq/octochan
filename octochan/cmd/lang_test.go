@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -167,8 +168,14 @@ func TestShellHistoryPersists(t *testing.T) {
 	}
 
 	fm, _ := mustFileManager()
-	if info, err := os.Stat(fm.StatePath()); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("файл состояния: %v %v", info, err)
+	info, err := os.Stat(fm.StatePath())
+	if err != nil {
+		t.Fatalf("файл состояния: %v", err)
+	}
+	// Права 0600 есть только в Unix: на Windows доступ задаётся списками
+	// ACL, а Mode().Perm() обычного файла там всегда 0666.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("файл состояния доступен не только владельцу: %v", info.Mode().Perm())
 	}
 	viper.Set("shell.history_size", 1)
 	t.Cleanup(func() { viper.Set("shell.history_size", 1000) })

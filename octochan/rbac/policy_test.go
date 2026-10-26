@@ -111,9 +111,18 @@ func TestPolicySurvivesSave(t *testing.T) {
 	if _, err := s.Create("dan", []string{"read", "apply"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	_ = s.DenyPerms("dan", []string{"rollback"}, nil)
-	_ = s.SetScope("dan", []string{"/srv/team"})
-	_ = s.SetLimits("dan", []Limit{{Perm: "apply", Count: 3, Window: time.Hour}}, nil)
+	// Каталог берётся из TempDir: «/srv/team» абсолютен только в Unix, на
+	// Windows SetScope его отвергал, а ошибка молча терялась в «_ =».
+	team := filepath.Join(t.TempDir(), "team")
+	for _, err := range []error{
+		s.DenyPerms("dan", []string{"rollback"}, nil),
+		s.SetScope("dan", []string{team}),
+		s.SetLimits("dan", []Limit{{Perm: "apply", Count: 3, Window: time.Hour}}, nil),
+	} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}

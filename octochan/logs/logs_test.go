@@ -3,6 +3,7 @@ package logs
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -206,8 +207,53 @@ func TestRotation(t *testing.T) {
 	}
 }
 
+func TestArchivesOrderedByNameNotModTime(t *testing.T) {
+	// На Linux отметка времени файла грубее миллисекунды: переносы подряд
+	// дают архивам одинаковое время изменения. Порядок обязан браться из
+	// имени — времени в префиксе и номера переноса, — иначе удаляется не
+	// самый старый архив. Здесь время выровнено явно, на любой системе.
+	dir := t.TempDir()
+	files := []string{
+		"octochan.log",
+		"2026-10-23_octochan.log",   // первый перенос 23-го
+		"2026-10-23_1.octochan.log", // второй перенос 23-го
+		"2026-10-23_2.octochan.log", // третий
+		"2026-10-24_octochan.log",   // перенос 24-го
+	}
+	same := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	for _, f := range files {
+		path := filepath.Join(dir, f)
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, same, same); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	archives, err := Archives(dir, "octochan.log", "%Y-%m-%d_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range archives {
+		got = append(got, filepath.Base(a.Path))
+	}
+	want := []string{"octochan.log", "2026-10-24_octochan.log", "2026-10-23_2.octochan.log",
+		"2026-10-23_1.octochan.log", "2026-10-23_octochan.log"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("порядок архивов:\n  получено  %v\n  ожидалось %v", got, want)
+	}
+}
+
 // Журнал перенёс другой процесс: запись идёт в новый файл, а не в архив.
 func TestRotationByAnotherProcess(t *testing.T) {
+	// Перенос открытого журнала чужим процессом — механика logrotate в Unix.
+	// В Windows Go открывает файлы без FILE_SHARE_DELETE, и перенести
+	// открытый журнал не может никто: такой ситуации там не бывает.
+	if runtime.GOOS == "windows" {
+		t.Skip("в Windows открытый файл не переносится")
+	}
 	dir := t.TempDir()
 	a := &Rotator{Dir: dir, Name: "j.log"}
 	defer a.Close()

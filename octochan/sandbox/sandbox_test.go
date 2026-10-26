@@ -13,8 +13,6 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 // TestMain делает тестовый бинарь ребёнком песочницы: Start запускает
@@ -68,18 +66,6 @@ func run(p probeReq) error {
 		return os.WriteFile(p.Path, []byte("x"), 0o600)
 	case "symlink":
 		return os.Symlink("/etc/passwd", p.Path)
-	case "exec":
-		return syscall.Exec(p.Path, []string{p.Path}, nil)
-	case "kill":
-		return syscall.Kill(1, 0)
-	case "unshare":
-		return syscall.Unshare(syscall.CLONE_NEWUSER)
-	case "socket":
-		fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
-		if err == nil {
-			syscall.Close(fd)
-		}
-		return err
 	case "dial":
 		conn, err := net.Dial("tcp", p.Addr)
 		if err == nil {
@@ -92,21 +78,16 @@ func run(p probeReq) error {
 			ln.Close()
 		}
 		return err
-	case "caps":
-		header := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
-		var data [2]unix.CapUserData
-		if err := unix.Capget(&header, &data[0]); err != nil {
-			return err
-		}
-		if data[0].Effective|data[1].Effective|data[0].Permitted|data[1].Permitted != 0 {
-			return fmt.Errorf("возможности ядра остались: %x %x", data[0].Effective, data[1].Effective)
-		}
-		return nil
 	case "env":
 		if v := os.Getenv(p.Path); v != "" {
 			return errors.New("видна: " + v)
 		}
 		return nil
+	}
+	// Пробы системных вызовов Linux живут в probe_linux_test.go: на других
+	// системах их нет, и без разделения пакет не собирался даже для go vet.
+	if handled, err := runPlatform(p); handled {
+		return err
 	}
 	return errors.New("неизвестная проба " + p.Op)
 }

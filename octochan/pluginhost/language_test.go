@@ -15,6 +15,11 @@ func TestLanguageModuleOverGRPC(t *testing.T) {
 	if testing.Short() {
 		t.Skip("собирает модуль")
 	}
+	// Тестовый бинарь можно запустить и там, где Go нет (собрали на одной
+	// машине — гоняем на другой): тогда собрать модуль нечем.
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("нет компилятора go для сборки модуля")
+	}
 	dir := t.TempDir()
 	module := filepath.Join(dir, "lang-de"+ModuleExtension)
 	build := exec.Command("go", "build", "-o", module, "octochan/examples/langmodule")
