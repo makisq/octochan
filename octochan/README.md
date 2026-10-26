@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/mascot.webp" alt="OCTOCHAN" width="320"></p>
+
 # octochan
 
 Минималистичный оркестратор для командной строки и CI. В основе — язык
