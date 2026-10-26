@@ -135,6 +135,9 @@ type ScriptPrompt struct {
 	Report     string `json:"report,omitempty"`
 	// Rules — жёсткие правила промпта, которые план соблюдает.
 	Rules []string `json:"rules,omitempty"`
+	// Decision — запись журнала решений о плане: по ней решение оператора
+	// попадает в надёжность правил.
+	Decision string `json:"decision,omitempty"`
 }
 
 // Describe возвращает однострочное описание для списка.

@@ -96,6 +96,16 @@ func initConfig() error {
 	viper.SetDefault("shell.history_size", 1000)
 	viper.SetDefault("shell.logo", true)
 
+	// Кольца формального промпта: порог well_True для плана и для заявки,
+	// условный счёт правила без журнала, показывать ли оценки и сколько
+	// отказов подряд по одному промпту допустимо до оператора.
+	viper.SetDefault("fp.rings.enabled", true)
+	viper.SetDefault("fp.rings.well_true.plan", 0.5)
+	viper.SetDefault("fp.rings.well_true.apply", 0.6)
+	viper.SetDefault("fp.rings.prior", "8/8")
+	viper.SetDefault("fp.rings.show_scores", false)
+	viper.SetDefault("fp.rings.budget.plan", 3)
+
 	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
 	viper.SetDefault("ssl", true)
 	viper.SetDefault("tls.min_version", "1.2")

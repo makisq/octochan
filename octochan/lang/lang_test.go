@@ -780,7 +780,20 @@ func TestPackageManifest(t *testing.T) {
 		t.Fatal("копия реестра потеряла описание пакета")
 	}
 
+	// Условный счёт автора — для алиасов пакета.
+	writeManifest(t, dir, "version: 1\nprior.f: 8/8\n")
+	registry = NewRegistry()
+	if err := registry.LoadDir("pgconf", dir); err != nil {
+		t.Fatal(err)
+	}
+	if pkg, _ := registry.Package("pgconf"); pkg.Priors["f"] != (Prior{Successes: 8, Uses: 8}) {
+		t.Fatalf("условный счёт: %+v", pkg.Priors)
+	}
+
 	cases := map[string]string{
+		"version: 1\nprior.f: 9/8\n":    "успехов больше, чем применений",
+		"version: 1\nprior.f: много\n":  "ожидалось «успехи/применения»",
+		"version: 1\nprior.g: 8/8\n":    "prior.g: в пакете pgconf нет алиаса g",
 		"version: 1.2.3.4\n":            "ожидалось вида 1, 1.2 или 1.2.3",
 		"version: latest\n":             "ожидалось вида",
 		"verison: 1.0\n":                "неизвестное поле \"verison\"",

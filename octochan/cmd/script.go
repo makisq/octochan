@@ -264,8 +264,9 @@ func fileHash(path string) (string, error) {
 // scriptRequest оформляет заявку на выполнение сценария на языке алиасов.
 //
 // Если сценарий написан по формальному промпту, промпт и отчёт модели
-// проверяются до плана, а жёсткие правила промпта — по плану: заявка на
-// план, который нарушает абсолютное правило, не оформляется.
+// проверяются до плана, а утверждения плана и жёсткие правила промпта —
+// кольцами и арбитром по плану: заявка на план, который их не прошёл, не
+// оформляется.
 func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts *promptOptions) (*workspace.Request, error) {
 	if len(args) > 1 {
 		return nil, errors.New("сценарий на языке алиасов параметров не принимает: значения пишутся в его тексте")
@@ -315,7 +316,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 		// заявка на ошибку: согласовывать нечего.
 		return nil, fmt.Errorf("сценарий прервался при построении плана: %w", err)
 	}
-	rules, err := checkRules(cmd, prompt, effects, calls)
+	judged, err := judgePlan(cmd, purposeRequest, input, prompt, popts.trust, registry, effects, calls)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +332,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 		Libraries: libraries,
 		Packages:  packages,
 		Effects:   fingerprints(effects),
-		Prompt:    input.stored(rules),
+		Prompt:    input.stored(judged),
 		Seed:      setup.seed,
 		Clock:     setup.clock.Format(time.RFC3339Nano),
 	}
