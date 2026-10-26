@@ -91,8 +91,10 @@ func initConfig() error {
 	// выполнять, если ядро не даёт полной изоляции.
 	viper.SetDefault("sandbox.strict", false)
 
-	// Оболочка: сколько команд помнить между запусками.
+	// Оболочка: сколько команд помнить между запусками и показывать ли
+	// логотип при входе.
 	viper.SetDefault("shell.history_size", 1000)
+	viper.SetDefault("shell.logo", true)
 
 	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
 	viper.SetDefault("ssl", true)
