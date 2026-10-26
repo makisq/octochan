@@ -14,13 +14,13 @@
 
 ## Оглавление
 
-- [`ochan !install`](#ochan-install) — Установить модуль команд
+- [`ochan !install`](#ochan-install) — Установить модуль или пакет алиасов
 - [`ochan aliases`](#ochan-aliases) — Показать доступные алиасы и встроенные функции
 - [`ochan apply`](#ochan-apply) — Выполнить сценарий
 - [`ochan approve`](#ochan-approve) — Согласовать заявку
 - [`ochan audit`](#ochan-audit) — Журнал аудита: кто, что и когда пытался выполнить
 - [`ochan audit verify`](#ochan-audit-verify) — Проверить цепочку хешей журнала аудита
-- [`ochan auth`](#ochan-auth) — Установить токен для доступа к RLM API
+- [`ochan auth`](#ochan-auth) — Установить токен исполнителя: RLM или модуля
 - [`ochan back`](#ochan-back) — Возврат: back role [роль]
 - [`ochan back role`](#ochan-back-role) — Вернуться к прошлой роли
 - [`ochan check`](#ochan-check) — Проверить сценарий языка алиасов, ничего не выполняя
@@ -42,7 +42,7 @@
 - [`ochan logs`](#ochan-logs) — Показать журнал работы
 - [`ochan logs files`](#ochan-logs-files) — Показать файлы журнала ochan: текущий и архивы по дате
 - [`ochan logs rank`](#ochan-logs-rank) — Ранжировать строки журнала по уровням важности
-- [`ochan modules`](#ochan-modules) — Показать установленные модули
+- [`ochan modules`](#ochan-modules) — Показать установленные модули и пакеты алиасов
 - [`ochan patch`](#ochan-patch) — Применить изменения к основному конфигу
 - [`ochan plan`](#ochan-plan) — Показать, что произойдёт, ничего не делая
 - [`ochan print`](#ochan-print) — Вывести содержимое файла или stdin
@@ -81,16 +81,41 @@
 
 ## ochan !install
 
-Установить модуль команд.
+Установить модуль или пакет алиасов.
 
 ```
-ochan !install <module_file>
+ochan !install <модуль.hcplugin | пакет | файл.ochan>
 ```
 
-Модуль копируется в ~/.octochan/modules и фиксируется его контрольная
-сумма. При запуске загружаются только модули с совпадающей суммой.
+Одна команда ставит всё, чем расширяется ochan, в ~/.octochan/modules:
+
+  модуль.hcplugin  модуль gRPC: команды, языки и исполнители сценариев —
+                   что он объявит. Фиксируется его контрольная сумма, и
+                   подменённый после установки файл не загрузится
+  пакет            каталог с алиасами (*.ochan) и package.yaml — скилл для
+                   сценариев и формального промпта. Модули .hcplugin из
+                   каталога ставятся вместе с ним: скилл и его исполнитель
+  файл.ochan       однофайловый пакет алиасов
+
+Пакет проверяется до установки: с ошибкой он не ставится и библиотеку не
+ломает. Исполнитель модуля выбирается по полю service сценария, как
+встроенный; его токен — ochan auth --executor <имя>.
+
+С --remove удаляет модуль (имя файла) или пакет (имя пакета).
 
 Право: `install`.
+
+Примеры:
+
+```
+ochan '!install' ssh-runner.hcplugin
+ochan '!install' ./pgconf
+ochan '!install' --remove pgconf
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--remove` | bool | — | удалить модуль или пакет алиасов |
 
 ## ochan aliases
 
@@ -201,16 +226,31 @@ ochan audit verify
 
 ## ochan auth
 
-Установить токен для доступа к RLM API.
+Установить токен исполнителя: RLM или модуля.
 
 ```
 ochan auth [token]
 ```
 
-Токен сохраняется в ~/.octochan/.env с правами 0600.
-Альтернатива — переменная окружения OCTOCHAN_API_TOKEN.
+Без --executor — токен RLM API: ~/.octochan/.env с правами 0600 или
+переменная окружения OCTOCHAN_API_TOKEN.
+
+С --executor — токен исполнителя модуля: ~/.octochan/tokens/<имя> с
+правами 0600 или OCTOCHAN_TOKEN_<ИМЯ>. Ядро передаёт его исполнителю
+при каждом вызове; в config.yaml токены не попадают.
 
 Право: `auth`.
+
+Примеры:
+
+```
+ochan auth
+ochan auth --executor ssh
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--executor` | string | — | исполнитель, чей это токен: имя модуля-исполнителя (ssh, ansible…); без флага — RLM |
 
 ## ochan back
 
@@ -628,7 +668,7 @@ journalctl -u nginx | ochan logs rank - --summary --top 5
 
 ## ochan modules
 
-Показать установленные модули.
+Показать установленные модули и пакеты алиасов.
 
 ```
 ochan modules

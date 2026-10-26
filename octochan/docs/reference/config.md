@@ -102,6 +102,7 @@
 |---|---|
 | `OCTOCHAN_CONFIG` | путь до `config.yaml` |
 | `OCTOCHAN_API_TOKEN` | токен API исполнителя RLM — вместо `ochan auth` |
+| `OCTOCHAN_TOKEN_<ИМЯ>` | токен исполнителя модуля (`OCTOCHAN_TOKEN_SSH`) — вместо `ochan auth --executor <имя>` |
 | `OCTOCHAN_SMTP_PASSWORD` | пароль почты |
 | `OCTOCHAN_ROLE` | роль для этого запуска — только роль без логина и пароля |
 | `OCTOCHAN_REMOTE_LOGIN`, `OCTOCHAN_REMOTE_PASSWORD` | вход на сервер без вопросов (`connect`, `remote`) |

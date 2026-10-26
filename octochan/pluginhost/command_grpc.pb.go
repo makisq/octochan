@@ -29,6 +29,8 @@ const (
 	CommandModule_Name_FullMethodName                     = "/pluginhost.CommandModule/Name"
 	CommandModule_Version_FullMethodName                  = "/pluginhost.CommandModule/Version"
 	CommandModule_GetTranslations_FullMethodName          = "/pluginhost.CommandModule/GetTranslations"
+	CommandModule_GetRunners_FullMethodName               = "/pluginhost.CommandModule/GetRunners"
+	CommandModule_CallRunner_FullMethodName               = "/pluginhost.CommandModule/CallRunner"
 )
 
 // CommandModuleClient is the client API for CommandModule service.
@@ -49,6 +51,10 @@ type CommandModuleClient interface {
 	// Языки модуля. Модуль команд без языка его не реализует: старые
 	// модули отвечают Unimplemented, и хост считает, что языков у них нет.
 	GetTranslations(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TranslationsResponse, error)
+	// Исполнители сценариев модуля. Как и с языками, старые модули отвечают
+	// Unimplemented, и хост считает, что исполнителей у них нет.
+	GetRunners(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RunnersResponse, error)
+	CallRunner(ctx context.Context, in *RunnerCall, opts ...grpc.CallOption) (*RunnerReply, error)
 }
 
 type commandModuleClient struct {
@@ -159,6 +165,26 @@ func (c *commandModuleClient) GetTranslations(ctx context.Context, in *Empty, op
 	return out, nil
 }
 
+func (c *commandModuleClient) GetRunners(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RunnersResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunnersResponse)
+	err := c.cc.Invoke(ctx, CommandModule_GetRunners_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *commandModuleClient) CallRunner(ctx context.Context, in *RunnerCall, opts ...grpc.CallOption) (*RunnerReply, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunnerReply)
+	err := c.cc.Invoke(ctx, CommandModule_CallRunner_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CommandModuleServer is the server API for CommandModule service.
 // All implementations must embed UnimplementedCommandModuleServer
 // for forward compatibility.
@@ -177,6 +203,10 @@ type CommandModuleServer interface {
 	// Языки модуля. Модуль команд без языка его не реализует: старые
 	// модули отвечают Unimplemented, и хост считает, что языков у них нет.
 	GetTranslations(context.Context, *Empty) (*TranslationsResponse, error)
+	// Исполнители сценариев модуля. Как и с языками, старые модули отвечают
+	// Unimplemented, и хост считает, что исполнителей у них нет.
+	GetRunners(context.Context, *Empty) (*RunnersResponse, error)
+	CallRunner(context.Context, *RunnerCall) (*RunnerReply, error)
 	mustEmbedUnimplementedCommandModuleServer()
 }
 
@@ -216,6 +246,12 @@ func (UnimplementedCommandModuleServer) Version(context.Context, *Empty) (*Versi
 }
 func (UnimplementedCommandModuleServer) GetTranslations(context.Context, *Empty) (*TranslationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTranslations not implemented")
+}
+func (UnimplementedCommandModuleServer) GetRunners(context.Context, *Empty) (*RunnersResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRunners not implemented")
+}
+func (UnimplementedCommandModuleServer) CallRunner(context.Context, *RunnerCall) (*RunnerReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CallRunner not implemented")
 }
 func (UnimplementedCommandModuleServer) mustEmbedUnimplementedCommandModuleServer() {}
 func (UnimplementedCommandModuleServer) testEmbeddedByValue()                       {}
@@ -418,6 +454,42 @@ func _CommandModule_GetTranslations_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CommandModule_GetRunners_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommandModuleServer).GetRunners(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommandModule_GetRunners_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommandModuleServer).GetRunners(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CommandModule_CallRunner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunnerCall)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommandModuleServer).CallRunner(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommandModule_CallRunner_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommandModuleServer).CallRunner(ctx, req.(*RunnerCall))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CommandModule_ServiceDesc is the grpc.ServiceDesc for CommandModule service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -464,6 +536,14 @@ var CommandModule_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTranslations",
 			Handler:    _CommandModule_GetTranslations_Handler,
+		},
+		{
+			MethodName: "GetRunners",
+			Handler:    _CommandModule_GetRunners_Handler,
+		},
+		{
+			MethodName: "CallRunner",
+			Handler:    _CommandModule_CallRunner_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

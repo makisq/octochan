@@ -99,6 +99,33 @@ message CommandRequest {
     map<string, string> flags = 3;
 }
 
+// Runner — исполнитель сценариев, которого приносит модуль: SSH, Ansible,
+// API своей системы. Ядро выбирает его по полю service сценария, как и
+// встроенных исполнителей.
+message Runner {
+    string kind = 1;              // как называется способ выполнения: SSH, Ansible
+    repeated string services = 2; // сервисы сценариев, которые он выполняет
+    repeated string ops = 3;      // plan и apply; wait и status — если умеет
+}
+
+message RunnersResponse {
+    repeated Runner runners = 1;
+}
+
+// RunnerCall — вызов исполнителя. Данные — JSON: ядро и модуль
+// договариваются о формате сценария, плана и статуса, а не о Go-типах, и
+// протокол не меняется, когда у них появляются поля.
+message RunnerCall {
+    string kind = 1;
+    string op = 2;
+    bytes payload = 3;
+    map<string, string> credentials = 4; // токены, которые ядро выдало исполнителю
+}
+
+message RunnerReply {
+    bytes payload = 1;
+}
+
 service CommandModule {
     // Command management
     rpc GetCommands(Empty) returns (CommandsResponse);
@@ -116,4 +143,9 @@ service CommandModule {
     // Языки модуля. Модуль команд без языка его не реализует: старые
     // модули отвечают Unimplemented, и хост считает, что языков у них нет.
     rpc GetTranslations(Empty) returns (TranslationsResponse);
+
+    // Исполнители сценариев модуля. Как и с языками, старые модули отвечают
+    // Unimplemented, и хост считает, что исполнителей у них нет.
+    rpc GetRunners(Empty) returns (RunnersResponse);
+    rpc CallRunner(RunnerCall) returns (RunnerReply);
 }

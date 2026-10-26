@@ -9,18 +9,26 @@ import (
 	"time"
 
 	"octochan/rlm"
+	"octochan/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
 
+var authExecutor string
+
 var authCmd = &cobra.Command{
 	Use:   "auth [token]",
-	Short: "Установить токен для доступа к RLM API",
+	Short: "Установить токен исполнителя: RLM или модуля",
 	Args:  cobra.MaximumNArgs(1),
-	Long: "Токен сохраняется в ~/.octochan/.env с правами 0600.\n" +
-		"Альтернатива — переменная окружения " + rlm.EnvTokenVar + ".",
+	Long: "Без --executor — токен RLM API: ~/.octochan/.env с правами 0600 или\n" +
+		"переменная окружения " + rlm.EnvTokenVar + ".\n\n" +
+		"С --executor — токен исполнителя модуля: ~/.octochan/tokens/<имя> с\n" +
+		"правами 0600 или OCTOCHAN_TOKEN_<ИМЯ>. Ядро передаёт его исполнителю\n" +
+		"при каждом вызове; в config.yaml токены не попадают.",
+	Example: "ochan auth\n" +
+		"ochan auth --executor ssh",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fm, err := mustFileManager()
 		if err != nil {
@@ -41,6 +49,18 @@ var authCmd = &cobra.Command{
 			return fmt.Errorf("пустой токен")
 		}
 
+		if authExecutor != "" && authExecutor != "rlm" {
+			path, err := fm.SaveExecutorToken(authExecutor, token)
+			if err != nil {
+				return err
+			}
+			cmd.Printf("Токен исполнителя %s сохранён: %s\n", authExecutor, path)
+			if _, ok := scenario.Executors()[authExecutor]; !ok {
+				cmd.PrintErrf("внимание: исполнителя %s сейчас нет; токен подействует, когда его модуль будет установлен\n",
+					authExecutor)
+			}
+			return nil
+		}
 		if err := rlm.SaveTokenTo(fm.TokenFilePath(), token); err != nil {
 			return err
 		}
@@ -217,4 +237,8 @@ func stopTokenReminder() {
 		close(tokenTimerStop)
 		tokenTimerStop = nil
 	}
+}
+
+func init() {
+	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: имя модуля-исполнителя (ssh, ansible…); без флага — RLM")
 }

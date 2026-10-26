@@ -138,6 +138,14 @@ func Register(service string, runner Runner) {
 	runners[service] = runner
 }
 
+// Unregister убирает сервис из реестра: модуль, который его выполнял,
+// выгружен.
+func Unregister(service string) {
+	runnersMu.Lock()
+	defer runnersMu.Unlock()
+	delete(runners, service)
+}
+
 // Resolve находит исполнителя для сервиса.
 func Resolve(service string) (Runner, error) {
 	runnersMu.RLock()
