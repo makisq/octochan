@@ -26,8 +26,7 @@ Linux, Ansible или что угодно ещё подключается ист
   [встроенных функций](docs/reference/builtins.md),
   [настроек](docs/reference/config.md).
 - [Сервер MCP](mcp/README.md) и [протокол формального промпта](fp/protocol.md).
-- Манифест формального промптирования — [md](docs/formal-prompting.md),
-  [pdf](docs/formal-prompting.pdf).
+- [Манифест формального промптирования](docs/formal-prompting.md), версия 0.4.
 
 ## Быстрый старт
 
