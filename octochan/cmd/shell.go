@@ -90,6 +90,7 @@ func init() {
 	shellCmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		return runInteractiveShell(cmd.Context())
 	}
+	shellCmd.Flags().BoolVar(&shellNoLogo, "no-logo", false, "не показывать логотип при входе")
 }
 
 // shellTerminal — исходный режим терминала; восстанавливается при любом
@@ -131,6 +132,9 @@ func runInteractiveShell(ctx context.Context) error {
 	startTokenReminder(func(msg string) { fmt.Println("\n" + msg) })
 	defer stopTokenReminder()
 
+	// Логотип — только здесь, при входе в оболочку: у отдельных команд он
+	// мешал бы выводу и попадал бы в журналы.
+	printShellLogo(os.Stdout)
 	fmt.Println(i18n.T("Добро пожаловать в OctoChan. Введите 'help' для списка команд, 'exit' для выхода."))
 
 	loadShellHistory()

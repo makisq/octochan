@@ -170,6 +170,7 @@ var english = map[string]string{
 	"комментарий к решению":                                                                "comment on the decision",
 	"куда записать результат (по умолчанию patched.conf)":                                  "where to write the result (patched.conf by default)",
 	"не сверять скиллы с библиотекой: скилл даёт то, что объявлено в provides:":            "do not check skills against the library: a skill provides what its provides: declares",
+	"не показывать логотип при входе":                                                      "do not show the logo on entry",
 	"не создавать снапшот":                                                                 "do not create a snapshot",
 	"новое имя роли":                                                                       "new role name",
 	"откатить повторно или поверх файлов, изменившихся после операции":                     "roll back again or over files changed after the operation",
