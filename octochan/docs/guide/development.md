@@ -64,7 +64,7 @@ protoc -I.. --go_out=.. --go_opt=paths=source_relative \
 ## Сборка релиза
 
 ```bash
-VERSION=0.1.0-alpha
+VERSION=0.2.0-alpha
 for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
   os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=.exe
   GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X octochan/cmd.Version=$VERSION" \

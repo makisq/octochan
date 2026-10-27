@@ -49,10 +49,17 @@ command -v go >/dev/null 2>&1 || { echo "Нужен Go 1.22 или новее: h
 
 OUT="$ROOT/bin"
 mkdir -p "$OUT"
+# VERSION задаёт make install; без неё — версия, записанная в исходниках.
+LDFLAGS=""
+MCP_LDFLAGS=""
+if [ -n "${VERSION:-}" ]; then
+	LDFLAGS="-X octochan/cmd.Version=$VERSION"
+	MCP_LDFLAGS="-X main.serverVersion=$VERSION"
+fi
 echo "Сборка ochan…"
-(cd "$ROOT" && go build -trimpath -o "$OUT/ochan" .)
+(cd "$ROOT" && go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/ochan" .)
 echo "Сборка ochan-mcp…"
-(cd "$ROOT/mcp" && go build -trimpath -o "$OUT/ochan-mcp" .)
+(cd "$ROOT/mcp" && go build -trimpath -ldflags "$MCP_LDFLAGS" -o "$OUT/ochan-mcp" .)
 copy "$OUT/ochan" "$OUT/ochan-mcp"
 echo "Установлено: $BIN/ochan, $BIN/ochan-mcp"
 

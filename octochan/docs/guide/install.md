@@ -13,7 +13,7 @@ ochan --version
 ```
 
 ```
-ochan 0.1.0-alpha
+ochan 0.2.0-alpha
 ```
 
 `make install` собирает `ochan` и сервер MCP `ochan-mcp` и кладёт их в
@@ -27,7 +27,11 @@ ochan 0.1.0-alpha
 | `make install PREFIX=/usr/local` | в `/usr/local/bin`; копирование — через `sudo`, сборка — от вашего имени |
 | `scripts/install.sh` | то же без `make` |
 | `make uninstall` | убрать |
-| `make build` | только собрать в `bin/` |
+| `make build` | только собрать в `bin/` каталога репозитория |
+| `make build OUT=$HOME/tools` | собрать в любой каталог, куда можно писать |
+| `make vendor`, `make offline` | зависимости в `vendor/` и сборка из них без сети |
+| `make dist` | релиз под все платформы в `dist/` с `SHA256SUMS` |
+| `make version` | какую версию соберёт `make` |
 
 На Windows:
 
@@ -39,7 +43,9 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 добавляется в `PATH` пользователя; в новом окне терминала `ochan` и
 `ochan-mcp` вызываются по имени. Убрать — с `-Uninstall`.
 
-Собрать руками, без установки:
+### go build — без make
+
+Собрать руками, без установки, — в любой каталог:
 
 ```bash
 go build -o ochan .
@@ -54,15 +60,56 @@ GOOS=darwin  GOARCH=arm64 go build -o ochan-mac .
 GOOS=linux   GOARCH=arm64 go build -o ochan-arm64 .
 ```
 
-Версия задаётся при сборке релиза:
+Версию печатают `ochan --version` и `ochan-mcp --version`; в исходниках
+записана `0.2.0-alpha`, другая задаётся при сборке:
 
 ```bash
-go build -ldflags "-X octochan/cmd.Version=0.1.0-alpha" -o ochan .
-(cd mcp && go build -ldflags "-X main.serverVersion=0.1.0-alpha" -o ../ochan-mcp .)
+go build -ldflags "-X octochan/cmd.Version=0.2.0-alpha" -o ochan .
+(cd mcp && go build -ldflags "-X main.serverVersion=0.2.0-alpha" -o ../ochan-mcp .)
+make build VERSION=0.2.0-alpha+site     # то же через make
 ```
 
-Собранное руками кладётся в любой каталог из `PATH` — так же, как это
-делает `make install`.
+### Закрытые системы
+
+Там, где класть программы в `/bin`, `/usr/bin` и `/usr/local/bin` нельзя,
+а сети нет, ochan собирается и работает целиком в каталогах пользователя:
+ни системных путей, ни прав root ему не нужно.
+
+1. **Без системных каталогов.** `make build OUT=$HOME/tools` или
+   `go build -o $HOME/tools/ochan .` — в любой каталог, куда можно писать.
+   Запуск — по полному пути (`$HOME/tools/ochan --version`) или через свой
+   каталог в `PATH` (`export PATH="$HOME/tools:$PATH"` в профиле). `make
+   install PREFIX=$HOME/opt` кладёт в `$HOME/opt/bin` и `sudo` не просит,
+   если каталог ваш.
+2. **Без сети.** На машине с сетью: `make vendor` — зависимости обоих
+   модулей (ochan и ochan-mcp) ложатся в `vendor/`. Каталог `octochan`
+   целиком, вместе с `vendor/`, переносится на закрытую машину, и там
+   `make offline` собирает из него, не обращаясь к сети (`GOFLAGS=-mod=vendor
+   GOPROXY=off`). Без make — то же руками:
+
+   ```bash
+   GOFLAGS=-mod=vendor GOPROXY=off go build -o $HOME/tools/ochan .
+   (cd mcp && GOFLAGS=-mod=vendor GOPROXY=off go build -o $HOME/tools/ochan-mcp .)
+   ```
+
+3. **Без записи в домашний каталог Go.** Кеш сборки и модулей Go по
+   умолчанию живёт в `~/.cache/go-build` и `~/go`; если туда нельзя или
+   `/tmp` смонтирован с `noexec`, их переносят в свой каталог:
+
+   ```bash
+   export GOCACHE=$HOME/work/go-cache GOMODCACHE=$HOME/work/go-mod GOTMPDIR=$HOME/work/go-tmp
+   export GOTOOLCHAIN=local      # не скачивать другую версию Go
+   mkdir -p "$GOTMPDIR"
+   ```
+
+4. **Только готовый файл.** Собрать на другой машине (`make dist` или
+   `GOOS=linux GOARCH=amd64 go build …`) и перенести один исполняемый файл:
+   зависимостей во время работы у ochan нет. Суммы — в `dist/SHA256SUMS`.
+
+Рабочий каталог ochan — `$HOME/.octochan`. Если домашний каталог на
+закрытой машине не годится, ochan запускают с другим `HOME`
+(`HOME=/srv/ochan-home ochan …`); путь только к конфигу меняют `--config`
+и `OCTOCHAN_CONFIG`.
 
 ## Первый запуск
 
