@@ -27,6 +27,8 @@ var (
 	applyRequestID string
 	notifyMail     bool
 	requestScript  bool
+	requestAfter   []string
+	requestsReady  bool
 	requestOpts    scriptOptions
 	requestPrompt  promptOptions
 )
@@ -49,10 +51,15 @@ var requestCmd = &cobra.Command{
 		"«на это конкретное изменение сказали да» — именно это нужно аудиту.\n\n" +
 		"Файл .ochan (или --script) — сценарий на языке алиасов: он проверяется,\n" +
 		"план строится выполнением в режиме плана, а в заявку попадают его текст,\n" +
-		"каталог и песочница. При выполнении план строится заново и должен совпасть.",
+		"каталог и песочница. При выполнении план строится заново и должен совпасть.\n\n" +
+		"--after <id> — порядок: заявка выполнится только после указанных. Если\n" +
+		"она упадёт, те, после которых она шла, остаются выполненными — сбой их\n" +
+		"не откатывает; упавшую не повторяют, а оформляют заново, и заявки после\n" +
+		"неё — тоже. Повтор и расписание — дело модуля рабочего процесса.",
 	Args: cobra.MinimumNArgs(0),
 	Example: "ochan request restart.yaml --doc заявка.docx\n" +
 		"ochan request prod.conf changes.conf\n" +
+		"ochan request deploy.yaml --after 1c4a\n" +
 		"ochan request сценарий.ochan\n" +
 		"ochan request --script --sandbox --root ./configs - < сценарий.ochan",
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -61,10 +68,15 @@ var requestCmd = &cobra.Command{
 			return err
 		}
 
+		after, err := resolveAfter(store, requestAfter)
+		if err != nil {
+			return err
+		}
 		request, err := buildRequest(cmd, args)
 		if err != nil {
 			return err
 		}
+		request.After = after
 		if currentRole != nil {
 			request.Role = currentRole.Name
 		}
@@ -73,6 +85,9 @@ var requestCmd = &cobra.Command{
 		}
 
 		cmd.Printf("Заявка %s создана (%s)\n", request.ID, request.State.Russian())
+		if len(after) > 0 {
+			cmd.Printf("Выполнится после: %s\n", strings.Join(after, ", "))
+		}
 		cmd.Printf("Изменений: %d\n", request.Plan.Len())
 		if request.Script != nil {
 			// Тот, кто оформил заявку на сценарий, видит план сразу: из
@@ -258,24 +273,36 @@ func writeRequestDoc(request *workspace.Request, path string) error {
 var requestsCmd = &cobra.Command{
 	Use:   "requests [id]",
 	Short: "Показать заявки",
-	Args:  cobra.MaximumNArgs(1),
+	Long: "Заявки от новых к старым. Заявку с --after, которую держат зависимости,\n" +
+		"список показывает «ожидает (зависит от …)», а ту, что не выполнится\n" +
+		"никогда — зависимость упала или отклонена, — «не выполнится (…)».\n\n" +
+		"--ready — согласованные заявки, которые можно выполнять сейчас, в\n" +
+		"порядке выполнения: по нему модуль рабочего процесса берёт следующую.",
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		store, err := requestStore()
 		if err != nil {
 			return err
 		}
+		all, err := store.List()
+		if err != nil {
+			return err
+		}
+		graph := workspace.NewGraph(all)
 
 		if len(args) == 1 {
 			request, err := store.Get(args[0])
 			if err != nil {
 				return err
 			}
-			return showRequest(cmd, request)
+			return showRequest(cmd, request, graph)
 		}
 
-		all, err := store.List()
-		if err != nil {
-			return err
+		if requestsReady {
+			for _, request := range graph.Ready() {
+				cmd.Println(graph.DescribeIn(request))
+			}
+			return nil
 		}
 		if len(all) == 0 {
 			cmd.Printf("Заявок нет. Хранилище: %s\n", store.Dir())
@@ -283,7 +310,7 @@ var requestsCmd = &cobra.Command{
 		}
 
 		for _, request := range all {
-			cmd.Println(request.Describe())
+			cmd.Println(graph.DescribeIn(request))
 		}
 		return nil
 	},
@@ -295,9 +322,22 @@ func printListing(cmd *cobra.Command, text string) {
 	}
 }
 
-func showRequest(cmd *cobra.Command, request *workspace.Request) error {
+func showRequest(cmd *cobra.Command, request *workspace.Request, graph workspace.Graph) error {
 	cmd.Printf("Заявка:    %s\n", request.ID)
-	cmd.Printf("Состояние: %s\n", request.State.Russian())
+	cmd.Printf("Состояние: %s\n", graph.Status(request))
+	for _, id := range request.After {
+		state := "нет такой заявки"
+		if dep, ok := graph[id]; ok {
+			state = graph.Status(dep)
+		}
+		cmd.Printf("После:     %s (%s)\n", id, state)
+	}
+	for _, next := range graph.Dependents(request.ID) {
+		cmd.Printf("Перед:     %s (%s)\n", next.ID, graph.Status(next))
+	}
+	if request.Failure != "" {
+		cmd.Printf("Сбой:      %s\n", request.Failure)
+	}
 	cmd.Printf("Автор:     %s\n", authorLine(request))
 	cmd.Printf("Создана:   %s\n", request.Created.Local().Format("2006-01-02 15:04:05"))
 	cmd.Printf("Источник:  %s\n", request.Source)
@@ -422,6 +462,14 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 		if err := checkApprover(cmd, request); err != nil {
 			return refuse(cmd, err)
 		}
+		// Заявку, которая не выполнится никогда, не согласуют: её
+		// зависимость упала или отклонена.
+		if all, err := store.List(); err == nil {
+			if broken := workspace.NewGraph(all).Readiness(request).Broken; len(broken) > 0 {
+				return fmt.Errorf("заявка %s не выполнится: %s — согласовывать нечего; отклоните её и оформите заново",
+					request.ID, joinBlockers(broken))
+			}
+		}
 	}
 	if err := store.Decide(request, state, who, comment); err != nil {
 		return err
@@ -435,6 +483,9 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	cmd.Printf("Заявка %s: %s (%s)\n", request.ID, request.State.Russian(), request.DecidedBy)
 	if state == workspace.RequestApproved {
 		cmd.Printf("Выполнить: ochan apply --request %s\n", request.ID)
+		if len(request.After) > 0 {
+			cmd.Printf("Не раньше, чем выполнены: %s\n", strings.Join(request.After, ", "))
+		}
 	}
 
 	notify(cmd, fmt.Sprintf("Заявка %s %s", request.ID, request.State.Russian()),
@@ -573,6 +624,8 @@ func isNotConfigured(err error) bool { return errors.Is(err, report.ErrMailNotCo
 func init() {
 	requestCmd.Flags().StringVar(&requestDoc, "doc", "", "выгрузить заявку в файл .docx")
 	requestsCmd.Flags().StringVar(&requestDoc, "doc", "", "выгрузить заявку в файл .docx")
+	requestsCmd.Flags().BoolVar(&requestsReady, "ready", false, "только согласованные, которые можно выполнять сейчас")
+	requestCmd.Flags().StringSliceVar(&requestAfter, "after", nil, "выполнять только после этих заявок")
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
 	approveCmd.Flags().BoolVar(&approveYes, "yes", false, "план заявки нейросети проверен: согласовать без вопроса")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")

@@ -214,6 +214,13 @@ func nameSlot() slot {
 		Description: "script name, for example raise_limit.ochan: it appears in error messages, the plan and the request"}
 }
 
+// afterSlot — порядок между заявками: новая выполнится только после этой.
+func afterSlot() slot {
+	return slot{Name: "after", Kind: slotID, Flag: "after",
+		Description: "the request runs only after this one is applied; if it fails, the earlier one stays " +
+			"applied and the failed one is filed again"}
+}
+
 func docSlot() slot {
 	return slot{Name: "doc", Kind: slotNewDoc, Flag: "doc",
 		Description: "export the request to a new .docx file; an existing file is never overwritten"}
@@ -354,6 +361,7 @@ func buildTools(live []string) []tool {
 			Slots: []slot{
 				sourceSlot("base", "configuration being edited", live),
 				sourceSlot("changes", "configuration with the new values", live),
+				afterSlot(),
 				docSlot(),
 			},
 			Writes: true,
@@ -365,7 +373,7 @@ func buildTools(live []string) []tool {
 			Description: "Creates a request in the \"pending\" state to run a scenario. The request stores " +
 				"the scenario text. The request itself runs nothing: a human approves and applies it.",
 			Command: "request",
-			Slots:   []slot{scenarioSlot(), overridesSlot(), docSlot()},
+			Slots:   []slot{scenarioSlot(), overridesSlot(), afterSlot(), docSlot()},
 			Writes:  true,
 			Remote:  true,
 		},
@@ -440,7 +448,7 @@ func buildTools(live []string) []tool {
 			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
 			Bundle:    true,
-			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), docSlot()},
+			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), afterSlot(), docSlot()},
 			Writes:    true,
 		},
 		{

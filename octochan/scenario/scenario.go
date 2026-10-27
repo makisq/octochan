@@ -133,6 +133,26 @@ type Scenario struct {
 	Source string `yaml:"-" json:"-"`
 }
 
+// NotStarted помечает ошибку, после которой исполнитель ничего не сделал:
+// отказал до первого обращения к системе. Заявка тогда остаётся
+// согласованной, а не упавшей — упасть может только начатое выполнение.
+func NotStarted(err error) error {
+	if err == nil {
+		return nil
+	}
+	return notStarted{err}
+}
+
+// IsNotStarted сообщает, что выполнение не начиналось.
+func IsNotStarted(err error) bool {
+	var ns notStarted
+	return errors.As(err, &ns)
+}
+
+type notStarted struct{ error }
+
+func (e notStarted) Unwrap() error { return e.error }
+
 // Result — что получилось после выполнения.
 type Result struct {
 	// Refs — следы выполнения: идентификаторы задач, имена файлов и прочее,

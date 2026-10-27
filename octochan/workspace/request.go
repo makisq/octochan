@@ -24,6 +24,9 @@ const (
 	RequestRejected RequestState = "rejected"
 	// RequestApplied — заявка выполнена.
 	RequestApplied RequestState = "applied"
+	// RequestFailed — выполнение началось и прервалось ошибкой. Состояние
+	// конечное: заявку не повторяют, а оформляют заново (order.go).
+	RequestFailed RequestState = "failed"
 )
 
 func (s RequestState) Russian() string {
@@ -36,6 +39,8 @@ func (s RequestState) Russian() string {
 		return "отклонена"
 	case RequestApplied:
 		return "выполнена"
+	case RequestFailed:
+		return "упала"
 	default:
 		return string(s)
 	}
@@ -81,6 +86,10 @@ type Request struct {
 	// CompensatedBy — заявка на обратное действие этой.
 	CompensatedBy string `json:"compensated_by,omitempty"`
 
+	// After — заявки, после которых выполняется эта (ochan request
+	// --after): она не выполнится, пока они не выполнены.
+	After []string `json:"after,omitempty"`
+
 	// Script непуст, если заявка на выполнение сценария на языке алиасов.
 	Script *ScriptRun `json:"script,omitempty"`
 
@@ -89,6 +98,8 @@ type Request struct {
 	DecidedAt  time.Time `json:"decided_at,omitempty"`
 	AppliedAt  time.Time `json:"applied_at,omitempty"`
 	AppliedRef []string  `json:"applied_refs,omitempty"`
+	// Failure — ошибка, на которой выполнение прервалось.
+	Failure string `json:"failure,omitempty"`
 }
 
 // ScriptRun — то, что нужно, чтобы выполнить сценарий на языке алиасов
@@ -344,6 +355,22 @@ func (r *Requests) LinkCompensation(original, compensation *Request) error {
 	}
 	original.CompensatedBy = compensation.ID
 	return r.save(original)
+}
+
+// MarkFailed отмечает, что выполнение началось и прервалось. refs — что
+// успели сделать до сбоя: оно сделано, и заявка его помнит.
+func (r *Requests) MarkFailed(request *Request, refs []string, failure error) error {
+	if request.State != RequestApproved {
+		return fmt.Errorf("заявка %s не согласована (%s): выполнять было нечего",
+			request.ID, request.State.Russian())
+	}
+	request.State = RequestFailed
+	request.AppliedAt = time.Now().UTC()
+	request.AppliedRef = refs
+	if failure != nil {
+		request.Failure = failure.Error()
+	}
+	return r.save(request)
 }
 
 // MarkApplied отмечает заявку выполненной.

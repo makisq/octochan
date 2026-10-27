@@ -148,6 +148,9 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 	if err := checkRequestScope(currentRole, request); err != nil {
 		return refuse(cmd, err)
 	}
+	if err := checkOrder(store, request); err != nil {
+		return err
+	}
 	if request.Script != nil {
 		return applyScriptRequest(cmd, store, request)
 	}
@@ -216,9 +219,9 @@ func planDrift(request *workspace.Request, now *config.Plan) error {
 		"оформите новую заявку.\n  %s", request.ID, strings.Join(diffs, "\n  "))
 }
 
-// finishScenarioApply записывает итог выполнения заявки: следы, журнал,
-// письмо. Выполненной заявка считается и при ошибке, если исполнитель
-// успел что-то создать: сделанное во внешней системе уже сделано.
+// finishScenarioApply записывает итог выполнения заявки: состояние, следы,
+// журнал, письмо. Сделанное до сбоя попадает в журнал и в заявку: во
+// внешней системе оно уже сделано.
 func finishScenarioApply(cmd *cobra.Command, store *workspace.Requests, request *workspace.Request,
 	parsed *scenario.Scenario, result *scenario.Result, applyErr error, command string) {
 	var refs []string
@@ -226,17 +229,15 @@ func finishScenarioApply(cmd *cobra.Command, store *workspace.Requests, request 
 	if result != nil {
 		refs, summary = result.Refs, result.Summary
 	}
-	if len(refs) == 0 && applyErr != nil {
-		return
-	}
 	if len(refs) > 0 {
 		cmd.Println("Создано:")
 		for _, ref := range refs {
 			cmd.Printf("  - %s\n", ref)
 		}
 	}
-	if err := store.MarkApplied(request, refs); err != nil {
-		cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
+	markOutcome(cmd, store, request, refs, applyErr)
+	if len(refs) == 0 && applyErr != nil {
+		return
 	}
 	record(cmd, &workspace.Entry{
 		Kind:       workspace.EntryApply,
@@ -247,7 +248,7 @@ func finishScenarioApply(cmd *cobra.Command, store *workspace.Requests, request 
 		TaskIDs:    refs,
 		Reversible: false,
 	})
-	notify(cmd, fmt.Sprintf("Заявка %s выполнена", request.ID), requestMailBody(request), nil)
+	notify(cmd, fmt.Sprintf("Заявка %s %s", request.ID, request.State.Russian()), requestMailBody(request), nil)
 }
 
 // scenarioArgs разбирает аргументы команд apply и plan: источник сценария
@@ -457,11 +458,10 @@ func applyConfigRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	}
 	result := config.ApplyPlan(current.Data, request.Plan)
 	if err := config.SaveConfig(result, target); err != nil {
+		markOutcome(cmd, store, request, nil, err)
 		return err
 	}
-	if err := store.MarkApplied(request, []string{target}); err != nil {
-		cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
-	}
+	markOutcome(cmd, store, request, []string{target}, nil)
 	entry := &workspace.Entry{
 		Kind:       workspace.EntryPatch,
 		Command:    "apply --request " + request.ID,

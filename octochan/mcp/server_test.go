@@ -432,6 +432,10 @@ func TestPlanAndRequestArgv(t *testing.T) {
 
 	assertArgv(t, e.argvOf("request_scenario", map[string]any{"scenario": "scenario.yaml"}),
 		"request", "--", e.real("scenario.yaml"))
+
+	// Порядок между заявками: номер — только шестнадцатеричный.
+	assertArgv(t, e.argvOf("request_scenario", map[string]any{"scenario": "scenario.yaml", "after": "1C4A"}),
+		"request", "--after=1c4a", "--", e.real("scenario.yaml"))
 }
 
 // ---------------------------------------------------------------------------

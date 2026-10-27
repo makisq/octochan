@@ -178,3 +178,28 @@ func TestOldModuleIsNotPlanBound(t *testing.T) {
 		t.Fatal("обратное действие у исполнителя, который его не объявил")
 	}
 }
+
+// Отказ до начала выполнения доходит до ядра отказом, а не сбоем: заявка
+// остаётся согласованной.
+func TestNotStartedCrossesTheWire(t *testing.T) {
+	for _, tc := range []struct {
+		err        error
+		notStarted bool
+	}{
+		{scenario.NotStarted(errors.New("система недоступна")), true},
+		{errors.New("упало на второй задаче"), false},
+	} {
+		data, err := applied(&scenario.Result{}, tc.err)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var reply applyReply
+		if err := json.Unmarshal(data, &reply); err != nil {
+			t.Fatal(err)
+		}
+		_, got := fromReply(reply)
+		if got == nil || got.Error() != tc.err.Error() || scenario.IsNotStarted(got) != tc.notStarted {
+			t.Fatalf("%v: получено %v (не начиналось: %v)", tc.err, got, scenario.IsNotStarted(got))
+		}
+	}
+}

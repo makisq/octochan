@@ -509,9 +509,6 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		}
 	}
 	if runErr == nil || len(written) > 0 {
-		if err := store.MarkApplied(request, written); err != nil {
-			cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
-		}
 		// Файлы до сценария — в журнал: по ним выполнение откатывается,
 		// в том числе прерванное.
 		files := fileStates(effects)
@@ -531,11 +528,14 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 			Reversible: len(files) > 0,
 		}
 		record(cmd, entry)
-		notify(cmd, fmt.Sprintf("Заявка %s выполнена", request.ID), requestMailBody(request), nil)
+	}
+	markOutcome(cmd, store, request, written, runErr)
+	if runErr == nil || len(written) > 0 {
+		notify(cmd, fmt.Sprintf("Заявка %s %s", request.ID, request.State.Russian()), requestMailBody(request), nil)
 	}
 	if runErr != nil {
 		if entry != nil && entry.Reversible && entry.ID != "" {
-			cmd.PrintErrf("сценарий прерван; записанное до сбоя откатывается: ochan rollback %s\n", entry.ID)
+			cmd.PrintErrf("  Записанное до сбоя откатывается: ochan rollback %s\n", entry.ID)
 		}
 		return runErr
 	}

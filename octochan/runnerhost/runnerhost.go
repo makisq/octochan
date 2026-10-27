@@ -48,6 +48,9 @@ type applyReply struct {
 	Refs    []string `json:"refs,omitempty"`
 	Summary string   `json:"summary,omitempty"`
 	Error   string   `json:"error,omitempty"`
+	// NotStarted — исполнитель отказал до первого обращения к системе
+	// (scenario.NotStarted): заявка остаётся согласованной.
+	NotStarted bool `json:"not_started,omitempty"`
 }
 
 type refRequest struct {
@@ -184,8 +187,21 @@ func applied(result *scenario.Result, err error) ([]byte, error) {
 	}
 	if err != nil {
 		reply.Error = err.Error()
+		reply.NotStarted = scenario.IsNotStarted(err)
 	}
 	return json.Marshal(reply)
+}
+
+// fromReply — ответ исполнителя обратно в итог и ошибку.
+func fromReply(reply applyReply) (*scenario.Result, error) {
+	result := &scenario.Result{Refs: reply.Refs, Summary: reply.Summary}
+	switch {
+	case reply.Error == "":
+		return result, nil
+	case reply.NotStarted:
+		return result, scenario.NotStarted(errors.New(reply.Error))
+	}
+	return result, errors.New(reply.Error)
 }
 
 type supplyKey struct{}
@@ -261,7 +277,7 @@ var ErrNotPlanBound = errors.New("не получает согласованны
 
 func (x remote) Apply(ctx context.Context, s *scenario.Scenario, plan *config.Plan) (*scenario.Result, error) {
 	if !x.r.Can(pluginhost.OpApplyPlan) {
-		return nil, fmt.Errorf("исполнитель %s (модуль %s) %w", x.r.Kind, x.r.Module, ErrNotPlanBound)
+		return nil, scenario.NotStarted(fmt.Errorf("исполнитель %s (модуль %s) %w", x.r.Kind, x.r.Module, ErrNotPlanBound))
 	}
 	return x.applyLike(ctx, pluginhost.OpApply, scenarioRequest{Scenario: s, Source: s.Source, Plan: plan})
 }
@@ -271,11 +287,7 @@ func (x remote) applyLike(ctx context.Context, op string, in scenarioRequest) (*
 	if err := x.call(ctx, op, in, &reply); err != nil {
 		return nil, err
 	}
-	result := &scenario.Result{Refs: reply.Refs, Summary: reply.Summary}
-	if reply.Error != "" {
-		return result, errors.New(reply.Error)
-	}
-	return result, nil
+	return fromReply(reply)
 }
 
 func (x remote) wait(ctx context.Context, ref string) (string, error) {

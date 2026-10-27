@@ -45,6 +45,7 @@ var compensateCmd = &cobra.Command{
 		if err := store.LinkCompensation(original, request); err != nil {
 			return err
 		}
+		warnDependents(cmd, original.ID)
 
 		cmd.Printf("Заявка %s создана (%s): обратное действие заявки %s\n",
 			request.ID, request.State.Russian(), original.ID)
@@ -62,8 +63,11 @@ func compensationRequest(cmd *cobra.Command, original *workspace.Request) (*work
 			"на прямое действие", original.ID, original.Compensates)
 	case original.CompensatedBy != "":
 		return nil, fmt.Errorf("у заявки %s уже есть обратное действие — заявка %s", original.ID, original.CompensatedBy)
-	case original.State != workspace.RequestApplied:
-		return nil, fmt.Errorf("заявка %s %s: обратное действие нужно только выполненной", original.ID, original.State.Russian())
+	case original.State == workspace.RequestFailed && len(original.AppliedRef) == 0:
+		return nil, fmt.Errorf("заявка %s упала, ничего не сделав: возвращать нечего", original.ID)
+	case original.State != workspace.RequestApplied && original.State != workspace.RequestFailed:
+		return nil, fmt.Errorf("заявка %s %s: обратное действие нужно только выполненной или упавшей на полпути",
+			original.ID, original.State.Russian())
 	case original.Service == "":
 		return nil, fmt.Errorf("заявка %s правила файлы: их откат точный — ochan rollback (запись покажет ochan history)",
 			original.ID)

@@ -165,6 +165,9 @@ var rollbackCmd = &cobra.Command{
 			return fmt.Errorf("запись %s уже отменена записью %s; используйте --force, "+
 				"чтобы применить откат повторно", entry.ID, entry.RevertedBy)
 		}
+		if id, ok := strings.CutPrefix(entry.Command, "apply --request "); ok {
+			warnDependents(cmd, id)
+		}
 		if len(entry.Files) > 0 {
 			return rollbackFiles(cmd, store, entry)
 		}

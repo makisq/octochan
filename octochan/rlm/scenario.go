@@ -82,12 +82,12 @@ func ExecuteScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenar
 		return nil, errors.New("сценарий не задан")
 	}
 	if approved == nil {
-		return nil, errors.New("нет согласованного плана: RLM выполняет только план, на который сказали «да»")
+		return nil, scenario.NotStarted(errors.New("нет согласованного плана: RLM выполняет только план, на который сказали «да»"))
 	}
 
 	module, err := buildModule(data)
 	if err != nil {
-		return nil, err
+		return nil, scenario.NotStarted(err)
 	}
 
 	requests, err := module.GenerateRequests(ctx, api)
@@ -104,8 +104,8 @@ func ExecuteScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenar
 		now, expected = targetsOnly(now), targetsOnly(approved)
 	}
 	if diffs := config.DiffPlans(expected, now); len(diffs) > 0 {
-		return nil, fmt.Errorf("запросы RLM разошлись с согласованным планом — ничего не отправлено, "+
-			"оформите заявку заново:\n  %s", strings.Join(diffs, "\n  "))
+		return nil, scenario.NotStarted(fmt.Errorf("запросы RLM разошлись с согласованным планом — ничего не отправлено, "+
+			"оформите заявку заново:\n  %s", strings.Join(diffs, "\n  ")))
 	}
 	return submitRequests(ctx, api, requests)
 }
