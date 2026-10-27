@@ -210,6 +210,26 @@ func (c *cursor) name(what string) (Name, bool) {
 		c.fail(ErrSyn, "%s пишется со строчной буквы: с заглавной пишутся только классы, получено «%s»", what, t.text)
 		return Name{}, false
 	}
+	if IsKeyword(t.text) {
+		c.fail(ErrSyn, "«%s» — ключевое слово языка: %s им быть не может", t.text, what)
+		return Name{}, false
+	}
+	c.next()
+	return Name{Pos: Pos{c.ln.no, t.col}, Text: t.text}, true
+}
+
+// keyword читает слово там, где грамматика ждёт ключевое слово: тип
+// отношения, параметр правила, поле отчёта, вид основания. Какое именно
+// допустимо, проверяет раздел.
+func (c *cursor) keyword(what string) (Name, bool) {
+	if c.bad {
+		return Name{}, false
+	}
+	t := c.peek()
+	if t.kind != tIdent || !isName(t.text) {
+		c.fail(ErrSyn, "ожидалось %s, получено %s", what, t.describe())
+		return Name{}, false
+	}
 	c.next()
 	return Name{Pos: Pos{c.ln.no, t.col}, Text: t.text}, true
 }
@@ -331,6 +351,10 @@ func (c *cursor) ref(what string) (string, bool) {
 		c.fail(ErrSyn, "ожидалось %s, получено %s", what, t.describe())
 		return "", false
 	}
+	if IsKeyword(t.text) {
+		c.fail(ErrSyn, "«%s» — ключевое слово языка: %s им быть не может", t.text, what)
+		return "", false
+	}
 	parts := []string{c.next().text}
 	for c.is(tPunct, ".") {
 		c.next()
@@ -407,6 +431,10 @@ func (p *parser) classLine(c *cursor) {
 			c.fail(ErrSyn, "слово словаря %q: одно слово из букв, цифр и _", t.text)
 			return
 		}
+		if IsKeyword(t.text) {
+			c.fail(ErrSyn, "%q — ключевое слово языка, а не слово словаря", t.text)
+			return
+		}
 		c.next()
 		decl.Words = append(decl.Words, Name{Pos: Pos{c.ln.no, t.col}, Text: t.text})
 		if !c.is(tPunct, ",") {
@@ -422,7 +450,7 @@ func (p *parser) classLine(c *cursor) {
 func (p *parser) relationLine(c *cursor) {
 	from, _ := c.class("источник отношения")
 	c.punct("--", "перед типом отношения")
-	typ, _ := c.name("тип отношения")
+	typ, _ := c.keyword("тип отношения")
 	c.punct("-->", "после типа отношения")
 	to, _ := c.class("цель отношения")
 
@@ -598,6 +626,10 @@ func (p *parser) importSkill(ln srcLine) {
 					c.fail(ErrSyn, "ожидался класс или операция, получено %s", t.describe())
 					break
 				}
+				if IsKeyword(t.text) {
+					c.fail(ErrSyn, "«%s» — ключевое слово языка, а не операция скилла", t.text)
+					break
+				}
 				c.next()
 				imp.Provides = append(imp.Provides, Name{Pos: Pos{body.no, t.col}, Text: t.text})
 				if !c.is(tPunct, ",") {
@@ -670,6 +702,10 @@ func (p *parser) signalRule(c *cursor) {
 		c.fail(ErrSyn, "действие пишется со строчной буквы: %q", action)
 		return
 	}
+	if IsKeyword(action) {
+		c.fail(ErrSyn, "«%s» — ключевое слово языка: действием правила быть не может", action)
+		return
+	}
 	p.ruleArgs(c, &Rule{Pos: pos, Kind: kind, Action: action})
 }
 
@@ -680,7 +716,7 @@ func (p *parser) ruleArgs(c *cursor, rule *Rule) {
 	defer p.body()
 	c.punct("(", "— начало параметров правила")
 	for !c.bad && !c.is(tPunct, ")") {
-		key, ok := c.name("параметр правила")
+		key, ok := c.keyword("параметр правила")
 		if !ok {
 			return
 		}
@@ -806,7 +842,7 @@ func (p *parser) reportBlock(c *cursor) {
 			continue
 		}
 		b := &cursor{p: p, ln: ln}
-		key, ok := b.name("поле записи отчёта")
+		key, ok := b.keyword("поле записи отчёта")
 		if !ok || !b.punct(":", "после поля") {
 			continue
 		}
@@ -860,7 +896,7 @@ func (p *parser) reportBlock(c *cursor) {
 }
 
 func (p *parser) basis(b *cursor) (*Basis, bool) {
-	kind, ok := b.name("основание")
+	kind, ok := b.keyword("основание")
 	if !ok {
 		return nil, false
 	}

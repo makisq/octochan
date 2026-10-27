@@ -346,7 +346,7 @@ func (s *server) instructions() string {
 		"the hard rules are checked against the plan, and the prompt and the report go into the request."
 
 	if s.protocol == "" {
-		return text + " The formal prompt protocol is unavailable: ochan did not provide it when the server started."
+		return text + " The protocol is unavailable: ochan did not provide it when the server started."
 	}
 	return text + " Before answering the operator, read the protocol below: it defines how you work here.\n\n" +
 		s.protocol

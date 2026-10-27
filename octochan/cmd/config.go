@@ -97,6 +97,10 @@ func initConfig() error {
 	viper.SetDefault("shell.history_size", 1000)
 	viper.SetDefault("shell.logo", true)
 
+	// Как оператор ставит задачу модели: formal — только формальным
+	// промптом, natural — на естественном языке.
+	viper.SetDefault("fp.mode", "formal")
+
 	// Кольца формального промпта: порог well_True для плана и для заявки,
 	// условный счёт правила без журнала, показывать ли оценки и сколько
 	// отказов подряд по одному промпту допустимо до оператора.

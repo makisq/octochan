@@ -45,11 +45,11 @@ $ ochan aliases pgconf
 goal: tuned
 
 classes:
-  Goal   : "tuned"
+  State  : "tuned"
   Config : "config"
 
 relations:
-  Config --strives_to--> Goal
+  Config --strives_to--> State
 
 import @pgconf v1
   provides: Config, set_param, store
@@ -62,12 +62,18 @@ hard forbid write()
 ```
 $ ochan fp check task.fp
 task.fp: P ∈ ℒ, слова однозначны, Req(P) ⊆ K, жёсткие правила совместны
-Цель γ:  Goal
+Цель γ:  State
 K:       set_param, store
 ```
 
 Два жёстких правила: `store` пишет только в `prod.conf`, а `write` не
 пишет никуда. Их проверяет не модель, а ochan — по плану сценария.
+
+Слова промпта — из словаря языка: `tuned` и `config` есть в базовом
+словаре, слова области приносит словарь скилла (`lexicon.yaml` пакета).
+Отчёт модели тоже пишется словами словаря — `high`, `low` — или именами,
+которые уже есть в промпте; список — `ochan fp words` или инструмент
+`vocabulary`.
 
 ## 4. Что делает модель
 
@@ -86,8 +92,8 @@ K:       set_param, store
    ```
    report:
      q: limit
-       choice: double
-       alternatives: {double, triple}
+       choice: high
+       alternatives: {low, high}
        basis: not_in_prompt
    ```
 
@@ -98,7 +104,7 @@ K:       set_param, store
        изменить   max_connections: 100 -> 200
 
    Отчёт модели:
-     limit: double из {double, triple} — not_in_prompt
+     limit: high из {low, high} — not_in_prompt
 
    Жёсткие правила промпта:
      соблюдено  hard forbid store(except = {prod_conf})
