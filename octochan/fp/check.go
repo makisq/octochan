@@ -20,9 +20,13 @@ const (
 
 // Options — то, что задаётся в конфигурации, а не в промпте.
 type Options struct {
-	// MaxMeanings — k: сколько классов может означать одно слово (П2).
-	// Ноль — 3.
+	// MaxMeanings — k: потолок числа смыслов слова для всего языка (П2).
+	// Слово, у которого в словаре смыслов больше, при таком потолке в
+	// язык не входит. Ноль — 3.
 	MaxMeanings int
+	// Lexicon — словарь W вне скиллов: базовый и словари оператора.
+	// nil — базовый, встроенный в ochan.
+	Lexicon *Lexicon
 	// Consistency — уровень согласованности; пусто — Strict.
 	Consistency Consistency
 	// Quiet — Q_off: вопросы, о которых оператор просил не сообщать.
@@ -43,6 +47,12 @@ type Skill struct {
 	Ops []string
 	// Version — версия скилла; пусто — у скилла нет версии.
 	Version string
+	// Lexicon — слова области, которые скилл приносит в промпт; nil — не
+	// приносит.
+	Lexicon *Lexicon
+	// LexiconErr — словарь скилла есть, но негоден: промпт, который его
+	// подключает, не проверить.
+	LexiconErr error
 }
 
 // Result — итог разбора и проверки.
@@ -60,6 +70,9 @@ type Result struct {
 	// Skills — подключённые скиллы и их версии: из библиотеки, а без неё —
 	// как объявлено в import.
 	Skills map[string]string
+	// Lexicon — словарь W этого промпта: базовый, словари оператора и
+	// скиллов, которые он подключил.
+	Lexicon *Lexicon
 }
 
 // Errors возвращает число отказов (без замечаний).
@@ -114,6 +127,7 @@ func Check(prog *Program, opts Options) *Result {
 		skillVersions: make(map[string]string),
 	}
 
+	c.buildLexicon()
 	c.declareClasses()
 	c.checkGoal()
 	c.declareNames()
@@ -129,6 +143,7 @@ func Check(prog *Program, opts Options) *Result {
 	c.checkKnowledge()
 	deps := c.checkCells()
 	c.checkReport()
+	c.checkVocabulary()
 
 	sortDiagnostics(c.diags)
 	return &Result{
@@ -139,6 +154,7 @@ func Check(prog *Program, opts Options) *Result {
 		Required:    c.requiredNames(),
 		Dependents:  deps,
 		Skills:      c.skillVersions,
+		Lexicon:     c.lex,
 	}
 }
 
@@ -165,6 +181,13 @@ type checker struct {
 	rules     map[string]*Rule
 
 	skillVersions map[string]string
+
+	// lex — словарь W этого промпта.
+	lex *Lexicon
+	// lexGaps — почему словарь неполон: скилл без библиотеки или с
+	// негодным словарём. Тогда слова вне словаря — замечание, а не отказ:
+	// их мог бы дать недоступный словарь.
+	lexGaps []string
 }
 
 func (c *checker) report(pos Pos, code Code, format string, args ...any) {
@@ -287,12 +310,9 @@ func (c *checker) declareClasses() {
 			seen[word.Text] = true
 			c.meanings[word.Text] = append(c.meanings[word.Text], class.Name)
 
-			// Одно слово в нескольких классах законно (П4), но смыслов
-			// у слова не больше k: иначе язык перестаёт быть ограниченным.
-			if n := len(c.meanings[word.Text]); n == c.opts.MaxMeanings+1 {
-				c.report(word.Pos, ErrAmbig, "слово %q означает уже %d класса (%s), допустимо не больше %d (П2: |μ(w)| ≤ k)",
-					word.Text, n, strings.Join(c.meanings[word.Text], ", "), c.opts.MaxMeanings)
-			}
+			// Одно слово в нескольких классах законно (П4), но только в
+			// тех смыслах, что дал ему словарь: промпт смыслов не добавляет.
+			c.checkWordSense(word, class.Name)
 		}
 	}
 }
@@ -332,7 +352,7 @@ func (c *checker) checkGoal() {
 		return
 	}
 	if _, ok := c.meanings[g.Word]; !ok {
-		c.report(g.Pos, ErrSyn, "слова %q нет в словаре: объявите его в classes:", g.Word)
+		c.report(g.Pos, ErrSyn, "слово цели %q не объявлено в classes: — цель γ — его класс", g.Word)
 		return
 	}
 	if class, ok := c.resolve(g.Word, nil, g.Pos, "goal"); ok {

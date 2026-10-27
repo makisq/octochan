@@ -23,7 +23,7 @@ func (r *fakeRunner) Plan(context.Context, *Scenario) (*config.Plan, error) {
 	return &config.Plan{}, nil
 }
 
-func (r *fakeRunner) Apply(context.Context, *Scenario) (*Result, error) {
+func (r *fakeRunner) Apply(context.Context, *Scenario, *config.Plan) (*Result, error) {
 	r.applied++
 	return &Result{Refs: []string{"ref-1"}, Summary: "готово"}, nil
 }
@@ -46,7 +46,7 @@ func TestResolvePicksRunnerByService(t *testing.T) {
 		t.Errorf("выбран исполнитель %q", runner.Kind())
 	}
 
-	if _, err := runner.Apply(context.Background(), &Scenario{Service: "тест_локально"}); err != nil {
+	if _, err := runner.Apply(context.Background(), &Scenario{Service: "тест_локально"}, &config.Plan{}); err != nil {
 		t.Fatal(err)
 	}
 	if localLike.applied != 1 || rlmLike.applied != 0 {

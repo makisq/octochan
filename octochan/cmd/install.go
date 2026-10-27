@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"octochan/fp"
 	"octochan/lang"
 	"octochan/pluginhost"
 
@@ -187,6 +188,19 @@ func installPackage(cmd *cobra.Command, src string, files []string) error {
 	if err != nil {
 		return fmt.Errorf("пакет %s не установлен: %w", name, err)
 	}
+	// Словарь пакета — слова, которые скилл приносит в формальный промпт.
+	// Негодный словарь сломал бы проверку каждого промпта с этим import.
+	words := 0
+	if files != nil {
+		if _, statErr := os.Stat(filepath.Join(abs, fp.LexiconName)); statErr == nil {
+			lexicon, err := fp.LoadLexicon(filepath.Join(abs, fp.LexiconName))
+			if err != nil {
+				return fmt.Errorf("пакет %s не установлен: %w", name, err)
+			}
+			words = len(lexicon.Words())
+			files = append(files, fp.LexiconName)
+		}
+	}
 
 	target := filepath.Join(fm.ModulesDir(), name)
 	single := target + lang.AliasExtension
@@ -229,6 +243,9 @@ func installPackage(cmd *cobra.Command, src string, files []string) error {
 		}
 	}
 	cmd.Printf("Пакет алиасов %s %s установлен: алиасов %d — ochan aliases %s\n", name, version, count, name)
+	if words > 0 {
+		cmd.Printf("Словарь пакета: слов %d — ochan fp words --skill %s\n", words, name)
+	}
 	return nil
 }
 

@@ -32,7 +32,8 @@ ochan modules                          # что установлено и что
 ```
 
 - Пакет проверяется до копирования: пакет с ошибкой не ставится и
-  установленный не портит. Копируются только `*.ochan` и `package.yaml`.
+  установленный не портит. Копируются только `*.ochan`, `package.yaml` и
+  `lexicon.yaml`; негодный словарь пакет тоже не ставит.
 - Имя пакета — его префикс в сценариях (`pgconf.store`), поэтому в нём
   только буквы, цифры и `_`.
 - Скилл и его исполнитель лежат в одном каталоге и ставятся вместе:
@@ -44,6 +45,7 @@ ochan modules                          # что установлено и что
 ~/.octochan/modules/pgconf/
   pgconf.ochan       алиасы пакета
   package.yaml       манифест: версия и описание
+  lexicon.yaml       словарь: слова области для формального промпта
 ```
 
 ```
@@ -84,6 +86,11 @@ $ ochan aliases pgconf
   сценарий записывает версии пакетов, алиасы которых он вызывает, и суммы
   их файлов: поправленный после согласования алиас отменит выполнение.
 - `ochan check` без аргументов проверяет всю библиотеку.
+- `lexicon.yaml` — слова, которые скилл приносит в формальный промпт через
+  `import`: у каждого ровно n смыслов, `1 ≤ n < nl`
+  ([«Закрытый словарь»](ai.md#формальный-промпт),
+  [рецепт](../cookbook/skill-package.md#словарь-скилла)). Слова пакета —
+  `ochan fp words --skill pgconf`.
 
 Готовый пример — [examples/fp/pgconf](../../examples/fp/pgconf).
 
@@ -156,8 +163,9 @@ type ssh struct{}
 
 func (ssh) Kind() string { return "SSH" }
 func (ssh) Plan(ctx context.Context, s *scenario.Scenario) (*config.Plan, error) { … }
-func (ssh) Apply(ctx context.Context, s *scenario.Scenario) (*scenario.Result, error) { … }
-// по желанию: Wait(ctx, ref) и Status(ctx, ref)
+func (ssh) Apply(ctx context.Context, s *scenario.Scenario, plan *config.Plan) (*scenario.Result, error) { … }
+// по желанию: Wait(ctx, ref), Status(ctx, ref)
+// и обратное действие: PlanCompensation(ctx, s, applied, refs), Compensate(ctx, s, plan, refs)
 
 func (Module) Runners() []pluginhost.RunnerSpec {
     return []pluginhost.RunnerSpec{runnerhost.Expose(ssh{}, "ssh-restart", "ssh-tune")}
@@ -173,6 +181,22 @@ func (Module) Runners() []pluginhost.RunnerSpec {
   исполнителя он — `runnerhost.Token(ctx)`.
 - Ошибка `apply` идёт вместе с тем, что исполнитель успел создать: следы
   во внешней системе не теряются.
+- `Apply` получает план, на который сказали «да», и применяет ровно его.
+  Ядро перед вызовом строит план заново и сверяет с согласованным, а
+  исполнитель, у которого задача между сверкой и выполнением разошлась с
+  планом (как RLM, если запросы после разведки не те), отказывает до
+  первого изменения. `runnerhost.Expose` объявляет это операцией
+  `apply-plan`; исполнитель модуля без неё собран до ochan 0.2.0, и ядро
+  им не выполняет.
+- Ошибка `Apply` делает заявку упавшей — конечное состояние, её
+  пересобирают ([«Порядок между заявками»](requests.md#порядок-между-заявками)).
+  Если исполнитель отказал до первого обращения к системе, пусть обернёт
+  ошибку в `scenario.NotStarted(err)`: заявка останется согласованной. По
+  проводу это поле `not_started` ответа.
+- Обратное действие (`scenario.Compensator`) — по желанию: `ochan
+  compensate` оформляет его второй согласованной заявкой
+  ([«Обратное действие»](requests.md#обратное-действие-во-внешней-системе)).
+  Не умеет — `compensate` честно откажет.
 - Сервис, который уже выполняет встроенный исполнитель или модуль раньше по
   порядку, модуль не перехватывает — ochan предупредит.
 

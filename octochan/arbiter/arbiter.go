@@ -23,8 +23,10 @@ import (
 	"octochan/lang"
 )
 
-// Builtins — встроенные действия, которые видно в плане напрямую.
-var Builtins = []string{"save", "write"}
+// Builtins — встроенные действия, которые видно в плане напрямую. exec —
+// запуск программы; его цель — имя программы: hard forbid exec(except =
+// {kubectl}).
+var Builtins = []string{"exec", "save", "write"}
 
 // Outcome — итог проверки одного правила.
 type Outcome struct {
@@ -113,7 +115,7 @@ type trace struct {
 func newTrace(effects []lang.Effect, calls []lang.Invocation) *trace {
 	t := &trace{effects: effects, calls: calls, written: map[int][]string{}}
 	for _, e := range effects {
-		if e.Kind == lang.EffectLive {
+		if !e.Writes() {
 			continue
 		}
 		for _, id := range e.Calls {
@@ -143,8 +145,11 @@ func isBuiltin(action string) bool {
 }
 
 func effectKind(action string) lang.EffectKind {
-	if action == "save" {
+	switch action {
+	case "save":
 		return lang.EffectSave
+	case "exec":
+		return lang.EffectExec
 	}
 	return lang.EffectWrite
 }

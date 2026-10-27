@@ -11,7 +11,7 @@ import (
 const head = `goal: northwest
 
 classes:
-  Goal       : "northwest"
+  Direction  : "northwest"
   Obstacle   : "obstacle"
   Trajectory : "path"
   Fuel       : "fuel"
@@ -21,9 +21,34 @@ relations:
   Obstacle --forces--> Trajectory (detour)
 `
 
+// check проверяет промпт. Без словаря в настройках — базовый словарь и
+// словарь скилла @driving из примеров, как словарь оператора: так
+// тестам, которые проверяют не словарь, не нужна библиотека.
 func check(t *testing.T, src string, opts Options) *Result {
 	t.Helper()
+	if opts.Lexicon == nil {
+		opts.Lexicon = testLexicon(t)
+	}
 	return CheckText("тест.fp", src, opts)
+}
+
+// drivingLexicon — словарь скилла @driving из примеров.
+func drivingLexicon(t testing.TB) *Lexicon {
+	t.Helper()
+	lex, err := LoadLexicon("testdata/driving.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lex
+}
+
+func testLexicon(t testing.TB) *Lexicon {
+	t.Helper()
+	lex := BaseLexicon()
+	if err := lex.Merge(drivingLexicon(t)); err != nil {
+		t.Fatal(err)
+	}
+	return lex
 }
 
 func dump(diags []Diagnostic) string {
@@ -83,8 +108,8 @@ func TestSpecExampleFindings(t *testing.T) {
 			t.Errorf("находка %d:\n  получено  %s\n  ожидалось %s…", i+1, got, w)
 		}
 	}
-	if r.Goal != "Goal" {
-		t.Errorf("цель γ = %q, ожидался класс Goal", r.Goal)
+	if r.Goal != "Direction" {
+		t.Errorf("цель γ = %q, ожидался класс Direction", r.Goal)
 	}
 }
 
@@ -177,37 +202,46 @@ func TestSignalRules(t *testing.T) {
 // Однозначность
 // ---------------------------------------------------------------------------
 
+// У слова ровно те смыслы, что в словаре; потолок fp.max_meanings
+// убирает из языка слова, у которых их больше.
 func TestWordMeaningsLimit(t *testing.T) {
-	src := "goal: x\nclasses:\n  Goal : \"x\"\n  Fuel : \"petrol\"\n  Obstacle : \"petrol\"\n"
+	src := "goal: northwest\nclasses:\n  Direction : \"northwest\"\n  Obstacle : \"rock\"\n  Genre : \"rock\"\n"
 	expectClean(t, check(t, src, Options{}))
-	expect(t, check(t, src, Options{MaxMeanings: 1}), ErrAmbig, "допустимо не больше 1")
+	expect(t, check(t, src, Options{MaxMeanings: 1}), ErrSyn,
+		"у слова \"rock\" смыслов 2 (Obstacle, Genre), а потолок fp.max_meanings = 1")
+
+	r := check(t, "goal: northwest\nclasses:\n  Direction : \"northwest\"\n  Fuel : \"rock\"\n", Options{})
+	expect(t, r, ErrSyn, "в языке слово \"rock\" означает Obstacle или Genre, а не Fuel")
+	expectHint(t, r, ErrSyn, "Obstacle : \"rock\"")
 }
 
 func TestGoalWordMustBeUnambiguous(t *testing.T) {
-	expect(t, check(t, "goal: x\nclasses:\n  Goal : \"x\"\n  Place : \"x\"\n", Options{}), ErrAmbig, "Goal или Place")
-	expect(t, check(t, "goal: y\nclasses:\n  Goal : \"x\"\n", Options{}), ErrSyn, "слова \"y\" нет в словаре")
+	expect(t, check(t, "goal: rock\nclasses:\n  Obstacle : \"rock\"\n  Genre : \"rock\"\n", Options{}), ErrAmbig,
+		"Obstacle или Genre")
+	expect(t, check(t, "goal: path\nclasses:\n  Direction : \"northwest\"\n", Options{}), ErrSyn,
+		"слово цели \"path\" не объявлено в classes:")
 }
 
 // Одноимённость (П4) разрешается местом: слот с типом Obstacle выбирает
-// у слова «petrol» смысл «преграда», хотя у него их два.
+// у слова «rock» смысл «преграда», хотя у него их два.
 func TestHomonymResolvedBySlotClass(t *testing.T) {
-	base := `goal: x
+	base := `goal: northwest
 classes:
-  Goal       : "x"
-  Fuel       : "petrol"
-  Obstacle   : "petrol", "rock"
+  Direction  : "northwest"
+  Genre      : "rock"
+  Obstacle   : "rock", "obstacle"
   Trajectory : "path"
 generalization detour(obstacle : Obstacle) :
   Trajectory = path_around(obstacle)
 import @driving
   provides: path_around
 `
-	expectClean(t, check(t, base+"instance d = detour(obstacle := petrol)\n", Options{}))
+	expectClean(t, check(t, base+"instance d = detour(obstacle := rock)\n", Options{}))
 	expectClean(t, check(t, base+"instance d = detour(obstacle := o_17)\n", Options{}))
 
-	src := strings.Replace(base, `Obstacle   : "petrol", "rock"`, `Obstacle   : "rock"`, 1)
-	expect(t, check(t, src+"instance d = detour(obstacle := petrol)\n", Options{}), ErrConflict,
-		"слово \"petrol\" означает Fuel, а здесь допустим Obstacle")
+	src := strings.Replace(base, `Obstacle   : "rock", "obstacle"`, `Obstacle   : "obstacle"`, 1)
+	expect(t, check(t, src+"instance d = detour(obstacle := rock)\n", Options{}), ErrConflict,
+		"слово \"rock\" означает Genre, а здесь допустим Obstacle")
 }
 
 // ---------------------------------------------------------------------------
@@ -217,12 +251,13 @@ import @driving
 func TestGraphChecks(t *testing.T) {
 	expect(t, check(t, head+"relations:\n  Fuel --limits--> Speed\n", Options{}), ErrUndef, "класс Speed не объявлен")
 	expect(t, check(t, head+"relations:\n  Fuel --limits--> Movement (detour)\n", Options{}), ErrConflict, "имя detour уже занято")
-	expect(t, check(t, head+"relations:\n  Obstacle --forces--> Trajectory (again)\n", Options{}), Note, "правка избыточна")
+	expect(t, check(t, head+"relations:\n  Obstacle --forces--> Trajectory (consumption)\n", Options{}), Note, "правка избыточна")
 }
 
 func TestPriorityMustBePartialOrder(t *testing.T) {
-	expectClean(t, check(t, head+"priority:\n  Fuel < Goal\n  Obstacle < Fuel < Movement\n", Options{}))
-	expect(t, check(t, head+"priority:\n  Fuel < Goal\n  Goal < Movement < Fuel\n", Options{}), ErrConflict, "цикл Fuel < Goal < Movement < Fuel")
+	expectClean(t, check(t, head+"priority:\n  Fuel < Direction\n  Obstacle < Fuel < Movement\n", Options{}))
+	expect(t, check(t, head+"priority:\n  Fuel < Direction\n  Direction < Movement < Fuel\n", Options{}), ErrConflict,
+		"цикл Direction < Movement < Fuel < Direction")
 	expect(t, check(t, head+"priority:\n  Fuel < Fuel\n", Options{}), ErrConflict, "важнее самого себя")
 	expect(t, check(t, head+"priority:\n  Fuel < Speed\n", Options{}), ErrUndef, "класс Speed не объявлен")
 }
@@ -231,18 +266,18 @@ func TestGeneralizationAndInstance(t *testing.T) {
 	gen := head + "import @driving\n  provides: path_around\n"
 
 	// Схема отношения: результат — цель отношения, среди слотов — источник.
-	expect(t, check(t, gen+"generalization detour(o : Obstacle) :\n  Fuel = path_around(o)\n", Options{}),
+	expect(t, check(t, gen+"generalization detour(obstacle : Obstacle) :\n  Fuel = path_around(obstacle)\n", Options{}),
 		ErrConflict, "его результат Fuel, а не Trajectory")
-	expect(t, check(t, gen+"generalization detour(f : Fuel) :\n  Trajectory = path_around(f)\n", Options{}),
+	expect(t, check(t, gen+"generalization detour(fuel : Fuel) :\n  Trajectory = path_around(fuel)\n", Options{}),
 		ErrConflict, "ни один слот не имеет тип Obstacle")
 
-	g := gen + "generalization around(o : Obstacle, side : {left, right}) :\n  Trajectory = path_around(o, side)\n"
-	expectClean(t, check(t, g+"instance a = around(o := o_1, side := left)\n", Options{}))
-	expect(t, check(t, g+"instance a = around(o := o_1, side := up)\n", Options{}), ErrSyn, "вне домена слота side: {left, right}")
-	expect(t, check(t, g+"instance a = around(side := left)\n", Options{}), ErrUndef, "не заполнены слоты: o")
-	expect(t, check(t, g+"instance a = around(o := x, o := y, side := left)\n", Options{}), ErrConflict, "заполнен дважды")
-	expect(t, check(t, g+"instance a = nowhere(o := x)\n", Options{}), ErrUndef, "обобщения nowhere нет")
-	expect(t, check(t, gen+"generalization around(o : Obstacle) :\n  Trajectory = path_around(x)\n", Options{}),
+	g := gen + "generalization around(obstacle : Obstacle, side : {left, right}) :\n  Trajectory = path_around(obstacle, side)\n"
+	expectClean(t, check(t, g+"instance a = around(obstacle := o_1, side := left)\n", Options{}))
+	expect(t, check(t, g+"instance a = around(obstacle := o_1, side := up)\n", Options{}), ErrSyn, "вне домена слота side: {left, right}")
+	expect(t, check(t, g+"instance a = around(side := left)\n", Options{}), ErrUndef, "не заполнены слоты: obstacle")
+	expect(t, check(t, g+"instance a = around(obstacle := x, obstacle := y, side := left)\n", Options{}), ErrConflict, "заполнен дважды")
+	expect(t, check(t, g+"instance a = nowhere(obstacle := x)\n", Options{}), ErrUndef, "обобщения nowhere нет")
+	expect(t, check(t, gen+"generalization around(obstacle : Obstacle) :\n  Trajectory = path_around(x)\n", Options{}),
 		ErrUndef, "аргумент x — не слот")
 }
 
@@ -369,17 +404,17 @@ func TestCellConsistencyLevels(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestReportChecks(t *testing.T) {
-	base := head + "priority:\n  Fuel < Goal < Movement\ncell c1:\n  set detour.side = left\n"
+	base := head + "priority:\n  Fuel < Direction < Movement\ncell c1:\n  set detour.side = left\n"
 	entry := func(lines ...string) string {
 		return base + "report:\n  q: fuel_policy\n    " + strings.Join(lines, "\n    ") + "\n"
 	}
 
-	expectClean(t, check(t, entry("choice: stop", "alternatives: {stop, go}", "basis: priority(Fuel < Goal)"), Options{}))
+	expectClean(t, check(t, entry("choice: stop", "alternatives: {stop, start}", "basis: priority(Fuel < Direction)"), Options{}))
 	// Приоритет по цепочке тоже основание.
 	expectClean(t, check(t, entry("choice: stop", "basis: priority(Fuel < Movement)"), Options{}))
 
-	expect(t, check(t, entry("choice: fly", "alternatives: {stop, go}", "basis: not_in_prompt"), Options{}), ErrConflict, "не входит в альтернативы")
-	expect(t, check(t, entry("choice: stop", "basis: priority(Goal < Fuel)"), Options{}), ErrUndef, "такого приоритета в промпте нет")
+	expect(t, check(t, entry("choice: halt", "alternatives: {stop, start}", "basis: not_in_prompt"), Options{}), ErrConflict, "не входит в альтернативы")
+	expect(t, check(t, entry("choice: stop", "basis: priority(Direction < Fuel)"), Options{}), ErrUndef, "такого приоритета в промпте нет")
 	expect(t, check(t, entry("choice: stop", "basis: relation(none)"), Options{}), ErrUndef, "отношения none в промпте нет")
 	expect(t, check(t, entry("choice: stop", "basis: skill(@nginx)"), Options{}), ErrUndef, "скилл не подключён")
 	expect(t, check(t, entry("choice: stop", "basis: rule(restart)"), Options{}), ErrUndef, "такого правила нет")
@@ -391,7 +426,7 @@ func TestReportChecks(t *testing.T) {
 	fixed := base + "report:\n  q: side\n    choice: right\n    basis: not_in_prompt\n"
 	expect(t, check(t, fixed, Options{}), ErrConflict, "промпт задаёт detour.side = left, а отчёт выбрал right")
 
-	dup := entry("choice: stop", "basis: not_in_prompt") + "  q: fuel_policy\n    choice: go\n    basis: not_in_prompt\n"
+	dup := entry("choice: stop", "basis: not_in_prompt") + "  q: fuel_policy\n    choice: start\n    basis: not_in_prompt\n"
 	expect(t, check(t, dup, Options{}), ErrConflict, "уже есть в отчёте")
 }
 
@@ -451,8 +486,18 @@ func TestProtocolExamplesParse(t *testing.T) {
 	}
 
 	program := strings.Join(blocks, "\n")
-	if _, diags := Parse("протокол", program); len(diags) > 0 {
+	prog, diags := Parse("протокол", program)
+	if len(diags) > 0 {
 		t.Fatalf("примеры протокола не разбираются:\n%s\n%s", dump(diags), program)
+	}
+	// И написаны на языке: только слова словаря (базового и @driving),
+	// их смыслы и единицы. Знания примерам может не хватать — они
+	// показывают синтаксис, а не решают задачу.
+	r := Check(prog, withDriving(t, Options{Lexicon: BaseLexicon()}))
+	for _, d := range r.Diagnostics {
+		if d.Code == ErrSyn {
+			t.Errorf("пример протокола вне языка: %s", d)
+		}
 	}
 }
 

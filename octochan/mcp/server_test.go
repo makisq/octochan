@@ -432,6 +432,10 @@ func TestPlanAndRequestArgv(t *testing.T) {
 
 	assertArgv(t, e.argvOf("request_scenario", map[string]any{"scenario": "scenario.yaml"}),
 		"request", "--", e.real("scenario.yaml"))
+
+	// Порядок между заявками: номер — только шестнадцатеричный.
+	assertArgv(t, e.argvOf("request_scenario", map[string]any{"scenario": "scenario.yaml", "after": "1C4A"}),
+		"request", "--after=1c4a", "--", e.real("scenario.yaml"))
 }
 
 // ---------------------------------------------------------------------------
@@ -992,7 +996,7 @@ func TestInstructionsDescribeScriptSandbox(t *testing.T) {
 
 func TestPromptToolsArgv(t *testing.T) {
 	e := newEnv(t, withFakeEnv("FAKE_ECHO_STDIN=1"))
-	prompt := "goal: tuned\nclasses:\n  Goal : \"tuned\"\n"
+	prompt := "goal: tuned\nclasses:\n  State : \"tuned\"\n"
 
 	args, stdin := e.scriptCall("check_prompt", map[string]any{"prompt": prompt, "name": "задача.fp"})
 	assertArgv(t, args, "fp", "check", "--name=задача.fp", "--", "-")
@@ -1007,6 +1011,14 @@ func TestPromptToolsArgv(t *testing.T) {
 	}
 
 	e.assertRejected("check_prompt", map[string]any{"prompt": ""}, "empty text")
+
+	// Словарь языка: модель смотрит, какие слова есть, прежде чем писать
+	// отчёт, — новых слов в нём быть не может.
+	args, _ = e.scriptCall("vocabulary", map[string]any{"skill": "pgconf", "word": "limit"})
+	assertArgv(t, args, "fp", "words", "--skill=pgconf", "--", "limit")
+	args, _ = e.scriptCall("vocabulary", map[string]any{})
+	assertArgv(t, args, "fp", "words")
+	e.assertRejected("vocabulary", map[string]any{"word": "-rf"}, "")
 }
 
 // Модель получает протокол первым — в instructions при подключении.
@@ -1026,7 +1038,7 @@ func TestMissingProtocolIsSaid(t *testing.T) {
 	e.srv.loadProtocol(context.Background())
 
 	r := decode(t, e.exchange(request(1, "initialize", map[string]any{"protocolVersion": "2025-06-18"}))[0])
-	if !strings.Contains(r.Result.Instructions, "The formal prompt protocol is unavailable") {
+	if !strings.Contains(r.Result.Instructions, "The protocol is unavailable") {
 		t.Fatalf("о недоступном протоколе не сказано: %q", r.Result.Instructions)
 	}
 }

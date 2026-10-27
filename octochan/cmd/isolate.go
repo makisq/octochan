@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"octochan/i18n"
+	"octochan/inventory"
 	"octochan/lang"
 	"octochan/sandbox"
 
@@ -48,12 +50,20 @@ type isolatedSpec struct {
 	Env   []string `json:"env,omitempty"`
 	Live  []string `json:"live,omitempty"`
 	Net   []string `json:"net,omitempty"`
+	// Exec — программы --allow-exec: ядро разрешает запуск ровно их.
+	Exec []lang.Executable `json:"exec,omitempty"`
 	// Seed и Clock — зерно rand() и время now() (RFC 3339); пустые —
 	// случайное зерно и текущее время.
 	Seed  int64  `json:"seed,omitempty"`
 	Clock string `json:"clock,omitempty"`
 	// Protected — каталоги, закрытые для встроенных функций.
 	Protected []string `json:"protected,omitempty"`
+
+	// Inventory — хосты для inventory(): родитель читает инвентарь сам,
+	// ребёнку рабочий каталог ochan не виден. null — инвентаря нет;
+	// InventoryErr — почему.
+	Inventory    []inventory.Host `json:"inventory"`
+	InventoryErr string           `json:"inventory_err,omitempty"`
 
 	AliasesDir  string `json:"aliases_dir"`
 	ModulesDir  string `json:"modules_dir"`
@@ -95,7 +105,27 @@ const maxFrame = 4*maxRollbackBytes + 1<<20
 
 // setBox переносит в задание песочницу языка.
 func (s *isolatedSpec) setBox(box *lang.Sandbox) {
-	s.Roots, s.Env, s.Live, s.Net = box.Roots(), box.Env(), box.Live(), box.Net()
+	s.Roots, s.Env, s.Live, s.Net, s.Exec = box.Roots(), box.Env(), box.Live(), box.Net(), box.Exec()
+}
+
+// execFiles — что ядро разрешит запускать: программы и их загрузчики ELF.
+func execFiles(programs []lang.Executable) []string {
+	var files []string
+	for _, p := range programs {
+		files = append(files, p.Path)
+		if p.Interpreter != "" && !slices.Contains(files, p.Interpreter) {
+			files = append(files, p.Interpreter)
+		}
+	}
+	return files
+}
+
+// setInventory переносит в задание инвентарь сценария.
+func (s *isolatedSpec) setInventory(hosts []inventory.Host, err error) {
+	s.Inventory = hosts
+	if err != nil {
+		s.InventoryErr = err.Error()
+	}
 }
 
 // isolated выполняет задание в процессе песочницы.
@@ -113,6 +143,13 @@ func isolated(cmd *cobra.Command, spec isolatedSpec, out io.Writer) (*isolatedRe
 		Write:   spec.Roots,
 		Read:    []string{spec.AliasesDir, spec.ModulesDir},
 		Network: len(spec.Live) > 0 || len(spec.Net) > 0,
+		Exec:    execFiles(spec.Exec),
+	}
+	if len(spec.Exec) > 0 && policy.Network {
+		// Иллюзия изоляции хуже её отсутствия: хосты --allow-net проверяет
+		// язык, а запущенная программа ходит в сеть мимо него.
+		cmd.PrintErrln(i18n.T("внимание: программы из --allow-exec ходят в сеть мимо --allow-net — " +
+			"ядро не ограничивает, к каким хостам они подключаются"))
 	}
 	probe := spec.Mode == "probe"
 	if report := probeSandbox(policy); !probe && viper.GetBool("sandbox.strict") && !report.Full() {
@@ -327,6 +364,7 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 	if err := box.AllowNet(spec.Net); err != nil {
 		return fail(err)
 	}
+	box.SetExec(spec.Exec)
 
 	interp := lang.NewInterpreter(context.Background(), registry, out)
 	interp.SetErr(errOut)
@@ -343,6 +381,11 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 		}
 		interp.SetClock(clock)
 	}
+	var inventoryErr error
+	if spec.InventoryErr != "" {
+		inventoryErr = errors.New(spec.InventoryErr)
+	}
+	interp.SetInventory(spec.Inventory, inventoryErr)
 
 	switch spec.Mode {
 	case "call":

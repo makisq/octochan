@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"octochan/arbiter"
@@ -12,8 +14,9 @@ import (
 )
 
 var (
-	fpName       string
-	fpStandalone bool
+	fpName         string
+	fpStandalone   bool
+	fpProtocolMode string
 )
 
 var fpCmd = &cobra.Command{
@@ -80,9 +83,21 @@ var fpCheckCmd = &cobra.Command{
 var fpProtocolCmd = &cobra.Command{
 	Use:   "protocol",
 	Short: "Показать протокол — то, что модель читает первым",
-	Args:  cobra.NoArgs,
+	Long: "Протокол зависит от fp.mode в config.yaml. formal — задачи только\n" +
+		"формальным промптом, текст вне языка — отказ ⊥syn. natural — модель\n" +
+		"принимает задачи на естественном языке; согласование заявок и пределы\n" +
+		"роли остаются, а жёстких правил, по которым проверить план, нет.",
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		cmd.Print(fp.Protocol())
+		text := viper.GetString("fp.mode")
+		if cmd.Flags().Changed("mode") {
+			text = fpProtocolMode
+		}
+		mode, err := fp.ParseMode(text)
+		if err != nil {
+			return err
+		}
+		cmd.Print(fp.ProtocolFor(mode))
 		return nil
 	},
 }
@@ -101,6 +116,11 @@ func fpOptions(cmd *cobra.Command, standalone bool) (fp.Options, error) {
 	default:
 		return opts, fmt.Errorf("fp.consistency: %q, допустимо strict или reconcile", opts.Consistency)
 	}
+	lexicon, err := fpLexicon()
+	if err != nil {
+		return opts, err
+	}
+	opts.Lexicon = lexicon
 
 	if standalone {
 		return opts, nil
@@ -124,6 +144,7 @@ func fpOptions(cmd *cobra.Command, standalone bool) (fp.Options, error) {
 			if pkg, ok := registry.Package(info.Module); ok {
 				skill.Version = pkg.Version
 			}
+			skill.Lexicon, skill.LexiconErr = packageLexicon(info.Module)
 			packages[info.Module] = skill
 		}
 		skill.Ops = append(skill.Ops, info.Name)
@@ -134,6 +155,47 @@ func fpOptions(cmd *cobra.Command, standalone bool) (fp.Options, error) {
 	}
 	opts.Skills = func() []string { return sortedPaths(packages) }
 	return opts, nil
+}
+
+// fpLexicon — словарь языка вне скиллов: базовый и словари оператора из
+// fp.lexicons.
+func fpLexicon() (*fp.Lexicon, error) {
+	lexicon := fp.BaseLexicon()
+	for _, path := range viper.GetStringSlice("fp.lexicons") {
+		if rest, ok := strings.CutPrefix(path, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, err
+			}
+			path = filepath.Join(home, rest)
+		}
+		add, err := fp.LoadLexicon(path)
+		if err != nil {
+			return nil, fmt.Errorf("config.yaml fp.lexicons: %w", err)
+		}
+		if err := lexicon.Merge(add); err != nil {
+			return nil, fmt.Errorf("config.yaml fp.lexicons: %s: %w", path, err)
+		}
+	}
+	return lexicon, nil
+}
+
+// packageLexicon — словарь пакета алиасов: lexicon.yaml в его каталоге.
+// Нет словаря — пакет слов не приносит, и это не ошибка.
+func packageLexicon(module string) (*fp.Lexicon, error) {
+	fm, err := mustFileManager()
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(fm.ModulesDir(), module, fp.LexiconName)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, nil
+	}
+	lexicon, err := fp.LoadLexicon(path)
+	if err != nil {
+		return nil, err
+	}
+	return lexicon.Labeled("@" + module), nil
 }
 
 func countCodes(diags []fp.Diagnostic) string {
@@ -163,5 +225,7 @@ func init() {
 	fpCheckCmd.Flags().StringVar(&fpName, "name", "", "имя промпта, поданного на stdin")
 	fpCheckCmd.Flags().BoolVar(&fpStandalone, "standalone", false,
 		"не сверять скиллы с библиотекой: скилл даёт то, что объявлено в provides:")
+	fpProtocolCmd.Flags().StringVar(&fpProtocolMode, "mode", "",
+		"показать протокол режима formal или natural, а не того, что в fp.mode")
 	fpCmd.AddCommand(fpCheckCmd, fpProtocolCmd)
 }

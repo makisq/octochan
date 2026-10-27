@@ -208,6 +208,8 @@ func DefaultBuiltins() map[string]Builtin {
 	list = append(list, textBuiltins()...)
 	list = append(list, categoryBuiltins()...)
 	list = append(list, typeBuiltins()...)
+	list = append(list, inventoryBuiltins()...)
+	list = append(list, execBuiltins()...)
 	builtins := make(map[string]Builtin, len(list))
 	for _, b := range list {
 		if _, dup := builtins[b.Name]; dup {

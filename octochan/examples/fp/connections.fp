@@ -2,7 +2,7 @@
 goal: tuned
 
 classes:
-  Goal   : "tuned"
+  State  : "tuned"
   Config : "config"
   Limit  : "limit", "connections"
   Memory : "memory"
@@ -10,7 +10,7 @@ classes:
 relations:
   Limit  --modifies-->   Config (connection_limit)
   Memory --limits-->     Limit  (memory_budget)
-  Config --strives_to--> Goal
+  Config --strives_to--> State
 
 priority:
   Memory < Limit     # бюджет памяти важнее числа соединений

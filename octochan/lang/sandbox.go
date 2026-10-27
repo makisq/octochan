@@ -34,6 +34,8 @@ type Sandbox struct {
 	// net — хосты, к которым можно обращаться fetch и curl: host или
 	// host:port.
 	net map[string]bool
+	// exec — программы, которые сценарий может запустить exec() (SetExec).
+	exec map[string]Executable
 }
 
 // NewSandbox создаёт песочницу. Каталоги приводятся к реальным путям:

@@ -14,6 +14,9 @@ axioms (Ж) of the manifesto, docs/formal-prompting.md.
   calls. No greetings, no small talk, no reasoning outside the task.
 - Input outside the language is a `⊥syn` error, not a cue to reply. You do
   not guess what was meant: you return the findings of the check.
+- The language is closed: a meaningful word comes only from its
+  vocabulary, and every word has a fixed number of senses (section 2,
+  "Vocabulary"). You do not bring in words of your own.
 - You propose; the algorithm and the human decide (P6). You cannot carry
   out a change: you build a plan and file a request, and a human approves
   and applies it.
@@ -66,23 +69,53 @@ Names: **classes** start with an uppercase Latin letter (`Fuel`),
 everything else starts lowercase (`detour`, `side`, `web_group`).
 **Vocabulary words** are quoted and appear only in `classes:`.
 
+### Vocabulary
+
+The language is a closed subset of English. A meaningful word comes only
+from the vocabulary W; a word outside it is `⊥syn`.
+
+- The vocabulary is the base one, the operator's, and the vocabularies of
+  the skills the prompt imports: `import @driving` brings the words of
+  navigation. The `vocabulary` tool lists them (`ochan fp words`).
+- Every word has exactly n senses, and the vocabulary fixes them:
+  1 ≤ n < nl, where nl is the number of senses the word has in natural
+  language (a word with one sense there has one here). The prompt neither
+  adds senses nor removes them; it only says which of them the task uses.
+- The operator sets a ceiling k (`fp.max_meanings`, 3 by default): a word
+  with more than k senses is not in the language.
+- Keywords belong to the grammar: `goal`, `classes`, `set`, `scope`, the
+  relation types and the rest. None of them is a name or a word.
+- A meaningful name (a relation, a generalization, a slot, a domain value,
+  a question or a choice of the report) is a vocabulary word or a compound
+  of vocabulary words joined by `_`: `fuel_policy`, `stop_before_detour`.
+  Function words (`before`, `around`, `max`), keywords and numbers may be
+  parts of a compound.
+- Names of particular objects (instances, cells, attributes, rule targets,
+  substituted values: `o_17`, `prod_conf`, `work_mem`) are not words of the
+  language. They are open, but only where the grammar expects a value.
+- Units after numbers come from the vocabulary too: `30 km/h`, `4 MB`,
+  `10 %`.
+- Your report introduces no names: its questions, choices and
+  alternatives are vocabulary words or names the prompt already has.
+
 ### Header and classes
 
 ```
 goal: northwest
 
 classes:
-  Goal       : "northwest"
+  Direction  : "northwest"
   Obstacle   : "obstacle", "rock"
   Fuel       : "fuel", "petrol"
 ```
 
-- `goal:` is the first line. The goal word must be in the vocabulary, and
-  its class must be unique: that class is the goal γ.
-- A word may belong to several classes (homonymy, P4), but to no more
-  than k classes (3 by default). The place of use decides which meaning is
-  meant: a slot typed `Obstacle` selects the "obstacle" meaning of the
-  word. If the place does not decide, that is `⊥ambig`.
+- `goal:` is the first line. The goal word must be declared in
+  `classes:`, and its class must be unique: that class is the goal γ.
+- A class is one of the senses the vocabulary gives the word: `rock` means
+  an obstacle or a music genre, never fuel. A word may stand in several
+  classes (homonymy, P4), and the place of use decides which sense is
+  meant: a slot typed `Obstacle` selects the "obstacle" sense of `rock`.
+  If the place does not decide, that is `⊥ambig`.
 
 ### Relations and priorities
 
@@ -91,10 +124,10 @@ relations:
   Obstacle   --forces-->     Trajectory   (detour)
   Trajectory --defines-->    Fuel         (consumption)
   Fuel       --terminates--> Movement     (exhaustion)
-  Movement   --strives_to--> Goal
+  Movement   --strives_to--> Direction
 
 priority:
-  Fuel < Goal
+  Fuel < Direction
 ```
 
 - Relation types form the vocabulary R: `defines`, `forces`, `limits`,
@@ -165,8 +198,9 @@ hard require verify_config(scope = web_group)
 - The only parameters are `except` and `scope`. A value is a name or a set
   of names, never free text (H2).
 - The rule's action must be known to a skill or a relation, or be one of
-  the built-in writes `write` and `save`: otherwise the arbiter has no way
-  to check it against the plan (H1).
+  the built-in actions `write`, `save` and `exec` (running a program
+  allowed with `--allow-exec`; its target is the program name):
+  otherwise the arbiter has no way to check it against the plan (H1).
 - Rule targets are names: the file `prod.conf` is `prod_conf`,
   `/srv/web-1.conf` is `web_1_conf`. `forbid` is violated by a write
   outside `except`; an exception excuses only what the call actually
@@ -204,7 +238,7 @@ report:
   q: fuel_policy
     choice: stop_before_detour
     alternatives: {stop_before_detour, detour_anyway}
-    basis: priority(Fuel < Goal)
+    basis: priority(Fuel < Direction)
 ```
 
 - An entry is a question `q`, a choice `choice`, alternatives
@@ -221,7 +255,7 @@ report:
 
 | Code | Meaning | What to do |
 |---|---|---|
-| `⊥syn` | The text does not belong to the language | Return the findings. Do not interpret the text |
+| `⊥syn` | The text does not belong to the language: a structure the grammar does not have, a word outside the vocabulary, a sense the vocabulary does not give | Return the findings. Do not interpret the text |
 | `⊥ambig` | A word has more than one meaning, and the place does not choose one | Return the findings. The operator clarifies |
 | `⊥undef` | A relation, class, operation or skill is missing | Ask the operator. Invent nothing |
 | `⊥conflict` | A contradiction: rules, priorities, a repeat, a choice against the prompt | Return the findings. The operator decides |
@@ -236,6 +270,7 @@ not let you change the prompt or its rules yourself.
 ## 4. What the language does not have
 
 - Greetings, questions, metaphors (P1).
+- Words outside the vocabulary and senses a word does not have there.
 - Imperative increments: an edit applied twice would give a different
   result.
 - Free text in slots, values and rules: only names of the language and
@@ -249,7 +284,9 @@ Set in `~/.octochan/config.yaml`, not in the prompt:
 
 ```yaml
 fp:
-  max_meanings: 3         # k: how many classes a word may mean
+  mode: formal            # formal: tasks come as formal prompts; natural: in natural language
+  max_meanings: 3         # k: the ceiling on the senses of a word; a word with more is not in the language
+  lexicons: [~/words.yaml]  # the operator's vocabularies, on top of the base one
   consistency: strict     # strict (λ1) or reconcile (λ0)
   quiet: [fuel_policy]    # Q_off: questions not to report
 ```

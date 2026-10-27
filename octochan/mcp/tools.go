@@ -45,7 +45,7 @@ var readCommands = map[string]bool{
 	"diff": true, "validate": true, "find": true, "stats": true, "print": true,
 	"plan": true, "services": true, "aliases": true, "modules": true,
 	"history": true, "requests": true, "status": true, "check": true,
-	"fp check": true, "fp protocol": true, "logs rank": true,
+	"fp check": true, "fp protocol": true, "fp words": true, "logs rank": true,
 }
 
 // commandPath — команда ochan с подкомандой, если первая из постоянных
@@ -214,6 +214,13 @@ func nameSlot() slot {
 		Description: "script name, for example raise_limit.ochan: it appears in error messages, the plan and the request"}
 }
 
+// afterSlot — порядок между заявками: новая выполнится только после этой.
+func afterSlot() slot {
+	return slot{Name: "after", Kind: slotID, Flag: "after",
+		Description: "the request runs only after this one is applied; if it fails, the earlier one stays " +
+			"applied and the failed one is filed again"}
+}
+
 func docSlot() slot {
 	return slot{Name: "doc", Kind: slotNewDoc, Flag: "doc",
 		Description: "export the request to a new .docx file; an existing file is never overwritten"}
@@ -354,6 +361,7 @@ func buildTools(live []string) []tool {
 			Slots: []slot{
 				sourceSlot("base", "configuration being edited", live),
 				sourceSlot("changes", "configuration with the new values", live),
+				afterSlot(),
 				docSlot(),
 			},
 			Writes: true,
@@ -365,18 +373,33 @@ func buildTools(live []string) []tool {
 			Description: "Creates a request in the \"pending\" state to run a scenario. The request stores " +
 				"the scenario text. The request itself runs nothing: a human approves and applies it.",
 			Command: "request",
-			Slots:   []slot{scenarioSlot(), overridesSlot(), docSlot()},
+			Slots:   []slot{scenarioSlot(), overridesSlot(), afterSlot(), docSlot()},
 			Writes:  true,
 			Remote:  true,
 		},
 		{
 			Name:  "protocol",
 			Title: "Protocol",
-			Description: "The protocol of working with ochan: what the model is here, the formal prompt language, " +
-				"refusals and the work cycle. The server also gives it in instructions on connection; the tool " +
-				"is for clients that do not show instructions to the model.",
+			Description: "The protocol of working with ochan: what the model is here, how the operator states " +
+				"a task (a formal prompt, or natural language when the operator set fp.mode: natural), refusals " +
+				"and the work cycle. The server also gives it in instructions on connection; the tool is for " +
+				"clients that do not show instructions to the model.",
 			Command: "fp",
 			Fixed:   []string{"protocol"},
+		},
+		{
+			Name:  "vocabulary",
+			Title: "Vocabulary of the formal prompt",
+			Description: "The closed vocabulary of the formal prompt language: every meaningful word, its senses " +
+				"(classes) and where it comes from. Without arguments, the base vocabulary and the operator's; with " +
+				"skill, the words that skill brings into a prompt that imports it; with word, the entries of that word " +
+				"in every vocabulary. A word outside the vocabulary is ⊥syn.",
+			Command: "fp",
+			Fixed:   []string{"words"},
+			Slots: []slot{
+				{Name: "skill", Kind: slotPackage, Flag: "skill", Description: "show the vocabulary of this skill"},
+				{Name: "word", Kind: slotParam, Description: "show the entries of this word"},
+			},
 		},
 		{
 			Name:  "check_prompt",
@@ -425,7 +448,7 @@ func buildTools(live []string) []tool {
 			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
 			Bundle:    true,
-			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), docSlot()},
+			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), afterSlot(), docSlot()},
 			Writes:    true,
 		},
 		{

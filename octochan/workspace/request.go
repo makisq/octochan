@@ -24,6 +24,9 @@ const (
 	RequestRejected RequestState = "rejected"
 	// RequestApplied — заявка выполнена.
 	RequestApplied RequestState = "applied"
+	// RequestFailed — выполнение началось и прервалось ошибкой. Состояние
+	// конечное: заявку не повторяют, а оформляют заново (order.go).
+	RequestFailed RequestState = "failed"
 )
 
 func (s RequestState) Russian() string {
@@ -36,6 +39,8 @@ func (s RequestState) Russian() string {
 		return "отклонена"
 	case RequestApplied:
 		return "выполнена"
+	case RequestFailed:
+		return "упала"
 	default:
 		return string(s)
 	}
@@ -69,6 +74,21 @@ type Request struct {
 	// Payload — исходный текст сценария, чтобы выполнить ровно то,
 	// что согласовали, а не перечитанный с диска изменившийся файл.
 	Payload string `json:"payload,omitempty"`
+	// Overrides — параметры из командной строки (key=value), с которыми
+	// строился план: без них при выполнении сценарий был бы другим.
+	Overrides map[string]string `json:"overrides,omitempty"`
+	// Limit — селекторы --limit, которыми сузили цели сценария.
+	Limit []string `json:"limit,omitempty"`
+
+	// Compensates — заявка, обратное действие которой выполняет эта:
+	// ochan compensate оформляет его второй согласованной операцией.
+	Compensates string `json:"compensates,omitempty"`
+	// CompensatedBy — заявка на обратное действие этой.
+	CompensatedBy string `json:"compensated_by,omitempty"`
+
+	// After — заявки, после которых выполняется эта (ochan request
+	// --after): она не выполнится, пока они не выполнены.
+	After []string `json:"after,omitempty"`
 
 	// Script непуст, если заявка на выполнение сценария на языке алиасов.
 	Script *ScriptRun `json:"script,omitempty"`
@@ -78,6 +98,8 @@ type Request struct {
 	DecidedAt  time.Time `json:"decided_at,omitempty"`
 	AppliedAt  time.Time `json:"applied_at,omitempty"`
 	AppliedRef []string  `json:"applied_refs,omitempty"`
+	// Failure — ошибка, на которой выполнение прервалось.
+	Failure string `json:"failure,omitempty"`
 }
 
 // ScriptRun — то, что нужно, чтобы выполнить сценарий на языке алиасов
@@ -118,8 +140,23 @@ type ScriptRun struct {
 	// план строится заново и сверяется с ними.
 	Effects []string `json:"effects"`
 
+	// Limit — селекторы --limit: хосты инвентаря, которые видел сценарий.
+	Limit []string `json:"limit,omitempty"`
+
+	// Exec — программы --allow-exec с суммами файлов: выполнение запускает
+	// те же программы, что видел план, или не запускает ничего.
+	Exec []ExecProgram `json:"exec,omitempty"`
+
 	// Prompt непуст, если сценарий написан по формальному промпту.
 	Prompt *ScriptPrompt `json:"prompt,omitempty"`
+}
+
+// ExecProgram — программа, которую сценарию разрешено запускать.
+type ExecProgram struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Sum         string `json:"sum"`
+	Interpreter string `json:"interpreter,omitempty"`
 }
 
 // ScriptPrompt — формальный промпт, по которому модель написала сценарий,
@@ -307,6 +344,32 @@ func (r *Requests) Decide(request *Request, state RequestState, who, comment str
 	}
 	request.DecidedAt = time.Now().UTC()
 
+	return r.save(request)
+}
+
+// LinkCompensation связывает выполненную заявку с заявкой на её обратное
+// действие. Обратное действие одно: вторая компенсация того же — отказ.
+func (r *Requests) LinkCompensation(original, compensation *Request) error {
+	if original.CompensatedBy != "" {
+		return fmt.Errorf("у заявки %s уже есть обратное действие — заявка %s", original.ID, original.CompensatedBy)
+	}
+	original.CompensatedBy = compensation.ID
+	return r.save(original)
+}
+
+// MarkFailed отмечает, что выполнение началось и прервалось. refs — что
+// успели сделать до сбоя: оно сделано, и заявка его помнит.
+func (r *Requests) MarkFailed(request *Request, refs []string, failure error) error {
+	if request.State != RequestApproved {
+		return fmt.Errorf("заявка %s не согласована (%s): выполнять было нечего",
+			request.ID, request.State.Russian())
+	}
+	request.State = RequestFailed
+	request.AppliedAt = time.Now().UTC()
+	request.AppliedRef = refs
+	if failure != nil {
+		request.Failure = failure.Error()
+	}
 	return r.save(request)
 }
 

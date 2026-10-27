@@ -22,6 +22,8 @@ const (
 	// именно. Для правки конфига план перечисляет параметры, а запись
 	// произвольного текста по параметрам не разложить.
 	ChangeWrite ChangeKind = "write"
+	// ChangeExec — будет запущена программа (exec сценария в песочнице).
+	ChangeExec ChangeKind = "exec"
 )
 
 func (k ChangeKind) Russian() string {
@@ -36,6 +38,8 @@ func (k ChangeKind) Russian() string {
 		return "задача"
 	case ChangeWrite:
 		return "записать"
+	case ChangeExec:
+		return "запуск"
 	default:
 		return string(k)
 	}
@@ -164,7 +168,7 @@ func (p *Plan) Render(width int) string {
 		}
 
 		switch change.Kind {
-		case ChangeTask, ChangeWrite:
+		case ChangeTask, ChangeWrite, ChangeExec:
 			fmt.Fprintf(&b, "    %-10s %s", change.Kind.Russian(), change.Name)
 			if change.Detail != "" {
 				fmt.Fprintf(&b, " — %s", change.Detail)
@@ -229,4 +233,62 @@ func splitParamName(name string) (section, key string) {
 		return name[:idx], name[idx+1:]
 	}
 	return "", name
+}
+
+// DiffPlans сравнивает согласованный план с построенным заново: что в нём
+// пропало, что появилось и изменилось ли то, что прерывает обслуживание.
+// Пустой ответ — планы совпадают. Сравниваются изменения, а не заголовок
+// и предупреждения: выполняется то, что в изменениях.
+func DiffPlans(approved, now *Plan) []string {
+	count := func(p *Plan) map[Change]int {
+		m := map[Change]int{}
+		if p != nil {
+			for _, c := range p.Changes {
+				m[c]++
+			}
+		}
+		return m
+	}
+	was, is := count(approved), count(now)
+
+	var diffs []string
+	for _, c := range sortedChanges(was) {
+		if extra := was[c] - is[c]; extra > 0 {
+			diffs = append(diffs, "пропало: "+c.describe())
+		}
+	}
+	for _, c := range sortedChanges(is) {
+		if extra := is[c] - was[c]; extra > 0 {
+			diffs = append(diffs, "появилось: "+c.describe())
+		}
+	}
+	if approved != nil && now != nil && approved.Destructive != now.Destructive {
+		diffs = append(diffs, fmt.Sprintf("прерывает обслуживание: было %v, стало %v", approved.Destructive, now.Destructive))
+	}
+	return diffs
+}
+
+func sortedChanges(m map[Change]int) []Change {
+	out := make([]Change, 0, len(m))
+	for c := range m {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].describe() < out[j].describe() })
+	return out
+}
+
+// describe — изменение одной строкой для сообщений о расхождении.
+func (c Change) describe() string {
+	text := c.Kind.Russian()
+	if c.Target != "" {
+		text += " " + c.Target + ":"
+	}
+	text += " " + c.Name
+	if c.From != "" || c.To != "" {
+		text += fmt.Sprintf(" %s -> %s", c.From, c.To)
+	}
+	if c.Detail != "" {
+		text += " (" + c.Detail + ")"
+	}
+	return text
 }

@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"octochan/i18n"
+	"octochan/lang"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,7 +19,9 @@ var sandboxCmd = &cobra.Command{
 		"и сокеты, своё сетевое пространство оставляет без сети. На других ОС\n" +
 		"файлы и сеть держит только песочница языка.\n\n" +
 		"С sandbox.strict: true в config.yaml сценарий не выполняется, если\n" +
-		"изоляция неполная.",
+		"изоляция неполная.\n\n" +
+		"С --allow-exec проба ставит песочницу с запуском этих программ: так\n" +
+		"видно, даст ли ядро такую изоляцию, до того как на неё рассчитывать.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		// Пробный запуск, а не только опрос ядра: пространства имён
@@ -27,7 +30,16 @@ var sandboxCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		result, err := isolated(cmd, isolatedSpec{Mode: "probe", Roots: []string{cwd}}, cmd.OutOrStdout())
+		spec := isolatedSpec{Mode: "probe", Roots: []string{cwd}}
+		names, _ := cmd.Flags().GetStringSlice("allow-exec")
+		for _, name := range names {
+			program, err := lang.ResolveExecutable(name, spec.Roots)
+			if err != nil {
+				return err
+			}
+			spec.Exec = append(spec.Exec, program)
+		}
+		result, err := isolated(cmd, spec, cmd.OutOrStdout())
 		if err != nil {
 			return err
 		}
@@ -50,5 +62,6 @@ var sandboxCmd = &cobra.Command{
 }
 
 func init() {
+	sandboxCmd.Flags().StringSlice("allow-exec", nil, "проверить песочницу с запуском этих программ")
 	rootCmd.AddCommand(sandboxCmd)
 }

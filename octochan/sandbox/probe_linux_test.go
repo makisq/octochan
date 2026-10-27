@@ -4,6 +4,8 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -16,6 +18,19 @@ func runPlatform(p probeReq) (bool, error) {
 		return true, syscall.Exec(p.Path, []string{p.Path}, nil)
 	case "kill":
 		return true, syscall.Kill(1, 0)
+	case "run":
+		return true, exec.Command(p.Path).Run()
+	case "copy-run":
+		// Программу скопировали в каталог, куда сценарий пишет: ядро не
+		// даёт запустить копию, хотя оригинал разрешён.
+		data, err := os.ReadFile(p.Path)
+		if err != nil {
+			return true, err
+		}
+		if err := os.WriteFile(p.Addr, data, 0o700); err != nil {
+			return true, err
+		}
+		return true, exec.Command(p.Addr).Run()
 	case "unshare":
 		return true, syscall.Unshare(syscall.CLONE_NEWUSER)
 	case "socket":

@@ -3,7 +3,7 @@
 goal: northwest
 
 classes:
-  Goal        : "northwest"
+  Direction   : "northwest"
   Movement    : "move"
   Trajectory  : "path"
   Obstacle    : "obstacle"
@@ -14,10 +14,10 @@ relations:
   Obstacle   --forces-->     Trajectory   (detour)
   Trajectory --defines-->    Fuel         (consumption)
   Fuel       --terminates--> Movement     (exhaustion)
-  Movement   --strives_to--> Goal
+  Movement   --strives_to--> Direction
 
 priority:
-  Fuel  <  Goal
+  Fuel  <  Direction
 
 generalization detour(obstacle : Obstacle, side : {left, right}) :
   Trajectory = path_around(obstacle, side)
@@ -46,4 +46,4 @@ report:
   q: fuel_policy
     choice: stop_before_detour
     alternatives: {stop_before_detour, detour_anyway}
-    basis: priority(Fuel < Goal)
+    basis: priority(Fuel < Direction)

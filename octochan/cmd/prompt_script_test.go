@@ -50,11 +50,11 @@ func (e *scriptEnv) skill(version string) {
 const promptHead = `goal: tuned
 
 classes:
-  Goal   : "tuned"
+  State  : "tuned"
   Config : "config"
 
 relations:
-  Config --strives_to--> Goal
+  Config --strives_to--> State
 
 import @pgconf v1
   provides: Config, store, verify

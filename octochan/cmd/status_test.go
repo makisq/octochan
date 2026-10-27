@@ -20,7 +20,7 @@ func (f fakeExecutor) Kind() string { return f.kind }
 func (f fakeExecutor) Plan(context.Context, *scenario.Scenario) (*config.Plan, error) {
 	return nil, errors.New("не нужен")
 }
-func (f fakeExecutor) Apply(context.Context, *scenario.Scenario) (*scenario.Result, error) {
+func (f fakeExecutor) Apply(context.Context, *scenario.Scenario, *config.Plan) (*scenario.Result, error) {
 	return nil, errors.New("не нужен")
 }
 

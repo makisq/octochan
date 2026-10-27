@@ -24,6 +24,10 @@ const (
 	// EffectLive — прочитан живой источник. Ничего не меняет, но план
 	// обязан об этом сказать: это обращение к боевому серверу.
 	EffectLive EffectKind = "live"
+	// EffectExec — exec(): запущена программа из --allow-exec. Path — её
+	// имя, Args — аргументы. Не откатывается: что программа сделала, ochan
+	// не знает.
+	EffectExec EffectKind = "exec"
 )
 
 // Effect — одно действие сценария.
@@ -45,7 +49,13 @@ type Effect struct {
 	// подряд в один файл — одно действие: Before — файл до первой строки,
 	// After — после последней, Calls — все вызовы, которые в него писали.
 	Append bool
+	// Args — аргументы запущенной программы (EffectExec).
+	Args []string `json:",omitempty"`
 }
+
+// Writes сообщает, что действие записало файл: его можно откатить, и его
+// цель видит арбитр. Чтение живого источника и запуск программы — нет.
+func (e Effect) Writes() bool { return e.Kind == EffectWrite || e.Kind == EffectSave }
 
 // pendingAppend — печать в файл из итерации parallel for: дописывается
 // после цикла, в порядке элементов, как и вывод на экран. Иначе строки
@@ -123,8 +133,11 @@ func (in *Interpreter) activeCalls() []int {
 // Fingerprint — отпечаток действия. По отпечаткам согласованный план
 // сверяется с тем, что сценарий сделал бы сейчас.
 func (e Effect) Fingerprint() string {
-	if e.Kind == EffectLive {
+	switch e.Kind {
+	case EffectLive:
 		return string(e.Kind) + " " + e.Path
+	case EffectExec:
+		return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256([]byte(strings.Join(e.Args, "\x00"))))
 	}
 	return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256(e.After))
 }
@@ -474,6 +487,9 @@ func BuildPlan(source string, effects []Effect) *config.Plan {
 			planWrite(plan, e)
 		case EffectSave:
 			planSave(plan, e)
+		case EffectExec:
+			plan.Add(config.Change{Kind: config.ChangeExec, Target: e.Path, Name: strings.Join(append([]string{e.Path}, e.Args...), " "),
+				Detail: "в плане не запускается; не откатывается"})
 		}
 	}
 	return plan

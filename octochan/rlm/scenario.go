@@ -68,16 +68,26 @@ func lookupScenarioModule(serviceName string) (ScenarioModuleCreator, bool) {
 	return creator, ok
 }
 
-// ExecuteScenario разбирает сценарий, валидирует его и выполняет запросы.
-// Возвращает идентификаторы созданных задач в порядке следования запросов.
-func ExecuteScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenario) ([]string, error) {
+// ExecuteScenario разбирает сценарий, валидирует его и выполняет запросы
+// согласованного плана approved. Возвращает идентификаторы созданных задач
+// в порядке следования запросов.
+//
+// Запросы готовятся заново — модулю может понадобиться разведка, — и до
+// первой отправки сверяются с планом: задача, которой в плане нет, или
+// план, задача которого не сформировалась, — отказ, и ничего не создано.
+// Если план был неполным (модуль ходил в API на этапе подготовки), по нему
+// сверяются цели: параметры запроса определились только сейчас.
+func ExecuteScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenario, approved *config.Plan) ([]string, error) {
 	if data == nil {
 		return nil, errors.New("сценарий не задан")
+	}
+	if approved == nil {
+		return nil, scenario.NotStarted(errors.New("нет согласованного плана: RLM выполняет только план, на который сказали «да»"))
 	}
 
 	module, err := buildModule(data)
 	if err != nil {
-		return nil, err
+		return nil, scenario.NotStarted(err)
 	}
 
 	requests, err := module.GenerateRequests(ctx, api)
@@ -88,7 +98,56 @@ func ExecuteScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenar
 		return nil, errors.New("модуль не сформировал ни одного запроса")
 	}
 
+	now := planFromRequests(data, requests)
+	expected := approved
+	if incompletePlan(approved) {
+		now, expected = targetsOnly(now), targetsOnly(approved)
+	}
+	if diffs := config.DiffPlans(expected, now); len(diffs) > 0 {
+		return nil, scenario.NotStarted(fmt.Errorf("запросы RLM разошлись с согласованным планом — ничего не отправлено, "+
+			"оформите заявку заново:\n  %s", strings.Join(diffs, "\n  ")))
+	}
 	return submitRequests(ctx, api, requests)
+}
+
+// incompleteDetail — пометка задачи в неполном плане.
+const incompleteDetail = "состав запроса определится после разведки"
+
+func incompletePlan(p *config.Plan) bool {
+	for _, c := range p.Changes {
+		if c.Detail == incompleteDetail {
+			return true
+		}
+	}
+	return false
+}
+
+// targetsOnly — план без параметров запросов: цель и сервис.
+func targetsOnly(p *config.Plan) *config.Plan {
+	out := &config.Plan{Destructive: p.Destructive}
+	for _, c := range p.Changes {
+		out.Add(config.Change{Kind: c.Kind, Target: c.Target, Name: c.Name})
+	}
+	return out
+}
+
+// planFromRequests описывает готовые запросы как план.
+func planFromRequests(data *scenario.Scenario, requests []*APIRequest) *config.Plan {
+	plan := &config.Plan{
+		Command:     "apply",
+		Source:      data.Service,
+		Destructive: isDestructiveService(data.Service),
+	}
+	for i, req := range requests {
+		plan.Add(config.Change{
+			Kind:   config.ChangeTask,
+			Target: requestTarget(req, i),
+			Name:   data.Service,
+			Detail: describeRequestParams(req),
+		})
+	}
+	plan.Sort()
+	return plan
 }
 
 // buildModule создаёт и валидирует модуль сценария.
@@ -126,16 +185,15 @@ func PlanScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenario)
 		return nil, err
 	}
 
-	plan := &config.Plan{
-		Command:     "apply",
-		Source:      data.Service,
-		Destructive: isDestructiveService(data.Service),
-	}
-
 	// Обёртка, а не флаг: модуль держит только интерфейс и до настоящего
 	// Post дотянуться не может.
 	requests, err := module.GenerateRequests(ctx, DryRun(api))
 	if err != nil {
+		plan := &config.Plan{
+			Command:     "apply",
+			Source:      data.Service,
+			Destructive: isDestructiveService(data.Service),
+		}
 		if !errors.Is(err, ErrDryRun) {
 			return nil, fmt.Errorf("ошибка подготовки запросов: %w", err)
 		}
@@ -150,25 +208,14 @@ func PlanScenario(ctx context.Context, api ScenarioAPI, data *scenario.Scenario)
 					Kind:   config.ChangeTask,
 					Target: ci,
 					Name:   data.Service,
-					Detail: "состав запроса определится после разведки",
+					Detail: incompleteDetail,
 				})
 			}
 		}
 		plan.Sort()
 		return plan, nil
 	}
-
-	for i, req := range requests {
-		plan.Add(config.Change{
-			Kind:   config.ChangeTask,
-			Target: requestTarget(req, i),
-			Name:   data.Service,
-			Detail: describeRequestParams(req),
-		})
-	}
-
-	plan.Sort()
-	return plan, nil
+	return planFromRequests(data, requests), nil
 }
 
 // isDestructiveService помечает сервисы, прерывающие обслуживание.

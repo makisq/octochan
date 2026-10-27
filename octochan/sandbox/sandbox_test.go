@@ -3,9 +3,11 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"debug/elf"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -175,6 +177,66 @@ func TestKernelEnforcesPolicy(t *testing.T) {
 	if !got.Full() {
 		t.Errorf("изоляция неполная: %v", got.Gaps())
 	}
+}
+
+// Третья модель исполнения: разрешённую программу запустить можно, любую
+// другую — нет, даже её копию в каталоге песочницы. Остальные запреты на
+// месте.
+func TestExecOnlyAllowedPrograms(t *testing.T) {
+	requireIsolation(t)
+	allowed, other := "/usr/bin/true", "/usr/bin/ls"
+	for _, p := range []string{allowed, other} {
+		if _, err := os.Stat(p); err != nil {
+			t.Skipf("нет %s", p)
+		}
+	}
+	exec := []string{allowed}
+	if interp := elfInterp(t, allowed); interp != "" {
+		exec = append(exec, interp)
+	}
+	root := t.TempDir()
+	results, got := spawn(t, Policy{Write: []string{root}, Exec: exec}, []probeReq{
+		{Name: "разрешённая", Op: "run", Path: allowed},
+		{Name: "другая", Op: "run", Path: other},
+		{Name: "копия в песочнице", Op: "copy-run", Path: allowed, Addr: filepath.Join(root, "true")},
+		{Name: "unshare", Op: "unshare"},
+		{Name: "passwd", Op: "read", Path: "/etc/passwd"},
+	})
+	want := map[string]string{
+		"разрешённая":       "ok",
+		"другая":            "permission denied",
+		"копия в песочнице": "permission denied",
+		"unshare":           "operation not permitted",
+		"passwd":            "permission denied",
+	}
+	for name, expected := range want {
+		if results[name] != expected {
+			t.Errorf("%s: %q, ожидалось %q", name, results[name], expected)
+		}
+	}
+	if !got.PidNS || !got.UserNS || len(got.Exec) == 0 {
+		t.Errorf("отчёт: %+v", got)
+	}
+}
+
+func elfInterp(t *testing.T, path string) string {
+	t.Helper()
+	f, err := elf.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_INTERP {
+			data, _ := io.ReadAll(p.Open())
+			real, err := filepath.EvalSymlinks(strings.TrimRight(string(data), "\x00"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return real
+		}
+	}
+	return ""
 }
 
 func TestNetworkClosedUnlessAllowed(t *testing.T) {

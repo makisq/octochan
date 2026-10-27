@@ -3,6 +3,8 @@
 package sandbox
 
 import (
+	"slices"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -93,6 +95,13 @@ func buildFilter(policy Policy, pid int) []unix.SockFilter {
 	if !policy.Network {
 		denied = append(denied, unix.SYS_SOCKET)
 	}
+	if len(policy.Exec) > 0 {
+		// Запуск программ: execve пропускается, а что запускать, решает
+		// Landlock — у него есть путь файла, у seccomp нет.
+		denied = slices.DeleteFunc(denied, func(nr uintptr) bool {
+			return nr == unix.SYS_EXECVE || nr == unix.SYS_EXECVEAT
+		})
+	}
 	for _, nr := range denied {
 		f = append(f, jump(jeq, uint32(nr), 0, 1), stmt(ret, retDeny))
 	}
@@ -119,6 +128,12 @@ func buildFilter(policy Policy, pid int) []unix.SockFilter {
 	)
 
 	// kill и tgkill — только себе: рантайм Go шлёт сигналы своим потокам.
+	// С запуском программ процессы живут в своём пространстве имён PID:
+	// сигналы и так не выходят наружу, а остановить запущенную программу
+	// по истечении времени процессу песочницы нужно.
+	if len(policy.Exec) > 0 {
+		return append(f, stmt(ret, retAllow))
+	}
 	for _, nr := range []uintptr{unix.SYS_KILL, unix.SYS_TGKILL} {
 		f = append(f,
 			jump(jeq, uint32(nr), 0, 4),

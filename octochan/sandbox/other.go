@@ -12,6 +12,7 @@ type attempt struct {
 	attr   *syscall.SysProcAttr
 	userNS bool
 	netNS  bool
+	pidNS  bool
 }
 
 // На других ОС ограничений ядра нет: ребёнок сразу второй шаг — отдельный

@@ -1,0 +1,248 @@
+# Базовый словарь формального промпта — подмножество английского.
+#
+# Слово языка — ключ words: ровно n его смыслов (senses, классы) и nl —
+# сколько смыслов у слова в естественном языке, по WordNet 3.0 (все
+# части речи). 1 ≤ n < nl; у слова с одним смыслом в языке (nl = 1) n = 1.
+# Потолок n для всего языка — fp.max_meanings в config.yaml: слово с
+# большим числом смыслов при таком потолке в язык не входит.
+#
+# function — служебные слова: класса у них нет, они только связывают
+# части составного имени (stop_before_detour). units — единицы измерения
+# после чисел. Слова области приносят словари скиллов (lexicon.yaml
+# пакета), свои — словари оператора (fp.lexicons).
+words:
+  # Узлы, группы, сервисы
+  node:        {senses: [Node], nl: 8}
+  host:        {senses: [Node], nl: 11}
+  machine:     {senses: [Node], nl: 8}
+  server:      {senses: [Node, Service], nl: 4}
+  group:       {senses: [Group], nl: 5}
+  cluster:     {senses: [Group], nl: 3}
+  pool:        {senses: [Group], nl: 11}
+  fleet:       {senses: [Group], nl: 7}
+  web:         {senses: [Group, Service], nl: 8}
+  service:     {senses: [Service], nl: 18}
+  daemon:      {senses: [Service], nl: 2}
+  application: {senses: [Service], nl: 7}
+  region:      {senses: [Region], nl: 5}
+  zone:        {senses: [Region], nl: 6}
+  site:        {senses: [Region], nl: 4}
+  replica:     {senses: [Replica], nl: 1}
+  standby:     {senses: [Replica], nl: 3}
+  follower:    {senses: [Replica], nl: 2}
+  primary:     {senses: [Leader], nl: 9}
+  leader:      {senses: [Leader], nl: 2}
+
+  # Данные и файлы
+  database:    {senses: [Database], nl: 1}
+  table:       {senses: [Table], nl: 8}
+  index:       {senses: [Index], nl: 8}
+  query:       {senses: [Query], nl: 2}
+  transaction: {senses: [Transaction], nl: 1}
+  lock:        {senses: [Lock], nl: 15}
+  replication: {senses: [Replication], nl: 7}
+  cache:       {senses: [Cache], nl: 4}
+  queue:       {senses: [Queue], nl: 4}
+  buffer:      {senses: [Buffer], nl: 9}
+  buffers:     {senses: [Buffer], nl: 9}  # nl — по buffer
+  file:        {senses: [File], nl: 9}
+  directory:   {senses: [Directory], nl: 2}
+  folder:      {senses: [Directory], nl: 2}
+  log:         {senses: [Log], nl: 7}
+  journal:     {senses: [Log], nl: 5}
+  backup:      {senses: [Backup], nl: 5}
+  copy:        {senses: [Backup], nl: 8}
+  snapshot:    {senses: [Backup], nl: 1}
+
+  # Конфигурация и ресурсы
+  config:        {senses: [Config], nl: 2}  # nl — по configuration
+  configuration: {senses: [Config], nl: 2}
+  parameter:     {senses: [Setting], nl: 4}
+  setting:       {senses: [Setting], nl: 7}
+  option:        {senses: [Setting], nl: 3}
+  default:       {senses: [Setting], nl: 5}
+  value:         {senses: [Value], nl: 11}
+  limit:         {senses: [Limit], nl: 9}
+  cap:           {senses: [Limit], nl: 11}
+  quota:         {senses: [Limit], nl: 3}
+  threshold:     {senses: [Limit], nl: 5}
+  maximum:       {senses: [Limit], nl: 4}
+  minimum:       {senses: [Limit], nl: 3}
+  connection:    {senses: [Connection], nl: 9}
+  session:       {senses: [Connection], nl: 4}
+  memory:        {senses: [Memory], nl: 5}
+  ram:           {senses: [Memory], nl: 9}
+  disk:          {senses: [Storage], nl: 5}
+  storage:       {senses: [Storage], nl: 6}
+  volume:        {senses: [Storage], nl: 6}
+  network:       {senses: [Network], nl: 6}
+  port:          {senses: [Port], nl: 14}
+  address:       {senses: [Address], nl: 18}
+  budget:        {senses: [Budget], nl: 3}
+  size:          {senses: [Size], nl: 9}
+  capacity:      {senses: [Size], nl: 9}
+  count:         {senses: [Count], nl: 12}
+  number:        {senses: [Count], nl: 17}
+  average:       {senses: [Count], nl: 12}
+  load:          {senses: [Load], nl: 14}
+  traffic:       {senses: [Load], nl: 6}
+  workload:      {senses: [Load], nl: 1}
+  latency:       {senses: [Latency], nl: 3}
+  delay:         {senses: [Latency], nl: 6}
+  timeout:       {senses: [Timeout], nl: 1}  # nl — по time-out
+  retry:         {senses: [Retry], nl: 1}
+  speed:         {senses: [Speed], nl: 10}
+  throughput:    {senses: [Speed], nl: 1}
+  fast:          {senses: [Pace], nl: 15}
+  slow:          {senses: [Pace], nl: 11}
+  rate:          {senses: [Rate], nl: 7}
+  frequency:     {senses: [Rate], nl: 3}
+  daily:         {senses: [Rate], nl: 5}
+  nightly:       {senses: [Rate], nl: 2}
+  weekly:        {senses: [Rate], nl: 3}
+
+  # Люди, права, секреты
+  user:        {senses: [User], nl: 3}
+  account:     {senses: [User], nl: 14}
+  role:        {senses: [Role], nl: 4}
+  permission:  {senses: [Permission], nl: 2}
+  access:      {senses: [Permission], nl: 8}
+  secret:      {senses: [Secret], nl: 14}
+  password:    {senses: [Secret], nl: 1}
+  token:       {senses: [Secret], nl: 5}
+  key:         {senses: [Secret], nl: 21}
+  certificate: {senses: [Secret], nl: 4}
+  credential:  {senses: [Secret], nl: 1}
+
+  # Окружения, время, порядок
+  environment: {senses: [Environment], nl: 2}
+  production:  {senses: [Environment], nl: 8}
+  staging:     {senses: [Environment], nl: 4}
+  development: {senses: [Environment], nl: 9}
+  test:        {senses: [Validation, Environment], nl: 13}
+  window:      {senses: [Period], nl: 8}
+  hour:        {senses: [Period], nl: 4}
+  day:         {senses: [Period], nl: 10}
+  night:       {senses: [Period], nl: 8}
+  week:        {senses: [Period], nl: 3}
+  weekend:     {senses: [Period], nl: 2}
+  period:      {senses: [Period], nl: 7}
+  deadline:    {senses: [Period], nl: 1}
+  peak:        {senses: [Period], nl: 8}
+  maintenance: {senses: [Maintenance], nl: 5}
+  schedule:    {senses: [Schedule], nl: 4}
+  business:    {senses: [Business], nl: 9}
+  order:       {senses: [Order], nl: 24}
+  sequence:    {senses: [Order], nl: 7}
+  first:       {senses: [Order], nl: 16}
+  last:        {senses: [Order], nl: 21}
+  next:        {senses: [Order], nl: 4}
+  previous:    {senses: [Order], nl: 3}
+  step:        {senses: [Stage], nl: 21}
+  stage:       {senses: [Stage], nl: 10}
+  phase:       {senses: [Stage], nl: 6}
+  batch:       {senses: [Batch], nl: 4}
+  rolling:     {senses: [Strategy], nl: 4}
+  canary:      {senses: [Strategy], nl: 5}
+  parallel:    {senses: [Strategy], nl: 8}
+  serial:      {senses: [Strategy], nl: 6}
+  new:         {senses: [Age], nl: 12}
+  old:         {senses: [Age], nl: 9}
+  current:     {senses: [Age], nl: 4}
+
+  # Состояния, уровни, стороны
+  state:     {senses: [State], nl: 11}
+  status:    {senses: [State], nl: 2}
+  tuned:     {senses: [State], nl: 5}  # nl — по tune
+  stable:    {senses: [State], nl: 7}
+  healthy:   {senses: [State], nl: 5}
+  available: {senses: [State], nl: 3}
+  ready:     {senses: [State], nl: 8}
+  active:    {senses: [State], nl: 17}
+  idle:      {senses: [State], nl: 10}
+  enabled:   {senses: [State], nl: 1}  # nl — по enable
+  disabled:  {senses: [State], nl: 2}
+  running:   {senses: [State], nl: 11}
+  stopped:   {senses: [State], nl: 1}
+  safe:      {senses: [Safety], nl: 7}
+  high:      {senses: [Level], nl: 18}
+  low:       {senses: [Level], nl: 16}
+  medium:    {senses: [Level], nl: 13}
+  level:     {senses: [Level], nl: 19}
+  left:      {senses: [Side], nl: 10}
+  right:     {senses: [Side], nl: 36}
+  side:      {senses: [Side], nl: 14}
+  north:     {senses: [Direction], nl: 9}
+  south:     {senses: [Direction], nl: 7}
+  east:      {senses: [Direction], nl: 7}
+  west:      {senses: [Direction], nl: 10}
+  northwest: {senses: [Direction], nl: 7}
+  northeast: {senses: [Direction], nl: 7}
+  southwest: {senses: [Direction], nl: 7}
+  southeast: {senses: [Direction], nl: 7}
+  direction: {senses: [Direction], nl: 9}
+  target:    {senses: [Goal], nl: 6}
+  objective: {senses: [Goal], nl: 6}
+  source:    {senses: [Source], nl: 11}
+  policy:    {senses: [Policy], nl: 3}
+  plan:      {senses: [Plan], nl: 7}
+  request:   {senses: [Request], nl: 5}
+  change:    {senses: [Change], nl: 20}
+  update:    {senses: [Change], nl: 4}
+  version:   {senses: [Version], nl: 6}
+  release:   {senses: [Version], nl: 22}
+  error:     {senses: [Failure], nl: 7}
+  failure:   {senses: [Failure], nl: 7}
+  fault:     {senses: [Failure], nl: 8}
+  job:       {senses: [Task], nl: 17}
+  task:      {senses: [Task], nl: 4}
+  process:   {senses: [Process], nl: 13}
+  thread:    {senses: [Process], nl: 9}
+  worker:    {senses: [Process], nl: 4}
+  model:     {senses: [Model], nl: 16}
+
+  # Действия
+  check:        {senses: [Validation, Probe], nl: 38}
+  verification: {senses: [Validation], nl: 2}
+  validation:   {senses: [Validation], nl: 2}
+  verify:       {senses: [Validation], nl: 4}
+  probe:        {senses: [Probe], nl: 6}
+  restart:      {senses: [Restart], nl: 2}
+  reboot:       {senses: [Restart], nl: 1}
+  reload:       {senses: [Reload], nl: 2}
+  stop:         {senses: [Stop], nl: 22}
+  halt:         {senses: [Stop], nl: 8}
+  start:        {senses: [Start], nl: 22}
+  launch:       {senses: [Start], nl: 8}
+  apply:        {senses: [Deployment], nl: 10}
+  deploy:       {senses: [Deployment], nl: 2}
+  rollback:     {senses: [Rollback], nl: 2}
+  revert:       {senses: [Rollback], nl: 2}
+  undo:         {senses: [Rollback], nl: 5}
+  scale:        {senses: [Scaling], nl: 18}
+  resize:       {senses: [Scaling], nl: 1}
+  migrate:      {senses: [Migration], nl: 2}
+  upgrade:      {senses: [Upgrade], nl: 11}
+  install:      {senses: [Installation], nl: 3}
+  delete:       {senses: [Deletion], nl: 3}
+  create:       {senses: [Creation], nl: 6}
+  read:         {senses: [Reading], nl: 12}
+  write:        {senses: [Writing], nl: 10}
+  save:         {senses: [Writing], nl: 12}
+  store:        {senses: [Writing], nl: 6}
+  monitor:      {senses: [Monitoring], nl: 9}
+  watch:        {senses: [Monitoring], nl: 13}
+  notify:       {senses: [Notification], nl: 1}
+  alert:        {senses: [Notification], nl: 7}
+  approve:      {senses: [Approval], nl: 2}
+  drain:        {senses: [Drain], nl: 8}
+
+function: ["a", "an", "the", "of", "to", "in", "on", "at", "by", "for",
+  "from", "with", "without", "before", "after", "around", "between",
+  "during", "per", "via", "and", "or", "not", "no", "all", "any", "each",
+  "every", "only", "anyway", "if", "when", "then", "than", "into", "over",
+  "under", "up", "down", "out", "off", "max", "min", "total"]
+
+units: ["B", "KB", "MB", "GB", "TB", "KiB", "MiB", "GiB", "TiB", "ms", "s",
+  "sec", "min", "h", "d", "mm", "cm", "m", "km", "rps", "qps", "ops", "bps",
+  "Kbps", "Mbps", "Gbps"]

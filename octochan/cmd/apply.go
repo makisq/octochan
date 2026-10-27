@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -14,7 +15,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-var waitDone bool
+var (
+	waitDone   bool
+	applyLimit []string
+)
 
 var applyCmd = &cobra.Command{
 	Use:   "apply <сценарий|-> [key=value ...] | apply --request <id>",
@@ -22,6 +26,9 @@ var applyCmd = &cobra.Command{
 	Long: "Способ выполнения выбирается по полю service самого сценария:\n" +
 		"каждый сервис зарегистрирован своим исполнителем. Флага для выбора\n" +
 		"внешней системы нет — она такой же исполнитель, как и любой другой.\n\n" +
+		"Исполнитель получает план и применяет ровно его. С --request — план,\n" +
+		"на который сказали «да»: перед выполнением ochan строит план заново и\n" +
+		"сверяет с согласованным; разошлись — выполнения нет.\n\n" +
 		"Чтобы применить конфиг к файлу, используйте patch.",
 	Args: cobra.MinimumNArgs(0),
 	Example: "ochan apply scenario.yaml role=standalone\n" +
@@ -46,17 +53,28 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 		parsed = parsed.WithOverrides(overrides)
+		if err := resolveTargets(cmd.Context(), parsed, applyLimit); err != nil {
+			return err
+		}
 
 		runner, err := scenario.Resolve(parsed.Service)
 		if err != nil {
 			return err
 		}
 
-		log.Printf("apply: сценарий %s, сервис %s, исполнитель %s",
-			src.Name, parsed.Service, runner.Kind())
+		// Исполнитель применяет план, а не сценарий: тот же план, что
+		// показал бы ochan plan, — и выполняющий его видит.
+		plan, err := runner.Plan(cmd.Context(), parsed)
+		if err != nil {
+			return err
+		}
+		log.Printf("apply: сценарий %s, сервис %s, исполнитель %s, операций %d",
+			src.Name, parsed.Service, runner.Kind(), plan.Len())
 		cmd.Printf("Сервис %s, исполнитель %s\n", parsed.Service, runner.Kind())
+		plan.Source = fmt.Sprintf("%s (%s, исполнитель %s)", src.Name, parsed.Service, runner.Kind())
+		cmd.Print(plan.Render(60) + "\n")
 
-		result, err := runner.Apply(cmd.Context(), parsed)
+		result, err := runner.Apply(cmd.Context(), parsed, plan)
 
 		if result != nil && len(result.Refs) > 0 {
 			cmd.Println("Создано:")
@@ -130,6 +148,9 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 	if err := checkRequestScope(currentRole, request); err != nil {
 		return refuse(cmd, err)
 	}
+	if err := checkOrder(store, request); err != nil {
+		return err
+	}
 	if request.Script != nil {
 		return applyScriptRequest(cmd, store, request)
 	}
@@ -137,45 +158,33 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		return applyConfigRequest(cmd, store, request)
 	}
 
-	parsed, err := scenario.Parse(request.Source, []byte(request.Payload))
+	parsed, err := requestScenario(cmd.Context(), request)
 	if err != nil {
-		return fmt.Errorf("сохранённый в заявке сценарий не разбирается: %w", err)
+		return err
 	}
-
 	runner, err := scenario.Resolve(parsed.Service)
 	if err != nil {
 		return err
 	}
+	if request.Compensates != "" {
+		return applyCompensation(cmd, store, request, parsed, runner)
+	}
 
 	cmd.Printf("Заявка %s, сервис %s, исполнитель %s\n", request.ID, parsed.Service, runner.Kind())
 
-	result, applyErr := runner.Apply(cmd.Context(), parsed)
-
-	var refs []string
-	if result != nil {
-		refs = result.Refs
+	// Выполняется план, на который сказали «да». Перед этим исполнитель
+	// строит план заново: если сценарий, параметры или сама внешняя
+	// система уже не дают того же, выполнилось бы не согласованное.
+	now, err := runner.Plan(cmd.Context(), parsed)
+	if err != nil {
+		return err
 	}
-	if len(refs) > 0 {
-		cmd.Println("Создано:")
-		for _, ref := range refs {
-			cmd.Printf("  - %s\n", ref)
-		}
-
-		if err := store.MarkApplied(request, refs); err != nil {
-			cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
-		}
-		record(cmd, &workspace.Entry{
-			Kind:       workspace.EntryApply,
-			Command:    "apply --request " + request.ID,
-			Source:     request.Source,
-			Target:     parsed.Service,
-			Summary:    result.Summary,
-			TaskIDs:    refs,
-			Reversible: false,
-		})
-		notify(cmd, fmt.Sprintf("Заявка %s выполнена", request.ID), requestMailBody(request), nil)
+	if err := planDrift(request, now); err != nil {
+		return err
 	}
 
+	result, applyErr := runner.Apply(cmd.Context(), parsed, request.Plan)
+	finishScenarioApply(cmd, store, request, parsed, result, applyErr, "apply --request "+request.ID)
 	if applyErr != nil {
 		return applyErr
 	}
@@ -183,6 +192,63 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		return nil
 	}
 	return waitForRefs(cmd, runner, result)
+}
+
+// requestScenario — сценарий заявки: сохранённый текст с параметрами и
+// --limit, с которыми строился план. Цели из инвентаря разворачиваются
+// заново: поменялся инвентарь — поменяется план, и сверка его поймает.
+func requestScenario(ctx context.Context, request *workspace.Request) (*scenario.Scenario, error) {
+	parsed, err := scenario.Parse(request.Source, []byte(request.Payload))
+	if err != nil {
+		return nil, fmt.Errorf("сохранённый в заявке сценарий не разбирается: %w", err)
+	}
+	parsed = parsed.WithOverrides(request.Overrides)
+	if err := resolveTargets(ctx, parsed, request.Limit); err != nil {
+		return nil, fmt.Errorf("заявка %s: %w", request.ID, err)
+	}
+	return parsed, nil
+}
+
+// planDrift сверяет согласованный план с построенным перед выполнением.
+func planDrift(request *workspace.Request, now *config.Plan) error {
+	diffs := config.DiffPlans(request.Plan, now)
+	if len(diffs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("план изменился после согласования заявки %s: выполнилось бы не то, на что сказали «да»; "+
+		"оформите новую заявку.\n  %s", request.ID, strings.Join(diffs, "\n  "))
+}
+
+// finishScenarioApply записывает итог выполнения заявки: состояние, следы,
+// журнал, письмо. Сделанное до сбоя попадает в журнал и в заявку: во
+// внешней системе оно уже сделано.
+func finishScenarioApply(cmd *cobra.Command, store *workspace.Requests, request *workspace.Request,
+	parsed *scenario.Scenario, result *scenario.Result, applyErr error, command string) {
+	var refs []string
+	summary := ""
+	if result != nil {
+		refs, summary = result.Refs, result.Summary
+	}
+	if len(refs) > 0 {
+		cmd.Println("Создано:")
+		for _, ref := range refs {
+			cmd.Printf("  - %s\n", ref)
+		}
+	}
+	markOutcome(cmd, store, request, refs, applyErr)
+	if len(refs) == 0 && applyErr != nil {
+		return
+	}
+	record(cmd, &workspace.Entry{
+		Kind:       workspace.EntryApply,
+		Command:    command,
+		Source:     request.Source,
+		Target:     parsed.Service,
+		Summary:    summary,
+		TaskIDs:    refs,
+		Reversible: false,
+	})
+	notify(cmd, fmt.Sprintf("Заявка %s %s", request.ID, request.State.Russian()), requestMailBody(request), nil)
 }
 
 // scenarioArgs разбирает аргументы команд apply и plan: источник сценария
@@ -336,6 +402,8 @@ func scenarioServices() []serviceInfo {
 
 func init() {
 	applyCmd.Flags().BoolVarP(&waitDone, "wait", "w", false, "дождаться завершения")
+	applyCmd.Flags().StringArrayVar(&applyLimit, "limit", nil,
+		"только цели, подходящие под селектор: group=db_new, host=db*; можно указать несколько раз")
 }
 
 // applyConfigRequest выполняет согласованную правку конфига.
@@ -390,11 +458,10 @@ func applyConfigRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	}
 	result := config.ApplyPlan(current.Data, request.Plan)
 	if err := config.SaveConfig(result, target); err != nil {
+		markOutcome(cmd, store, request, nil, err)
 		return err
 	}
-	if err := store.MarkApplied(request, []string{target}); err != nil {
-		cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)
-	}
+	markOutcome(cmd, store, request, []string{target}, nil)
 	entry := &workspace.Entry{
 		Kind:       workspace.EntryPatch,
 		Command:    "apply --request " + request.ID,

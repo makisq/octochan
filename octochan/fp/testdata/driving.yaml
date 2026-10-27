@@ -1,0 +1,12 @@
+# Словарь скилла @driving из примеров: слова области навигации.
+# nl — по WordNet 3.0.
+words:
+  move:        {senses: [Movement], nl: 21}
+  path:        {senses: [Trajectory], nl: 4}
+  detour:      {senses: [Trajectory], nl: 2}
+  obstacle:    {senses: [Obstacle], nl: 2}
+  rock:        {senses: [Obstacle, Genre], nl: 9}
+  fuel:        {senses: [Fuel], nl: 5}
+  petrol:      {senses: [Fuel], nl: 1}
+  consumption: {senses: [Consumption], nl: 4}
+  exhaustion:  {senses: [Exhaustion], nl: 3}

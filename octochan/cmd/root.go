@@ -18,7 +18,7 @@ import (
 
 // Version — версия ochan. При сборке релиза задаётся через
 // -ldflags "-X octochan/cmd.Version=…"; ochan --version печатает её.
-var Version = "0.1.0-alpha"
+var Version = "0.2.0-alpha"
 
 var (
 	cfgFile string
