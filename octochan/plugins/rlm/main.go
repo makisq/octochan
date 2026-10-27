@@ -57,9 +57,9 @@ func (c configured) Plan(ctx context.Context, s *scenario.Scenario) (*config.Pla
 	return c.inner.Plan(ctx, s)
 }
 
-func (c configured) Apply(ctx context.Context, s *scenario.Scenario) (*scenario.Result, error) {
+func (c configured) Apply(ctx context.Context, s *scenario.Scenario, plan *config.Plan) (*scenario.Result, error) {
 	c.prepare(ctx)
-	return c.inner.Apply(ctx, s)
+	return c.inner.Apply(ctx, s, plan)
 }
 
 func (c configured) Wait(ctx context.Context, ref string) (string, error) {

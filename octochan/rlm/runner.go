@@ -27,13 +27,17 @@ func (r runner) Plan(ctx context.Context, s *scenario.Scenario) (*config.Plan, e
 	return PlanScenario(ctx, api, s)
 }
 
-func (r runner) Apply(ctx context.Context, s *scenario.Scenario) (*scenario.Result, error) {
+// Apply создаёт ровно задачи согласованного плана: ExecuteScenario сверяет
+// запросы с ним до первой отправки. Обратного действия у RLM нет —
+// scenario.Compensator он не реализует, и ochan compensate честно
+// отказывает.
+func (r runner) Apply(ctx context.Context, s *scenario.Scenario, plan *config.Plan) (*scenario.Result, error) {
 	api, err := NewAPIClient()
 	if err != nil {
 		return nil, err
 	}
 
-	taskIDs, err := ExecuteScenario(ctx, api, s)
+	taskIDs, err := ExecuteScenario(ctx, api, s, plan)
 
 	result := &scenario.Result{
 		Refs:    taskIDs,

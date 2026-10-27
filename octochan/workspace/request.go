@@ -69,6 +69,15 @@ type Request struct {
 	// Payload — исходный текст сценария, чтобы выполнить ровно то,
 	// что согласовали, а не перечитанный с диска изменившийся файл.
 	Payload string `json:"payload,omitempty"`
+	// Overrides — параметры из командной строки (key=value), с которыми
+	// строился план: без них при выполнении сценарий был бы другим.
+	Overrides map[string]string `json:"overrides,omitempty"`
+
+	// Compensates — заявка, обратное действие которой выполняет эта:
+	// ochan compensate оформляет его второй согласованной операцией.
+	Compensates string `json:"compensates,omitempty"`
+	// CompensatedBy — заявка на обратное действие этой.
+	CompensatedBy string `json:"compensated_by,omitempty"`
 
 	// Script непуст, если заявка на выполнение сценария на языке алиасов.
 	Script *ScriptRun `json:"script,omitempty"`
@@ -308,6 +317,16 @@ func (r *Requests) Decide(request *Request, state RequestState, who, comment str
 	request.DecidedAt = time.Now().UTC()
 
 	return r.save(request)
+}
+
+// LinkCompensation связывает выполненную заявку с заявкой на её обратное
+// действие. Обратное действие одно: вторая компенсация того же — отказ.
+func (r *Requests) LinkCompensation(original, compensation *Request) error {
+	if original.CompensatedBy != "" {
+		return fmt.Errorf("у заявки %s уже есть обратное действие — заявка %s", original.ID, original.CompensatedBy)
+	}
+	original.CompensatedBy = compensation.ID
+	return r.save(original)
 }
 
 // MarkApplied отмечает заявку выполненной.

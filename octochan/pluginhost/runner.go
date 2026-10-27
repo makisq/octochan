@@ -19,12 +19,21 @@ import (
 // же JSON — Go-типы ему не нужны.
 
 // Операции исполнителя. plan и apply обязательны, wait и status — если
-// исполнитель умеет ждать и показывать состояние того, что создал.
+// исполнитель умеет ждать и показывать состояние того, что создал,
+// compensate-plan и compensate — если умеет обратное действие.
 const (
 	OpPlan   = "plan"
 	OpApply  = "apply"
 	OpWait   = "wait"
 	OpStatus = "status"
+	// OpCompensatePlan строит план обратного действия, OpCompensate
+	// выполняет согласованный.
+	OpCompensatePlan = "compensate-plan"
+	OpCompensate     = "compensate"
+	// OpApplyPlan — не операция, а обещание: apply получает согласованный
+	// план и применяет ровно его. Исполнитель без этого обещания собран до
+	// ochan 0.2.0, и выполнять им ядро не станет.
+	OpApplyPlan = "apply-plan"
 )
 
 // RunnerSpec — исполнитель, которого объявляет модуль.

@@ -142,12 +142,15 @@ func scenarioRequest(cmd *cobra.Command, args []string) (*workspace.Request, err
 	// Текст сценария сохраняется в заявке, чтобы выполнить ровно то,
 	// что согласовали. Перечитывать файл с диска нельзя: между
 	// согласованием и выполнением его могли поправить.
+	// Параметры из командной строки — тоже часть того, что согласуют:
+	// без них при выполнении сценарий был бы другим.
 	return &workspace.Request{
-		Source:  src.Name,
-		Service: parsed.Service,
-		Summary: fmt.Sprintf("%s через %s, операций: %d", parsed.Service, runner.Kind(), plan.Len()),
-		Plan:    plan,
-		Payload: src.Content,
+		Source:    src.Name,
+		Service:   parsed.Service,
+		Summary:   fmt.Sprintf("%s через %s, операций: %d", parsed.Service, runner.Kind(), plan.Len()),
+		Plan:      plan,
+		Payload:   src.Content,
+		Overrides: overrides,
 	}, nil
 }
 
@@ -297,7 +300,16 @@ func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	if request.Target != "" {
 		cmd.Printf("Цель:      %s\n", request.Target)
 	}
+	for _, key := range sortedPaths(request.Overrides) {
+		cmd.Printf("Параметр:  %s=%s\n", key, request.Overrides[key])
+	}
 	cmd.Printf("Итог:      %s\n", request.Summary)
+	if request.Compensates != "" {
+		cmd.Printf("Обратное действие заявки %s\n", request.Compensates)
+	}
+	if request.CompensatedBy != "" {
+		cmd.Printf("Обратное действие: заявка %s\n", request.CompensatedBy)
+	}
 
 	if request.DecidedBy != "" {
 		cmd.Printf("Решение:   %s, %s (%s)\n",

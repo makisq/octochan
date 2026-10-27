@@ -163,8 +163,9 @@ type ssh struct{}
 
 func (ssh) Kind() string { return "SSH" }
 func (ssh) Plan(ctx context.Context, s *scenario.Scenario) (*config.Plan, error) { … }
-func (ssh) Apply(ctx context.Context, s *scenario.Scenario) (*scenario.Result, error) { … }
-// по желанию: Wait(ctx, ref) и Status(ctx, ref)
+func (ssh) Apply(ctx context.Context, s *scenario.Scenario, plan *config.Plan) (*scenario.Result, error) { … }
+// по желанию: Wait(ctx, ref), Status(ctx, ref)
+// и обратное действие: PlanCompensation(ctx, s, applied, refs), Compensate(ctx, s, plan, refs)
 
 func (Module) Runners() []pluginhost.RunnerSpec {
     return []pluginhost.RunnerSpec{runnerhost.Expose(ssh{}, "ssh-restart", "ssh-tune")}
@@ -180,6 +181,17 @@ func (Module) Runners() []pluginhost.RunnerSpec {
   исполнителя он — `runnerhost.Token(ctx)`.
 - Ошибка `apply` идёт вместе с тем, что исполнитель успел создать: следы
   во внешней системе не теряются.
+- `Apply` получает план, на который сказали «да», и применяет ровно его.
+  Ядро перед вызовом строит план заново и сверяет с согласованным, а
+  исполнитель, у которого задача между сверкой и выполнением разошлась с
+  планом (как RLM, если запросы после разведки не те), отказывает до
+  первого изменения. `runnerhost.Expose` объявляет это операцией
+  `apply-plan`; исполнитель модуля без неё собран до ochan 0.2.0, и ядро
+  им не выполняет.
+- Обратное действие (`scenario.Compensator`) — по желанию: `ochan
+  compensate` оформляет его второй согласованной заявкой
+  ([«Обратное действие»](requests.md#обратное-действие-во-внешней-системе)).
+  Не умеет — `compensate` честно откажет.
 - Сервис, который уже выполняет встроенный исполнитель или модуль раньше по
   порядку, модуль не перехватывает — ochan предупредит.
 

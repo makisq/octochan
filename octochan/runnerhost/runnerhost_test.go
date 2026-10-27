@@ -68,9 +68,30 @@ func TestRunnerModuleOverGRPC(t *testing.T) {
 		plan.Source != "demo.yaml" {
 		t.Fatalf("план: %+v", plan)
 	}
-	result, err := runner.Apply(ctx, s)
-	if err != nil || len(result.Refs) != 1 || result.Refs[0] != "demo-CI001" {
+	// Исполнитель применяет переданный план, а не пересчитывает сценарий.
+	result, err := runner.Apply(ctx, s, plan)
+	if err != nil || len(result.Refs) != 1 || result.Refs[0] != "demo-CI001: max_connections = 200" {
 		t.Fatalf("выполнение: %+v, %v", result, err)
+	}
+
+	// Обратное действие — отдельная операция с планом; нечем вернуть —
+	// честный отказ с причиной.
+	compensator, ok := runner.(scenario.Compensator)
+	if !ok {
+		t.Fatal("демонстрационный исполнитель объявил обратное действие, а ядро его не видит")
+	}
+	if _, err := compensator.PlanCompensation(ctx, s, plan, result.Refs); err == nil ||
+		!strings.Contains(err.Error(), "прежнее значение неизвестно") {
+		t.Fatalf("обратное действие без прежнего значения: %v", err)
+	}
+	s.Parameters["previous"] = 100
+	undo, err := compensator.PlanCompensation(ctx, s, plan, result.Refs)
+	if err != nil || undo.Len() != 1 || undo.Changes[0].Detail != "previous = 100" {
+		t.Fatalf("план обратного действия: %+v, %v", undo, err)
+	}
+	done, err := compensator.Compensate(ctx, s, undo, result.Refs)
+	if err != nil || len(done.Refs) != 1 || done.Refs[0] != "demo-undo-CI001" {
+		t.Fatalf("обратное действие: %+v, %v", done, err)
 	}
 	if state, err := runner.(scenario.Waiter).Wait(ctx, "demo-CI001"); err != nil || state != "done" {
 		t.Fatalf("ожидание: %q, %v", state, err)
@@ -94,7 +115,7 @@ func (core) Kind() string { return "Core" }
 func (core) Plan(context.Context, *scenario.Scenario) (*config.Plan, error) {
 	return &config.Plan{}, nil
 }
-func (core) Apply(context.Context, *scenario.Scenario) (*scenario.Result, error) {
+func (core) Apply(context.Context, *scenario.Scenario, *config.Plan) (*scenario.Result, error) {
 	return &scenario.Result{Refs: []string{"t1"}}, errFailed
 }
 
@@ -117,10 +138,17 @@ func TestRegisterKeepsCoreRunner(t *testing.T) {
 // Ошибка apply идёт в ответе вместе с созданным: следы не теряются.
 func TestExposeKeepsRefsOnError(t *testing.T) {
 	spec := Expose(core{}, "core")
-	if strings.Join(spec.Ops, ",") != "plan,apply" {
+	if strings.Join(spec.Ops, ",") != "plan,apply,apply-plan" {
 		t.Fatalf("операции: %v", spec.Ops)
 	}
-	payload, _ := json.Marshal(scenarioRequest{Scenario: &scenario.Scenario{Service: "core"}})
+	// Без плана исполнитель не применяет ничего: ядро до 0.2.0 его не
+	// передаёт.
+	bare, _ := json.Marshal(scenarioRequest{Scenario: &scenario.Scenario{Service: "core"}})
+	if _, err := spec.Handle(context.Background(), pluginhost.RunnerRequest{Op: pluginhost.OpApply, Payload: bare}); err == nil ||
+		!strings.Contains(err.Error(), "apply без плана") {
+		t.Fatalf("apply без плана: %v", err)
+	}
+	payload, _ := json.Marshal(scenarioRequest{Scenario: &scenario.Scenario{Service: "core"}, Plan: &config.Plan{}})
 	out, err := spec.Handle(context.Background(), pluginhost.RunnerRequest{Op: pluginhost.OpApply, Payload: payload})
 	if err != nil {
 		t.Fatal(err)
@@ -132,5 +160,21 @@ func TestExposeKeepsRefsOnError(t *testing.T) {
 	}
 	if _, err := spec.Handle(context.Background(), pluginhost.RunnerRequest{Op: pluginhost.OpWait}); err == nil {
 		t.Fatal("исполнитель без ожидания ответил на wait")
+	}
+	if _, err := spec.Handle(context.Background(), pluginhost.RunnerRequest{Op: pluginhost.OpCompensate, Payload: payload}); err == nil {
+		t.Fatal("исполнитель без обратного действия ответил на compensate")
+	}
+}
+
+// Модуль, собранный до 0.2.0, плана не обещает: ядро им не выполняет.
+func TestOldModuleIsNotPlanBound(t *testing.T) {
+	runner := Runner(pluginhost.RemoteRunner{Module: "old", Kind: "Old", Services: []string{"x"},
+		Ops: []string{pluginhost.OpPlan, pluginhost.OpApply}}, nil)
+	_, err := runner.Apply(context.Background(), &scenario.Scenario{Service: "x"}, &config.Plan{})
+	if !errors.Is(err, ErrNotPlanBound) || !strings.Contains(err.Error(), "исполнитель Old (модуль old)") {
+		t.Fatalf("старый модуль: %v", err)
+	}
+	if _, ok := runner.(scenario.Compensator); ok {
+		t.Fatal("обратное действие у исполнителя, который его не объявил")
 	}
 }

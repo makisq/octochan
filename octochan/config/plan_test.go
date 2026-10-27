@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,30 @@ func TestPlanSortIsStable(t *testing.T) {
 		if got := change.Target + "/" + change.Name; got != want[i] {
 			t.Errorf("позиция %d: %s, ожидалось %s", i, got, want[i])
 		}
+	}
+}
+
+func TestDiffPlans(t *testing.T) {
+	approved := &Plan{Changes: []Change{
+		{Kind: ChangeTask, Target: "CI1", Name: "tune", Detail: "max_connections=200"},
+		{Kind: ChangeTask, Target: "CI2", Name: "tune", Detail: "max_connections=200"},
+	}}
+	same := &Plan{Command: "другое", Warnings: []string{"не важно"}, Changes: []Change{approved.Changes[1], approved.Changes[0]}}
+	if diffs := DiffPlans(approved, same); len(diffs) != 0 {
+		t.Fatalf("одинаковые изменения в другом порядке: %v", diffs)
+	}
+	changed := &Plan{Destructive: true, Changes: []Change{approved.Changes[0],
+		{Kind: ChangeTask, Target: "CI3", Name: "tune", Detail: "max_connections=200"}}}
+	got := strings.Join(DiffPlans(approved, changed), "\n")
+	for _, want := range []string{"пропало: задача CI2: tune (max_connections=200)",
+		"появилось: задача CI3: tune", "прерывает обслуживание: было false, стало true"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("нет %q в\n%s", want, got)
+		}
+	}
+	// Одно и то же изменение дважды — это два изменения.
+	twice := &Plan{Changes: []Change{approved.Changes[0], approved.Changes[0], approved.Changes[1]}}
+	if diffs := DiffPlans(approved, twice); len(diffs) != 1 || !strings.HasPrefix(diffs[0], "появилось") {
+		t.Fatalf("повтор: %v", diffs)
 	}
 }

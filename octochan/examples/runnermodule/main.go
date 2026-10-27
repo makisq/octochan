@@ -58,12 +58,41 @@ func (demo) Plan(_ context.Context, s *scenario.Scenario) (*config.Plan, error) 
 	return plan, nil
 }
 
-func (demo) Apply(_ context.Context, s *scenario.Scenario) (*scenario.Result, error) {
+// Apply применяет ровно согласованный план: задача на каждое изменение
+// плана, а не на то, что получилось бы из сценария сейчас.
+func (demo) Apply(_ context.Context, _ *scenario.Scenario, plan *config.Plan) (*scenario.Result, error) {
 	result := &scenario.Result{}
-	for _, ci := range s.AllCIs() {
-		result.Refs = append(result.Refs, "demo-"+ci)
+	for _, change := range plan.Changes {
+		result.Refs = append(result.Refs, "demo-"+change.Target+": "+change.Name)
 	}
 	result.Summary = fmt.Sprintf("задач: %d", len(result.Refs))
+	return result, nil
+}
+
+// PlanCompensation — план обратного действия: вернуть параметр, который
+// задача поставила. Прежнего значения демонстрационный исполнитель не
+// знает, поэтому обратное действие возможно, только если сценарий его
+// назвал — параметр previous; иначе — честный отказ.
+func (demo) PlanCompensation(_ context.Context, s *scenario.Scenario, applied *config.Plan, _ []string) (*config.Plan, error) {
+	previous, ok := s.Parameters["previous"]
+	if !ok {
+		return nil, fmt.Errorf("обратного действия нет: прежнее значение неизвестно (параметр previous сценария не задан)")
+	}
+	plan := &config.Plan{Command: "compensate", Source: s.Source}
+	for _, change := range applied.Changes {
+		plan.Add(config.Change{Kind: config.ChangeTask, Target: change.Target, Name: "вернуть " + change.Name,
+			Detail: fmt.Sprintf("previous = %v", previous)})
+	}
+	return plan, nil
+}
+
+// Compensate применяет согласованный план обратного действия.
+func (demo) Compensate(_ context.Context, _ *scenario.Scenario, plan *config.Plan, _ []string) (*scenario.Result, error) {
+	result := &scenario.Result{}
+	for _, change := range plan.Changes {
+		result.Refs = append(result.Refs, "demo-undo-"+change.Target)
+	}
+	result.Summary = fmt.Sprintf("обратных задач: %d", len(result.Refs))
 	return result, nil
 }
 
@@ -84,7 +113,7 @@ type module struct{}
 func (module) GetCommands() []*cobra.Command { return nil }
 func (module) Init(map[string]any) error     { return nil }
 func (module) Name() string                  { return "demo-runner" }
-func (module) Version() string               { return "0.1.0" }
+func (module) Version() string               { return "0.2.0" }
 
 func (module) Runners() []pluginhost.RunnerSpec {
 	return []pluginhost.RunnerSpec{runnerhost.Expose(demo{}, "demo")}
