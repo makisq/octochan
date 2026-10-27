@@ -5,10 +5,12 @@
 // планировать и оформлять заявки, но не выполнять и не согласовывать.
 // Остальные роли создаёт master и выдаёт им права.
 //
-// Локально роли — защита от ошибки и граница для нейросети, а не от
-// владельца компьютера: кто может удалить ~/.octochan, тот вернёт роли
-// к исходным. Границей против чужих они станут на общем сервере, где
-// хранилище лежит у сервера, а не у того, кто подключается.
+// Локально хранилище ролей — защита от ошибки и граница для нейросети, а
+// не от владельца компьютера: кто может удалить ~/.octochan, тот вернёт
+// роли к исходным. Роль, которую подтверждает не рабочий каталог, а файл
+// root, — системная политика (system.go). Границей против чужих роли
+// становятся и на общем сервере, где хранилище лежит у сервера, а не у
+// того, кто подключается.
 package rbac
 
 import (
@@ -61,7 +63,7 @@ var Groups = map[string][]string{
 // и вернуться обратно. Сравнение точное: role здесь не открывает
 // role.create.
 var Free = []string{"back.role", "completion", "completion.bash", "completion.fish", "completion.powershell",
-	"completion.zsh", "help", "role", "role.list", "role.show", "set.role", "shell"}
+	"completion.zsh", "help", "role", "role.list", "role.proof", "role.show", "set.role", "shell"}
 
 // LLMCeiling — потолок роли llm. Нейросеть предлагает, человек решает
 // (П6): выполнять, согласовывать, ставить модули и управлять ролями llm
@@ -90,6 +92,11 @@ type Role struct {
 	// TempPerms и TempDeny — права и запреты со сроком (temporary.go).
 	TempPerms []TempPerm
 	TempDeny  []TempPerm
+
+	// ceiling — потолок системной политики (system.go). Поле не
+	// сохраняется: потолок ставится при каждом запуске из файла, которым
+	// владеет root, а не из хранилища в рабочем каталоге.
+	ceiling *Ceiling
 }
 
 // NeedsAuth сообщает, что для входа в роль нужен логин или пароль.
@@ -110,6 +117,9 @@ func (r *Role) Allows(command string) bool {
 		return true
 	}
 	if r.Denies(command) {
+		return false
+	}
+	if r.ceiling != nil && !r.ceiling.allows(command) {
 		return false
 	}
 	for _, perm := range append(append([]string(nil), r.Perms...), active(r.TempPerms, Now())...) {

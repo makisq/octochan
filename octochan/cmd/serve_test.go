@@ -22,6 +22,9 @@ import (
 // TestMain позволяет тестовому бинарю быть ochan: сервер и песочница
 // запускают дочерним процессом самого себя, и в тестах это тестовый бинарь.
 func TestMain(m *testing.M) {
+	// Тесты не зависят от системной политики ролей машины, на которой
+	// идут: её проверяют отдельно (system_test.go).
+	rbac.SystemPolicyPath = ""
 	if sandbox.Enter() {
 		os.Exit(SandboxChild())
 	}

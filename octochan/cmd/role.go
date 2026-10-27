@@ -57,7 +57,77 @@ func loadRoles() (*rbac.Store, string, error) {
 		return nil, "", err
 	}
 	store, err := rbac.Load(path)
-	return store, path, err
+	if err != nil {
+		return nil, "", err
+	}
+	sys, err := systemPolicy()
+	if err != nil {
+		return nil, "", err
+	}
+	if sys != nil {
+		// Роли, которые политика положила пользователю, есть всегда, даже
+		// если их нет в его хранилище: права — их потолок.
+		for _, name := range sys.Allowed(rbac.CurrentIdentity()) {
+			if store.Find(name) == nil {
+				if role := sys.Materialize(name); role != nil {
+					store.Roles = append(store.Roles, role)
+				}
+			}
+		}
+	}
+	return store, path, nil
+}
+
+// systemPolicy — системная политика ролей (rbac/system.go); nil — её нет.
+func systemPolicy() (*rbac.SystemPolicy, error) {
+	return rbac.LoadSystem(rbac.SystemPolicyPath, moduleCommands())
+}
+
+// constrain ставит роли границы системной политики: роль должна быть
+// положена пользователю ОС, а права — не выше потолка. Текущая роль из
+// хранилища, которая не положена, заменяется первой положенной: хранилище
+// — в руках пользователя, политика — нет.
+//
+// warn — сказать о замене: перед командой да, в показе роли — уже сказано.
+func constrain(cmd *cobra.Command, store *rbac.Store, role *rbac.Role, forced, warn bool) (*rbac.Role, error) {
+	sys, err := systemPolicy()
+	if err != nil || sys == nil {
+		return role, err
+	}
+	id := rbac.CurrentIdentity()
+	// Дочерний процесс сервера: роль клиента подтвердил сервер своим
+	// допуском, а держать сервер этому пользователю ОС положено.
+	if forced && os.Getenv(EnvGrant) != "" && sys.Permits(id, "serve") {
+		if _, ok := sys.Roles[role.Name]; ok {
+			return sys.Ceil(role), nil
+		}
+		return role, nil
+	}
+	if err := sys.Permit(id, role.Name); err != nil {
+		allowed := sys.Allowed(id)
+		if forced || len(allowed) == 0 {
+			return nil, err
+		}
+		next := store.Find(allowed[0])
+		if next == nil {
+			return nil, err
+		}
+		if warn {
+			cmd.PrintErrf("внимание: %v — роль %s (ochan set role %s, чтобы не видеть этого)\n", err, next.Name, next.Name)
+		}
+		role = next
+	}
+	return sys.Ceil(role), nil
+}
+
+// permitRole — переключиться на роль можно, только если она положена
+// пользователю системной политикой.
+func permitRole(role *rbac.Role) error {
+	sys, err := systemPolicy()
+	if err != nil || sys == nil {
+		return err
+	}
+	return sys.Permit(rbac.CurrentIdentity(), role.Name)
 }
 
 // activeRole — роль, в которой выполняется команда: заданная окружением
@@ -142,7 +212,10 @@ func authorize(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-	role, _, err := activeRole(store)
+	role, forced, err := activeRole(store)
+	if err == nil {
+		role, err = constrain(cmd, store, role, forced, true)
+	}
 	if err != nil {
 		// Роль из окружения не прошла: несуществующая роль или чужой
 		// допуск — это тоже то, что журнал должен помнить.
@@ -254,6 +327,9 @@ var roleCmd = &cobra.Command{
 			return err
 		}
 		role, forced, err := activeRole(store)
+		if err == nil {
+			role, err = constrain(cmd, store, role, forced, false)
+		}
 		if err != nil {
 			return err
 		}
@@ -519,6 +595,9 @@ var setRoleCmd = &cobra.Command{
 			if role == nil {
 				return nil, fmt.Errorf("роли %s нет", args[0])
 			}
+			if err := permitRole(role); err != nil {
+				return nil, err
+			}
 			if role.Name == store.Current {
 				return nil, fmt.Errorf("роль %s уже текущая", role.Name)
 			}
@@ -565,6 +644,9 @@ func switchRole(cmd *cobra.Command, pick func(*rbac.Store) (*rbac.Role, error)) 
 		if err != nil {
 			return err
 		}
+		if err := permitRole(role); err != nil {
+			return err
+		}
 		if err := store.Switch(role.Name); err != nil {
 			return err
 		}
@@ -582,6 +664,9 @@ func switchRoleFor(cmd *cobra.Command, name string, until, now time.Time) error 
 		role := store.Find(name)
 		if role == nil {
 			return fmt.Errorf("роли %s нет", name)
+		}
+		if err := permitRole(role); err != nil {
+			return err
 		}
 		if role.Name == store.Current {
 			return fmt.Errorf("роль %s уже текущая", role.Name)

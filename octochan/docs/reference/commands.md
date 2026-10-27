@@ -65,6 +65,7 @@
 - [`ochan role grant`](#ochan-role-grant) — Выдать роли права, навсегда или на время
 - [`ochan role limit`](#ochan-role-limit) — Ограничить частоту команд роли
 - [`ochan role list`](#ochan-role-list) — Перечислить роли и их права
+- [`ochan role proof`](#ochan-role-proof) — Что машина доказывает о том, кто ты и какая у тебя роль
 - [`ochan role revoke`](#ochan-role-revoke) — Забрать у роли права
 - [`ochan role scope`](#ochan-role-scope) — Ограничить роль каталогами
 - [`ochan role show`](#ochan-role-show) — Показать роль целиком: права, запреты, область, пределы
@@ -1100,7 +1101,7 @@ llm — для нейросетей: читать, планировать, оф�
 
 Право: `свободная — доступна любой роли`.
 
-Подкоманды: [`create`](#ochan-role-create), [`delete`](#ochan-role-delete), [`deny`](#ochan-role-deny), [`grant`](#ochan-role-grant), [`limit`](#ochan-role-limit), [`list`](#ochan-role-list), [`revoke`](#ochan-role-revoke), [`scope`](#ochan-role-scope), [`show`](#ochan-role-show), [`undeny`](#ochan-role-undeny), [`update`](#ochan-role-update).
+Подкоманды: [`create`](#ochan-role-create), [`delete`](#ochan-role-delete), [`deny`](#ochan-role-deny), [`grant`](#ochan-role-grant), [`limit`](#ochan-role-limit), [`list`](#ochan-role-list), [`proof`](#ochan-role-proof), [`revoke`](#ochan-role-revoke), [`scope`](#ochan-role-scope), [`show`](#ochan-role-show), [`undeny`](#ochan-role-undeny), [`update`](#ochan-role-update).
 
 ## ochan role create
 
@@ -1230,6 +1231,21 @@ ochan role limit dan --clear
 ```
 ochan role list
 ```
+
+Право: `свободная — доступна любой роли`.
+
+## ochan role proof
+
+Что машина доказывает о том, кто ты и какая у тебя роль.
+
+```
+ochan role proof
+```
+
+Отвечает на вопрос «что конкретно машина доказывает, что пользователь —
+это роль X?»: кто запустил процесс по словам ядра, есть ли системная
+политика ролей, которой владеет root, что она положила этому
+пользователю и каков потолок роли. И чего это не доказывает.
 
 Право: `свободная — доступна любой роли`.
 
