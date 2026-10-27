@@ -149,6 +149,13 @@
 - `ochan auth --executor <имя>` и `OCTOCHAN_TOKEN_<ИМЯ>` — токен
   исполнителя модуля.
 - `ochan modules` показывает, что принёс каждый модуль, и пакеты алиасов.
+- RLM вынесен из ядра в модуль `plugins/rlm`: ставится `make rlm` или
+  `scripts\install.ps1 -Rlm`. Ядро передаёт исполнителю модуля токен и
+  настройки — `executors.<имя>` в `config.yaml` поверх общих
+  `defaults.api_url`, `defaults.http_timeout`, `defaults.max_parallel_tasks`.
+- `ochan auth` — один для всех исполнителей: `--executor <имя>`, без
+  флага — единственный подключённый; напоминание о смене токена — от
+  последнего сохранённого.
 
 ### Командная строка
 
@@ -185,6 +192,12 @@
 - На сервере роль без области больше не видит файлов вне каталога сервера.
 - Роль `llm` в новом хранилище ролей получает предел `request=30/1h`;
   в существующем — `ochan role limit llm request=30/1h`.
+- Сервисы RLM (`pangolin_restart`, `psql_tuning_params_se`,
+  `psqlse_tuningpgbouncer`, `postgresql_se_get_config_files`) работают
+  только с модулем RLM: `make rlm`. Без него отказ называет, что поставить.
+  `defaults.api_url`, `~/.octochan/.env` и `OCTOCHAN_API_TOKEN` модуль
+  понимает по-прежнему; новые места — `executors.rlm.api_url`,
+  `ochan auth --executor rlm`, `OCTOCHAN_TOKEN_RLM`.
 
 ## 0.1.0-alpha — первый выпуск
 

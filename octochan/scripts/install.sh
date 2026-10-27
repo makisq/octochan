@@ -4,6 +4,7 @@
 #
 #   scripts/install.sh                  в ~/.local/bin
 #   PREFIX=/usr/local scripts/install.sh    в /usr/local/bin (спросит sudo)
+#   scripts/install.sh --rlm            ещё и модуль RLM
 #   scripts/install.sh --uninstall      убрать
 #
 # Нужен Go 1.22 или новее. Сборка идёт от вашего имени, sudo — только на
@@ -39,6 +40,10 @@ if [ "${1:-}" = "--uninstall" ]; then
 	remove
 	exit 0
 fi
+WITH_RLM=
+if [ "${1:-}" = "--rlm" ]; then
+	WITH_RLM=1
+fi
 
 command -v go >/dev/null 2>&1 || { echo "Нужен Go 1.22 или новее: https://go.dev/dl/" >&2; exit 1; }
 
@@ -50,6 +55,15 @@ echo "Сборка ochan-mcp…"
 (cd "$ROOT/mcp" && go build -trimpath -o "$OUT/ochan-mcp" .)
 copy "$OUT/ochan" "$OUT/ochan-mcp"
 echo "Установлено: $BIN/ochan, $BIN/ochan-mcp"
+
+if [ -n "$WITH_RLM" ]; then
+	# Модуль ставит сам ochan: он фиксирует контрольную сумму, и подменённый
+	# файл модуля потом не загрузится.
+	echo "Сборка модуля RLM…"
+	(cd "$ROOT" && go build -trimpath -o "$OUT/rlm.hcplugin" ./plugins/rlm)
+	"$BIN/ochan" '!install' "$OUT/rlm.hcplugin"
+	echo "Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml"
+fi
 
 case ":$PATH:" in
 *":$BIN:"*)

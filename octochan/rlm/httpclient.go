@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 const (
@@ -81,20 +79,21 @@ var ErrDryRun = errors.New("режим плана: изменяющие запр
 // было забыть сбросить.
 func (c *APIClient) IsDryRun() bool { return false }
 
-// NewAPIClient собирает клиента из текущей конфигурации viper.
+// NewAPIClient собирает клиента из текущих настроек (Configure) и токена.
 func NewAPIClient() (*APIClient, error) {
-	tasksURL := strings.TrimSpace(viper.GetString("defaults.api_url"))
+	s := currentSettings()
+	tasksURL := strings.TrimSpace(s.APIURL)
 	if tasksURL == "" {
-		return nil, errors.New("не задан defaults.api_url: укажите адрес RLM API в конфиге")
+		return nil, errors.New("не задан адрес RLM API: executors.rlm.api_url (или defaults.api_url) в config.yaml ochan")
 	}
 
 	token := APIToken()
 	if token == "" {
-		return nil, fmt.Errorf("токен не установлен: выполните команду 'auth' "+
-			"или задайте переменную окружения %s", EnvTokenVar)
+		return nil, fmt.Errorf("токен RLM не установлен: ochan auth --executor rlm "+
+			"или переменная окружения OCTOCHAN_TOKEN_RLM (прежняя — %s)", EnvTokenVar)
 	}
 
-	timeout := viper.GetDuration("defaults.http_timeout")
+	timeout := s.HTTPTimeout
 	if timeout <= 0 {
 		timeout = defaultHTTPTimeout
 	}

@@ -49,10 +49,12 @@ func loadModules() {
 }
 
 // syncRunners приводит реестр сценариев к исполнителям загруженных
-// модулей. Токен исполнителю выдаётся при каждом вызове: заданный в
-// оболочке через auth действует сразу.
+// модулей. Токен и настройки исполнителю выдаются при каждом вызове:
+// заданные в оболочке через auth и config.yaml действуют сразу.
 func syncRunners() []string {
-	return runnerhost.Register(pluginhost.GetModuleManager().Runners(), executorTokens)
+	warnings := runnerhost.Register(pluginhost.GetModuleManager().Runners(), executorSupply)
+	addExecutorFlags()
+	return warnings
 }
 
 // registerModuleCommands синхронизирует команды плагинов с rootCmd.

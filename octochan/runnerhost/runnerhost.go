@@ -14,7 +14,8 @@
 // внешней системе, и его следы терять нельзя.
 //
 // Свой API исполнитель выбирает сам: ядро передаёт ему токен из ochan auth
-// --executor, а как с ним ходить — HTTP, gRPC, SSH, — дело исполнителя.
+// --executor и настройки из config.yaml (executors.<имя>), а как с ними
+// ходить — HTTP, gRPC, SSH, — дело исполнителя.
 package runnerhost
 
 import (
@@ -67,8 +68,8 @@ type statusEvent struct {
 
 // Expose объявляет исполнителя модуля: ochan выберет его для сценариев с
 // этими сервисами. Ожидание и статус объявляются, если исполнитель
-// реализует scenario.Waiter и scenario.StatusReporter. Токен исполнителя
-// приходит в контексте: Token(ctx).
+// реализует scenario.Waiter и scenario.StatusReporter. Токен и настройки
+// исполнителя приходят в контексте: Token(ctx), Settings(ctx).
 func Expose(r scenario.Runner, services ...string) pluginhost.RunnerSpec {
 	ops := []string{pluginhost.OpPlan, pluginhost.OpApply}
 	waiter, canWait := r.(scenario.Waiter)
@@ -84,7 +85,7 @@ func Expose(r scenario.Runner, services ...string) pluginhost.RunnerSpec {
 		Services: services,
 		Ops:      ops,
 		Handle: func(ctx context.Context, req pluginhost.RunnerRequest) ([]byte, error) {
-			ctx = context.WithValue(ctx, credentialsKey{}, req.Credentials)
+			ctx = context.WithValue(ctx, supplyKey{}, pluginhost.Supply{Credentials: req.Credentials, Settings: req.Settings})
 			switch req.Op {
 			case pluginhost.OpPlan, pluginhost.OpApply:
 				var in scenarioRequest
@@ -137,13 +138,21 @@ func Expose(r scenario.Runner, services ...string) pluginhost.RunnerSpec {
 	}
 }
 
-type credentialsKey struct{}
+type supplyKey struct{}
 
 // Token — токен, который ядро выдало исполнителю (ochan auth --executor);
 // пусто — токена нет.
 func Token(ctx context.Context) string {
-	creds, _ := ctx.Value(credentialsKey{}).(map[string]string)
-	return creds["token"]
+	supply, _ := ctx.Value(supplyKey{}).(pluginhost.Supply)
+	return supply.Credentials["token"]
+}
+
+// Settings — настройки исполнителя из config.yaml ochan: executors.<имя>
+// поверх общих defaults.api_url, defaults.http_timeout и
+// defaults.max_parallel_tasks.
+func Settings(ctx context.Context) map[string]string {
+	supply, _ := ctx.Value(supplyKey{}).(pluginhost.Supply)
+	return supply.Settings
 }
 
 func toStatusReply(st *scenario.Status) statusReply {
@@ -157,14 +166,14 @@ func toStatusReply(st *scenario.Status) statusReply {
 	return out
 }
 
-// Credentials выдаёт исполнителю его токены по имени исполнителя (rlm,
-// ssh); nil — токенов нет.
-type Credentials func(executor string) map[string]string
+// Supplier выдаёт исполнителю токены и настройки по имени исполнителя
+// (rlm, ssh).
+type Supplier func(executor string) pluginhost.Supply
 
 // remote — исполнитель модуля как scenario.Runner.
 type remote struct {
-	r     pluginhost.RemoteRunner
-	creds Credentials
+	r      pluginhost.RemoteRunner
+	supply Supplier
 }
 
 func (x remote) Kind() string { return x.r.Kind }
@@ -174,11 +183,11 @@ func (x remote) call(ctx context.Context, op string, in, out any) error {
 	if err != nil {
 		return err
 	}
-	var creds map[string]string
-	if x.creds != nil {
-		creds = x.creds(scenario.ExecutorName(x))
+	var supply pluginhost.Supply
+	if x.supply != nil {
+		supply = x.supply(scenario.ExecutorName(x))
 	}
-	reply, err := x.r.Call(ctx, op, payload, creds)
+	reply, err := x.r.Call(ctx, op, payload, supply)
 	if err != nil {
 		return fmt.Errorf("исполнитель %s (модуль %s): %w", x.r.Kind, x.r.Module, err)
 	}
@@ -251,8 +260,8 @@ func (x full) Status(ctx context.Context, ref string) (*scenario.Status, error) 
 
 // Runner — исполнитель модуля как scenario.Runner, с ожиданием и статусом,
 // если он их объявил.
-func Runner(r pluginhost.RemoteRunner, creds Credentials) scenario.Runner {
-	x := remote{r: r, creds: creds}
+func Runner(r pluginhost.RemoteRunner, supply Supplier) scenario.Runner {
+	x := remote{r: r, supply: supply}
 	switch wait, st := r.Can(pluginhost.OpWait), r.Can(pluginhost.OpStatus); {
 	case wait && st:
 		return full{x}
@@ -269,7 +278,7 @@ func Runner(r pluginhost.RemoteRunner, creds Credentials) scenario.Runner {
 // который уже выполняет встроенный исполнитель или модуль раньше по
 // порядку, не перехватывается — модуль не подменит исполнителя молча.
 // Возвращает предупреждения о таких сервисах.
-func Register(runners []pluginhost.RemoteRunner, creds Credentials) []string {
+func Register(runners []pluginhost.RemoteRunner, supply Supplier) []string {
 	for _, service := range scenario.Services() {
 		if have, err := scenario.Resolve(service); err == nil {
 			if _, fromModule := have.(interface{ module() string }); fromModule {
@@ -279,7 +288,7 @@ func Register(runners []pluginhost.RemoteRunner, creds Credentials) []string {
 	}
 	var warnings []string
 	for _, r := range runners {
-		runner := Runner(r, creds)
+		runner := Runner(r, supply)
 		for _, service := range r.Services {
 			if have, err := scenario.Resolve(service); err == nil {
 				warnings = append(warnings, fmt.Sprintf("модуль %s: сервис %s уже выполняет исполнитель %s — пропущен",

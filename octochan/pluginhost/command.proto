@@ -120,6 +120,7 @@ message RunnerCall {
     string op = 2;
     bytes payload = 3;
     map<string, string> credentials = 4; // токены, которые ядро выдало исполнителю
+    map<string, string> settings = 5;    // настройки исполнителя из config.yaml: executors.<имя>
 }
 
 message RunnerReply {

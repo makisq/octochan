@@ -14,6 +14,7 @@ import (
 	"octochan/pluginhost"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var installRemove bool
@@ -310,17 +311,33 @@ func ignoreMissing(err error) error {
 	return err
 }
 
-// executorTokens — токены исполнителя для вызова: ochan auth --executor
-// или OCTOCHAN_TOKEN_<ИМЯ>.
-func executorTokens(executor string) map[string]string {
-	fm, err := mustFileManager()
-	if err != nil {
-		return nil
+// executorSupply — что ядро выдаёт исполнителю модуля в каждом вызове:
+// токен (ochan auth --executor или OCTOCHAN_TOKEN_<ИМЯ>) и настройки.
+func executorSupply(executor string) pluginhost.Supply {
+	supply := pluginhost.Supply{Settings: executorSettings(executor)}
+	if fm, err := mustFileManager(); err == nil {
+		if token := fm.ExecutorToken(executor); token != "" {
+			supply.Credentials = map[string]string{"token": token}
+		}
 	}
-	if token := fm.ExecutorToken(executor); token != "" {
-		return map[string]string{"token": token}
+	return supply
+}
+
+// executorSettings — настройки исполнителя: executors.<имя> в config.yaml
+// поверх общих defaults.api_url, defaults.http_timeout и
+// defaults.max_parallel_tasks. Своего конфига у процесса модуля нет.
+func executorSettings(executor string) map[string]string {
+	settings := map[string]string{
+		"http_timeout":       viper.GetString("defaults.http_timeout"),
+		"max_parallel_tasks": viper.GetString("defaults.max_parallel_tasks"),
 	}
-	return nil
+	if url := viper.GetString("defaults.api_url"); url != "" {
+		settings["api_url"] = url
+	}
+	for key, value := range viper.GetStringMapString("executors." + executor) {
+		settings[key] = value
+	}
+	return settings
 }
 
 func init() {

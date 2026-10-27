@@ -45,6 +45,15 @@ type RunnerRequest struct {
 	// Credentials — токены, которые ядро выдало этому исполнителю (ochan
 	// auth --executor). Свой API исполнитель может авторизовать и сам.
 	Credentials map[string]string
+	// Settings — настройки исполнителя из config.yaml ochan: своего конфига
+	// у процесса модуля нет.
+	Settings map[string]string
+}
+
+// Supply — что ядро выдаёт исполнителю в каждом вызове.
+type Supply struct {
+	Credentials map[string]string
+	Settings    map[string]string
 }
 
 // RunnerProvider реализует модуль с исполнителями.
@@ -77,7 +86,7 @@ func (s *CommandGRPCServer) CallRunner(ctx context.Context, call *RunnerCall) (*
 			return nil, fmt.Errorf("исполнитель %s не умеет %s", spec.Kind, call.GetOp())
 		}
 		out, err := spec.Handle(ctx, RunnerRequest{Op: call.GetOp(), Payload: call.GetPayload(),
-			Credentials: call.GetCredentials()})
+			Credentials: call.GetCredentials(), Settings: call.GetSettings()})
 		if err != nil {
 			return nil, err
 		}
@@ -101,10 +110,11 @@ func (r RemoteRunner) Can(op string) bool { return slices.Contains(r.Ops, op) }
 
 // Call вызывает исполнителя в процессе модуля с пределом времени команды
 // модуля.
-func (r RemoteRunner) Call(ctx context.Context, op string, payload []byte, credentials map[string]string) ([]byte, error) {
+func (r RemoteRunner) Call(ctx context.Context, op string, payload []byte, supply Supply) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout())
 	defer cancel()
-	resp, err := r.client.CallRunner(ctx, &RunnerCall{Kind: r.Kind, Op: op, Payload: payload, Credentials: credentials})
+	resp, err := r.client.CallRunner(ctx, &RunnerCall{Kind: r.Kind, Op: op, Payload: payload,
+		Credentials: supply.Credentials, Settings: supply.Settings})
 	if err != nil {
 		return nil, unwrapGRPCError(err)
 	}

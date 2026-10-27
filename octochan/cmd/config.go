@@ -9,7 +9,6 @@ import (
 
 	"octochan/i18n"
 	"octochan/logs"
-	"octochan/rlm"
 	"octochan/workspace"
 
 	"github.com/spf13/viper"
@@ -51,6 +50,8 @@ func initConfig() error {
 
 	// Все пути живут под ~/.octochan. Прежняя версия держала config.yaml
 	// в ~/octochan, а всё остальное в ~/.octochan.
+	// Адрес API, время запроса и параллельность — общие умолчания для
+	// исполнителей модулей; свои у исполнителя — executors.<имя>.
 	viper.SetDefault("defaults.api_url", "")
 	viper.SetDefault("defaults.scenario_path", fm.ScenariosDir())
 	viper.SetDefault("defaults.log_path", fm.LogsDir())
@@ -60,7 +61,7 @@ func initConfig() error {
 	viper.SetDefault("defaults.module_command_timeout", "10m")
 	viper.SetDefault("defaults.plugin_log_level", "warn")
 	viper.SetDefault("defaults.allow_unverified_modules", false)
-	// Напоминание о смене токена RLM — по желанию: ochan timer on.
+	// Напоминание о смене токена исполнителя — по желанию: ochan timer on.
 	viper.SetDefault("defaults.token_timer_enabled", false)
 	viper.SetDefault("defaults.token_lifetime", "20m")
 
@@ -128,12 +129,6 @@ func initConfig() error {
 		}
 	} else if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)
-	}
-
-	// Токен читается отдельно и в viper не попадает, чтобы не уехать
-	// в config.yaml при следующем WriteConfig.
-	if err := rlm.LoadTokenFrom(fm.TokenFilePath()); err != nil {
-		return fmt.Errorf("не удалось прочитать токен: %w", err)
 	}
 
 	return nil

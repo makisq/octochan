@@ -176,11 +176,11 @@ func (Module) Runners() []pluginhost.RunnerSpec {
 - Сервис, который уже выполняет встроенный исполнитель или модуль раньше по
   порядку, модуль не перехватывает — ochan предупредит.
 
-Пример — [examples/runnermodule](../../examples/runnermodule).
+Пример — [examples/runnermodule](../../examples/runnermodule); настоящий
+исполнитель так же — модуль RLM, [plugins/rlm](../../plugins/rlm).
 
 ## Источники
 
 Глубже, чем модуль, — Go-пакет внутри ochan: **источник** регистрирует
 схему (`config.RegisterSourceScheme`) и отдаёт конфиг по ссылке вида
-`схема://…` — так сделан `pgsource`. Встроенные исполнители (`rlm`,
-`module`) регистрируются так же, пакетом.
+`схема://…` — так сделан `pgsource`.

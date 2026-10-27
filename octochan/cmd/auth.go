@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"octochan/rlm"
 	"octochan/scenario"
 
 	"github.com/spf13/cobra"
@@ -20,18 +21,34 @@ var authExecutor string
 
 var authCmd = &cobra.Command{
 	Use:   "auth [token]",
-	Short: "Установить токен исполнителя: RLM или модуля",
+	Short: "Установить токен исполнителя сценариев",
 	Args:  cobra.MaximumNArgs(1),
-	Long: "Без --executor — токен RLM API: ~/.octochan/.env с правами 0600 или\n" +
-		"переменная окружения " + rlm.EnvTokenVar + ".\n\n" +
-		"С --executor — токен исполнителя модуля: ~/.octochan/tokens/<имя> с\n" +
-		"правами 0600 или OCTOCHAN_TOKEN_<ИМЯ>. Ядро передаёт его исполнителю\n" +
-		"при каждом вызове; в config.yaml токены не попадают.",
-	Example: "ochan auth\n" +
-		"ochan auth --executor ssh",
+	Long: "Токен исполнителя — RLM, SSH, API своей системы — хранится в\n" +
+		"~/.octochan/tokens/<имя> с правами 0600; вместо файла — переменная\n" +
+		"окружения OCTOCHAN_TOKEN_<ИМЯ>. Ядро передаёт токен исполнителю при\n" +
+		"каждом вызове; в config.yaml токены не попадают.\n\n" +
+		"Без --executor — единственный подключённый исполнитель.",
+	Example: "ochan auth --executor rlm\n" +
+		"ochan auth",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fm, err := mustFileManager()
 		if err != nil {
+			return err
+		}
+		executor := strings.ToLower(strings.TrimSpace(authExecutor))
+		executors := sortedPaths(scenario.Executors())
+		if executor == "" {
+			switch len(executors) {
+			case 1:
+				executor = executors[0]
+			case 0:
+				return errors.New("исполнителей нет: укажите --executor <имя> — токен подействует, " +
+					"когда модуль исполнителя будет установлен")
+			default:
+				return fmt.Errorf("исполнителей несколько (%s): укажите --executor", strings.Join(executors, ", "))
+			}
+		}
+		if _, err := fm.ExecutorTokenPath(executor); err != nil {
 			return err
 		}
 
@@ -44,28 +61,19 @@ var authCmd = &cobra.Command{
 				return err
 			}
 		}
-
 		if token == "" {
 			return fmt.Errorf("пустой токен")
 		}
 
-		if authExecutor != "" && authExecutor != "rlm" {
-			path, err := fm.SaveExecutorToken(authExecutor, token)
-			if err != nil {
-				return err
-			}
-			cmd.Printf("Токен исполнителя %s сохранён: %s\n", authExecutor, path)
-			if _, ok := scenario.Executors()[authExecutor]; !ok {
-				cmd.PrintErrf("внимание: исполнителя %s сейчас нет; токен подействует, когда его модуль будет установлен\n",
-					authExecutor)
-			}
-			return nil
-		}
-		if err := rlm.SaveTokenTo(fm.TokenFilePath(), token); err != nil {
+		path, err := fm.SaveExecutorToken(executor, token)
+		if err != nil {
 			return err
 		}
-
-		cmd.Printf("Токен сохранён: %s\n", fm.TokenFilePath())
+		cmd.Printf("Токен исполнителя %s сохранён: %s\n", executor, path)
+		if !slices.Contains(executors, executor) {
+			cmd.PrintErrf("внимание: исполнителя %s сейчас нет; токен подействует, когда его модуль будет установлен\n",
+				executor)
+		}
 		// В оболочке напоминание отсчитывается от нового токена.
 		restartTokenReminder()
 		return nil
@@ -107,7 +115,7 @@ var timerCmd = &cobra.Command{
 			}
 			cmd.Printf("Напоминание о смене токена: %s (время жизни %s)\n",
 				status, tokenLifetime())
-			if _, ok := tokenSavedAt(); !ok {
+			if _, _, ok := tokenSavedAt(); !ok {
 				cmd.Println("Токен командой auth не сохранён — напоминать не о чем")
 			}
 			return nil
@@ -144,10 +152,10 @@ func tokenLifetime() time.Duration {
 // Напоминание работает только в интерактивной оболочке: в одноразовом
 // вызове CLI процесс завершается раньше, чем таймер успевает сработать.
 //
-// Отсчёт идёт от того, когда токен сохранили командой auth, а не от входа в
-// оболочку: иначе ochan напоминал бы «смените токен» тому, кто его не
-// вводил и RLM не пользуется. Токен из окружения не напоминается вовсе —
-// когда его выдали, ochan не знает.
+// Отсчёт идёт от того, когда токен последний раз сохранили командой auth, а
+// не от входа в оболочку: иначе ochan напоминал бы «смените токен» тому,
+// кто его не вводил. Токен из окружения не напоминается вовсе — когда его
+// выдали, ochan не знает.
 var (
 	tokenTimerMu   sync.Mutex
 	tokenTimerStop chan struct{}
@@ -155,17 +163,14 @@ var (
 	reminderOut func(string)
 )
 
-// tokenSavedAt — когда токен сохранили командой auth; false — не сохраняли.
-func tokenSavedAt() (time.Time, bool) {
+// tokenSavedAt — чей токен сохранили командой auth последним и когда;
+// false — не сохраняли.
+func tokenSavedAt() (string, time.Time, bool) {
 	fm, err := mustFileManager()
 	if err != nil {
-		return time.Time{}, false
+		return "", time.Time{}, false
 	}
-	info, err := os.Stat(fm.TokenFilePath())
-	if err != nil || info.Size() == 0 {
-		return time.Time{}, false
-	}
-	return info.ModTime(), true
+	return fm.LatestToken()
 }
 
 func startTokenReminder(out func(string)) {
@@ -188,10 +193,11 @@ func restartTokenReminder() {
 	if out == nil || !viper.GetBool("defaults.token_timer_enabled") {
 		return
 	}
-	saved, ok := tokenSavedAt()
+	executor, saved, ok := tokenSavedAt()
 	if !ok {
 		return
 	}
+	renew := fmt.Sprintf("ochan auth --executor %s", executor)
 
 	lifetime := tokenLifetime()
 	warnAt := saved.Add(lifetime - 5*time.Minute)
@@ -209,8 +215,8 @@ func restartTokenReminder() {
 			defer warn.Stop()
 			select {
 			case <-warn.C:
-				out("Внимание: токен станет недействителен примерно через " +
-					time.Until(expireAt).Round(time.Minute).String() + ". Обновите его командой 'auth'.")
+				out(fmt.Sprintf("Внимание: токен исполнителя %s станет недействителен примерно через %s. Обновите его: %s",
+					executor, time.Until(expireAt).Round(time.Minute), renew))
 			case <-stop:
 				return
 			}
@@ -224,7 +230,7 @@ func restartTokenReminder() {
 				return
 			}
 		}
-		out("Внимание: время жизни токена истекло. Обновите его командой 'auth'.")
+		out(fmt.Sprintf("Внимание: время жизни токена исполнителя %s истекло. Обновите его: %s", executor, renew))
 	}()
 }
 
@@ -240,5 +246,5 @@ func stopTokenReminder() {
 }
 
 func init() {
-	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: имя модуля-исполнителя (ssh, ansible…); без флага — RLM")
+	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: rlm, ssh…; без флага — единственный подключённый")
 }

@@ -14,12 +14,12 @@
 
 | Ключ | По умолчанию | |
 |---|---|---|
-| `api_url` | `""` | адрес API исполнителя RLM; без него сценарии RLM не планируются и не выполняются |
-| `http_timeout` | `30s` | предел одного запроса к API |
+| `api_url` | `""` | адрес API по умолчанию для исполнителей модулей (RLM); свой у исполнителя — `executors.<имя>.api_url` |
+| `http_timeout` | `30s` | предел одного запроса исполнителя к API; передаётся исполнителям модулей |
 | `auto_check_status` | `false` | `true` — `apply` всегда ждёт завершения задач, как с `--wait` |
-| `token_timer_enabled` | `false` | напоминать в оболочке о смене токена API (`ochan timer on\|off`); только для токена, сохранённого `ochan auth` |
+| `token_timer_enabled` | `false` | напоминать в оболочке о смене токена исполнителя (`ochan timer on\|off`); только для токенов, сохранённых `ochan auth` |
 | `token_lifetime` | `20m` | время жизни токена для напоминания, от его сохранения |
-| `max_parallel_tasks` | `5` | одновременных итераций `parallel for` |
+| `max_parallel_tasks` | `5` | одновременных итераций `parallel for` и запросов исполнителя к API |
 | `scenario_path` | `~/.octochan/scenarios` | куда `ochan srs` сохраняет сценарии |
 | `log_path` | `~/.octochan/logs` | каталог журнала ochan |
 | `module_command_timeout` | `10m` | предел времени команды модуля |
@@ -32,6 +32,23 @@
 | `smtp_user` | `""` | логин; пароль — `OCTOCHAN_SMTP_PASSWORD` |
 | `smtp_starttls` | `false` | `true` — без шифрования письмо не уйдёт |
 | `notify_always` | `false` | `true` — слать уведомления без флага `--notify` |
+
+## executors — исполнители модулей
+
+Настройки исполнителя, которого принёс модуль, — под его именем:
+
+```yaml
+executors:
+  rlm:
+    api_url: https://rlm.example.internal/api/tasks.json
+    http_timeout: 1m
+```
+
+Своего конфига у процесса модуля нет: ядро передаёт исполнителю в каждом
+вызове `executors.<имя>` поверх общих `defaults.api_url`,
+`defaults.http_timeout` и `defaults.max_parallel_tasks`. Токены сюда не
+кладутся — `ochan auth --executor <имя>`. Подробнее —
+[«Модуль-исполнитель»](../guide/modules.md#модуль-исполнитель).
 
 ## logs
 
@@ -101,8 +118,8 @@
 | Переменная | |
 |---|---|
 | `OCTOCHAN_CONFIG` | путь до `config.yaml` |
-| `OCTOCHAN_API_TOKEN` | токен API исполнителя RLM — вместо `ochan auth` |
-| `OCTOCHAN_TOKEN_<ИМЯ>` | токен исполнителя модуля (`OCTOCHAN_TOKEN_SSH`) — вместо `ochan auth --executor <имя>` |
+| `OCTOCHAN_TOKEN_<ИМЯ>` | токен исполнителя модуля (`OCTOCHAN_TOKEN_RLM`) — вместо `ochan auth --executor <имя>` |
+| `OCTOCHAN_API_TOKEN` | прежний токен RLM: модуль RLM его понимает; новый — `OCTOCHAN_TOKEN_RLM` |
 | `OCTOCHAN_SMTP_PASSWORD` | пароль почты |
 | `OCTOCHAN_ROLE` | роль для этого запуска — только роль без логина и пароля |
 | `OCTOCHAN_REMOTE_LOGIN`, `OCTOCHAN_REMOTE_PASSWORD` | вход на сервер без вопросов (`connect`, `remote`) |

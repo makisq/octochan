@@ -1,9 +1,8 @@
-// Package module содержит встроенные модули сценариев RLM.
+// Package module содержит сервисы сценариев RLM: по одному на вид задачи.
 //
-// Внешние модули команд подключаются иначе — через go-plugin,
-// см. pluginhost.ModuleManager. Прежняя реализация здесь пыталась ещё и
-// открывать .so через stdlib plugin: результат никуда не сохранялся,
-// ошибки глотались, а на Windows этот механизм не работает вовсе.
+// Это часть модуля plugins/rlm: ядро ochan пакет не импортирует, а модуль
+// объявляет эти сервисы исполнителем RLM. Модули ochan (.hcplugin)
+// подключаются через go-plugin, см. pluginhost.ModuleManager.
 package module
 
 import "octochan/rlm"

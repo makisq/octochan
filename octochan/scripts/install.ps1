@@ -3,12 +3,14 @@
 # окне PowerShell или cmd.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Rlm     ещё и модуль RLM
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Uninstall
 #
 # Каталог по умолчанию — %LOCALAPPDATA%\Programs\ochan; другой — -Bin.
 param(
     [string]$Bin = (Join-Path $env:LOCALAPPDATA 'Programs\ochan'),
-    [switch]$Uninstall
+    [switch]$Uninstall,
+    [switch]$Rlm
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -41,6 +43,19 @@ Push-Location (Join-Path $root 'mcp')
 try { go build -trimpath -o (Join-Path $Bin 'ochan-mcp.exe') . } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw 'сборка ochan-mcp не удалась' }
 Write-Host "Установлено: $Bin"
+
+if ($Rlm) {
+    # Модуль ставит сам ochan: он фиксирует контрольную сумму, и подменённый
+    # файл модуля потом не загрузится.
+    Write-Host 'Сборка модуля RLM…'
+    $module = Join-Path $Bin 'rlm.hcplugin'
+    Push-Location $root
+    try { go build -trimpath -o $module ./plugins/rlm } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { throw 'сборка модуля RLM не удалась' }
+    & (Join-Path $Bin 'ochan.exe') '!install' $module
+    if ($LASTEXITCODE -ne 0) { throw 'модуль RLM не установился' }
+    Write-Host 'Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml'
+}
 
 if ($parts -notcontains $Bin) {
     [Environment]::SetEnvironmentVariable('Path', (($parts + $Bin) -join ';'), 'User')

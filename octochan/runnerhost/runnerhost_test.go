@@ -40,13 +40,13 @@ func TestRunnerModuleOverGRPC(t *testing.T) {
 		t.Fatalf("исполнители: %+v", runners)
 	}
 
-	tokens := func(executor string) map[string]string {
+	supply := func(executor string) pluginhost.Supply {
 		if executor == "demo" {
-			return map[string]string{"token": "секрет"}
+			return pluginhost.Supply{Credentials: map[string]string{"token": "секрет"}}
 		}
-		return nil
+		return pluginhost.Supply{}
 	}
-	if warnings := Register(runners, tokens); len(warnings) != 0 {
+	if warnings := Register(runners, supply); len(warnings) != 0 {
 		t.Fatal(warnings)
 	}
 	t.Cleanup(func() { Register(nil, nil) })

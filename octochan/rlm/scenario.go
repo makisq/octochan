@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/spf13/viper"
-
 	"octochan/config"
 	"octochan/scenario"
 )
@@ -250,7 +248,7 @@ func describeRequestParams(req *APIRequest) string {
 // Ретраев здесь нет намеренно: запросы не идемпотентны, и прежняя реализация
 // с тремя попытками порождала дубли задач на стороне RLM.
 func submitRequests(ctx context.Context, api ScenarioAPI, requests []*APIRequest) ([]string, error) {
-	maxParallel := viper.GetInt("defaults.max_parallel_tasks")
+	maxParallel := currentSettings().MaxParallel
 	if maxParallel <= 0 {
 		maxParallel = 5
 	}

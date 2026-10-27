@@ -80,14 +80,6 @@ func (fm *FileManager) RequestsDir() string { return fm.requestsDir }
 // надёжность правил.
 func (fm *FileManager) DecisionsDir() string { return fm.decisionsDir }
 
-// TokenFilePath — файл с токеном внешней системы.
-//
-// Сам токен читает и пишет пакет rlm: где лежат рабочие директории — забота
-// этого пакета, а что именно в них хранится — забота владельца данных.
-func (fm *FileManager) TokenFilePath() string {
-	return filepath.Join(fm.baseDir, ".env")
-}
-
 // scenarioPath — единственное место, где формируется путь до сценария.
 // Раньше SaveScenario писал в scenarios/, LoadScenario читал из корня, а
 // команда srs печатала третий вариант пути.

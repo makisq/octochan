@@ -6,8 +6,6 @@ import (
 
 	"octochan/lang"
 	"octochan/workspace"
-
-	"github.com/spf13/viper"
 )
 
 // Утверждения модели — вызовы скиллов и записи вне скиллов; что скилл
@@ -71,10 +69,7 @@ func TestBudget(t *testing.T) {
 // setRings задаёт fp.rings.<key> на время теста.
 func setRings(t *testing.T, key string, value any) {
 	t.Helper()
-	key = "fp.rings." + key
-	old := viper.Get(key)
-	viper.Set(key, value)
-	t.Cleanup(func() { viper.Set(key, old) })
+	setting(t, "fp.rings."+key, value)
 }
 
 // Кольца в режиме протокола: утверждение с поддержкой ниже порога
