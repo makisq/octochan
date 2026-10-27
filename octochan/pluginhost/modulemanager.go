@@ -473,6 +473,7 @@ type loadedModule struct {
 	client    *plugin.Client
 	commands  []*cobra.Command
 	languages []Language
+	runners   []RemoteRunner
 }
 
 // ModuleManager владеет процессами плагинов и их командами.
@@ -628,6 +629,18 @@ func (m *ModuleManager) LoadModule(path string) error {
 			languages[i].Module = name
 		}
 	}
+	var runners []RemoteRunner
+	if provider, ok := module.(interface {
+		Runners() ([]RemoteRunner, error)
+	}); ok {
+		runners, err = provider.Runners()
+		if err != nil {
+			return fmt.Errorf("модуль %s: исполнители: %w", name, err)
+		}
+		for i := range runners {
+			runners[i].Module = name
+		}
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -652,6 +665,7 @@ func (m *ModuleManager) LoadModule(path string) error {
 		client:    client,
 		commands:  commands,
 		languages: languages,
+		runners:   runners,
 	}
 	// Владение процессом перешло менеджеру: гасить его будет Cleanup.
 	adopted = true
@@ -731,19 +745,24 @@ func (m *ModuleManager) UnloadModule(path string) {
 	}
 }
 
+// pathsLocked — пути загруженных модулей по порядку: порядок команд,
+// языков и исполнителей не меняется между запусками.
+func (m *ModuleManager) pathsLocked() []string {
+	paths := make([]string, 0, len(m.modules))
+	for path := range m.modules {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
 // GetCommands возвращает копию списка команд всех модулей.
 func (m *ModuleManager) GetCommands() []*cobra.Command {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	paths := make([]string, 0, len(m.modules))
-	for path := range m.modules {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths) // стабильный порядок команд между запусками
-
 	var commands []*cobra.Command
-	for _, path := range paths {
+	for _, path := range m.pathsLocked() {
 		commands = append(commands, m.modules[path].commands...)
 	}
 	return commands
@@ -754,14 +773,8 @@ func (m *ModuleManager) Languages() []Language {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	paths := make([]string, 0, len(m.modules))
-	for path := range m.modules {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-
 	var out []Language
-	for _, path := range paths {
+	for _, path := range m.pathsLocked() {
 		out = append(out, m.modules[path].languages...)
 	}
 	return out
@@ -769,10 +782,13 @@ func (m *ModuleManager) Languages() []Language {
 
 // ModuleInfo — краткие сведения о загруженном модуле.
 type ModuleInfo struct {
-	Name     string
-	Version  string
-	Path     string
-	Commands int
+	Name      string
+	Version   string
+	Path      string
+	Commands  int
+	Languages []string
+	// Runners — виды исполнителей модуля.
+	Runners []string
 }
 
 // LoadedModules перечисляет загруженные модули.
@@ -782,12 +798,19 @@ func (m *ModuleManager) LoadedModules() []ModuleInfo {
 
 	infos := make([]ModuleInfo, 0, len(m.modules))
 	for _, module := range m.modules {
-		infos = append(infos, ModuleInfo{
+		info := ModuleInfo{
 			Name:     module.name,
 			Version:  module.version,
 			Path:     module.path,
 			Commands: len(module.commands),
-		})
+		}
+		for _, lang := range module.languages {
+			info.Languages = append(info.Languages, lang.Code)
+		}
+		for _, r := range module.runners {
+			info.Runners = append(info.Runners, r.Kind)
+		}
+		infos = append(infos, info)
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
 	return infos

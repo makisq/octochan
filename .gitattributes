@@ -1,0 +1,10 @@
+# Текст хранится в репозитории с LF и с LF же выгружается на любой системе.
+# Без этого Git на Windows (core.autocrlf=true) переписывает файлы в CRLF:
+# gofmt считает их неформатированными, а тексты, встроенные через go:embed,
+# попадают в бинарь с \r и ломают разбор.
+* text=auto eol=lf
+
+*.png  binary
+*.webp binary
+*.pdf  binary
+*.docx binary

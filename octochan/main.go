@@ -14,8 +14,6 @@ import (
 	"octochan/cmd"
 	"octochan/sandbox"
 
-	// Регистрация встроенных модулей сценариев.
-	_ "octochan/module"
 	// Регистрация источника «живой PostgreSQL» (схема postgres://).
 	_ "octochan/pgsource"
 )

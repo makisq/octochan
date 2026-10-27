@@ -51,6 +51,13 @@ func aliases() (*lang.Registry, []error) {
 	return aliasRegistry.Clone(), aliasLoadErrs
 }
 
+// resetAliasCache забывает прочитанную библиотеку: пакет поставили или
+// удалили, и следующий вызов aliases() прочитает её заново.
+func resetAliasCache() {
+	aliasRegistryOnce = sync.Once{}
+	aliasRegistry, aliasLoadErrs = nil, nil
+}
+
 // loadAliasRegistry читает библиотеку алиасов из каталогов. Её же читает
 // процесс песочницы: рабочих каталогов ochan, кроме этих двух, он не видит.
 func loadAliasRegistry(aliasesDir, modulesDir string) (*lang.Registry, []error) {

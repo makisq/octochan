@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"octochan/pluginhost"
+	"octochan/runnerhost"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
@@ -41,7 +42,19 @@ func loadModules() {
 		}
 
 		registerModuleCommands()
+		for _, warning := range syncRunners() {
+			fmt.Fprintf(os.Stderr, "внимание: %s\n", warning)
+		}
 	})
+}
+
+// syncRunners приводит реестр сценариев к исполнителям загруженных
+// модулей. Токен и настройки исполнителю выдаются при каждом вызове:
+// заданные в оболочке через auth и config.yaml действуют сразу.
+func syncRunners() []string {
+	warnings := runnerhost.Register(pluginhost.GetModuleManager().Runners(), executorSupply)
+	addExecutorFlags()
+	return warnings
 }
 
 // registerModuleCommands синхронизирует команды плагинов с rootCmd.
@@ -162,6 +175,9 @@ func applyModuleChanges(out func(string)) {
 		default:
 			if len(seen) > 0 {
 				refreshModuleCommands()
+				for _, warning := range syncRunners() {
+					out("внимание: " + warning)
+				}
 			}
 			return
 		}
@@ -188,63 +204,9 @@ func reloadModule(path string, out func(string)) {
 // Команды
 // ---------------------------------------------------------------------------
 
-var installCmd = &cobra.Command{
-	Use:   "!install <module_file>",
-	Short: "Установить модуль команд",
-	Args:  cobra.ExactArgs(1),
-	Long: "Модуль копируется в ~/.octochan/modules и фиксируется его контрольная\n" +
-		"сумма. При запуске загружаются только модули с совпадающей суммой.",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		fm, err := mustFileManager()
-		if err != nil {
-			return err
-		}
-
-		filePath := args[0]
-		if filepath.Ext(filePath) != pluginhost.ModuleExtension {
-			return fmt.Errorf("поддерживаются только %s модули", pluginhost.ModuleExtension)
-		}
-
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return fmt.Errorf("не удалось прочитать модуль: %w", err)
-		}
-
-		// Переустановка поверх уже загруженного модуля: сначала гасим его
-		// процесс, иначе Windows не даст перезаписать работающий файл.
-		targetPath, err := fm.ModulePath(filepath.Base(filePath))
-		if err != nil {
-			return err
-		}
-		pluginhost.GetModuleManager().UnloadModule(targetPath)
-
-		modulePath, err := fm.InstallHashicorpModule(filepath.Base(filePath), data)
-		if err != nil {
-			return err
-		}
-
-		// Сумма фиксируется до загрузки: LoadModule проверяет её и откажется
-		// запускать файл, если содержимое изменится позже.
-		if err := pluginhost.WriteChecksum(modulePath); err != nil {
-			os.Remove(modulePath)
-			return err
-		}
-
-		if err := pluginhost.GetModuleManager().LoadModule(modulePath); err != nil {
-			os.Remove(modulePath)
-			os.Remove(pluginhost.ChecksumPath(modulePath))
-			return fmt.Errorf("модуль не загрузился и был удалён: %w", err)
-		}
-
-		registerModuleCommands()
-		cmd.Printf("Модуль %s установлен и загружен\n", filepath.Base(modulePath))
-		return nil
-	},
-}
-
 var listModulesCmd = &cobra.Command{
 	Use:   "modules",
-	Short: "Показать установленные модули",
+	Short: "Показать установленные модули и пакеты алиасов",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		fm, err := mustFileManager()
@@ -257,28 +219,70 @@ var listModulesCmd = &cobra.Command{
 			return fmt.Errorf("не удалось прочитать директорию модулей: %w", err)
 		}
 
+		mm := pluginhost.GetModuleManager()
 		loaded := make(map[string]pluginhost.ModuleInfo)
-		for _, info := range pluginhost.GetModuleManager().LoadedModules() {
+		for _, info := range mm.LoadedModules() {
 			loaded[filepath.Base(info.Path)] = info
 		}
-
-		found := 0
-		for _, entry := range entries {
-			if entry.IsDir() || filepath.Ext(entry.Name()) != pluginhost.ModuleExtension {
-				continue
-			}
-			found++
-
-			if info, ok := loaded[entry.Name()]; ok {
-				cmd.Printf("  %-32s %s v%s (команд: %d)\n",
-					entry.Name(), info.Name, info.Version, info.Commands)
-			} else {
-				cmd.Printf("  %-32s не загружен\n", entry.Name())
-			}
+		services := map[string][]string{}
+		for _, r := range mm.Runners() {
+			services[r.Module+"/"+r.Kind] = r.Services
 		}
 
-		if found == 0 {
+		var plugins []string
+		for _, entry := range entries {
+			if !entry.IsDir() && filepath.Ext(entry.Name()) == pluginhost.ModuleExtension {
+				plugins = append(plugins, entry.Name())
+			}
+		}
+		registry, errs := aliases()
+		reportAliasErrors(cmd, errs)
+		packages := map[string]int{}
+		for _, info := range registry.List() {
+			if info.Module != "" {
+				packages[info.Module]++
+			}
+		}
+		if len(plugins) == 0 && len(packages) == 0 {
 			cmd.Printf("Модулей нет. Директория: %s\n", fm.ModulesDir())
+			return nil
+		}
+
+		if len(plugins) > 0 {
+			cmd.Println("Модули:")
+		}
+		for _, file := range plugins {
+			info, ok := loaded[file]
+			if !ok {
+				cmd.Printf("  %-28s не загружен\n", file)
+				continue
+			}
+			var parts []string
+			if info.Commands > 0 {
+				parts = append(parts, fmt.Sprintf("команд: %d", info.Commands))
+			}
+			if len(info.Languages) > 0 {
+				parts = append(parts, "языки: "+strings.Join(info.Languages, ", "))
+			}
+			for _, kind := range info.Runners {
+				parts = append(parts, fmt.Sprintf("исполнитель %s (%s)", kind,
+					strings.Join(services[info.Name+"/"+kind], ", ")))
+			}
+			if len(parts) == 0 {
+				parts = []string{"ничего не объявил"}
+			}
+			cmd.Printf("  %-28s %s v%s — %s\n", file, info.Name, info.Version, strings.Join(parts, "; "))
+		}
+
+		if len(packages) > 0 {
+			cmd.Println("Пакеты алиасов:")
+		}
+		for _, name := range sortedPaths(packages) {
+			version := "без версии"
+			if pkg, ok := registry.Package(name); ok && pkg.Version != "" {
+				version = "v" + pkg.Version
+			}
+			cmd.Printf("  %-28s %s — алиасов: %d\n", name, version, packages[name])
 		}
 		return nil
 	},

@@ -1,7 +1,8 @@
 # ochan: make install — и ochan вызывается по имени из любого каталога.
+# make rlm — ещё и модуль RLM (исполнитель сценариев через RLM API).
 PREFIX ?= $(HOME)/.local
 
-.PHONY: build install uninstall test vet
+.PHONY: build install uninstall rlm test vet
 
 build:
 	go build -trimpath -o bin/ochan .
@@ -12,6 +13,9 @@ install:
 
 uninstall:
 	PREFIX="$(PREFIX)" sh scripts/install.sh --uninstall
+
+rlm:
+	PREFIX="$(PREFIX)" sh scripts/install.sh --rlm
 
 test:
 	go test -race ./... ./mcp/...

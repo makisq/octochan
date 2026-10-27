@@ -111,7 +111,7 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 		}
 		return runErr
 	}
-	_, err = checkRules(cmd, prompt, effects, calls)
+	_, err = judgePlan(cmd, purposePlan, input, prompt, planPrompt.trust, registry, effects, calls)
 	return err
 }
 

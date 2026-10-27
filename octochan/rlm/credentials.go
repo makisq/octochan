@@ -2,13 +2,14 @@ package rlm
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"strings"
 	"sync"
 )
 
-// EnvTokenVar — переменная окружения с токеном RLM API.
+// EnvTokenVar — прежняя переменная окружения с токеном RLM API. Процесс
+// модуля наследует окружение ochan, поэтому она по-прежнему работает;
+// новая — OCTOCHAN_TOKEN_RLM, её читает ядро.
 const EnvTokenVar = "OCTOCHAN_API_TOKEN"
 
 // Токен намеренно живёт вне viper.
@@ -40,29 +41,9 @@ func APIToken() string {
 	return strings.TrimSpace(os.Getenv(EnvTokenVar))
 }
 
-// tokenFilePerm — токен читаем только владельцем.
-const tokenFilePerm os.FileMode = 0o600
-
-// SaveTokenTo записывает токен в файл с правами 0600.
-//
-// Путь передаётся снаружи: где держать рабочие директории — забота
-// пакета workspace, а не клиента RLM.
-func SaveTokenTo(path, token string) error {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return fmt.Errorf("пустой токен")
-	}
-
-	content := fmt.Sprintf("%s=%s\n", EnvTokenVar, token)
-	if err := os.WriteFile(path, []byte(content), tokenFilePerm); err != nil {
-		return fmt.Errorf("не удалось сохранить токен: %w", err)
-	}
-
-	SetAPIToken(token)
-	return nil
-}
-
-// LoadTokenFrom читает токен из файла и запоминает его.
+// LoadTokenFrom читает токен из файла вида .env и запоминает его. Так
+// модуль RLM подхватывает ~/.octochan/.env, который до 0.2.0 писал ochan
+// auth; новый токен ядро передаёт в вызове (ochan auth --executor rlm).
 // Отсутствие файла ошибкой не считается.
 func LoadTokenFrom(path string) error {
 	f, err := os.Open(path)

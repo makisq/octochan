@@ -72,7 +72,7 @@ go build -ldflags "-X octochan/cmd.Version=0.1.0-alpha" -o ochan .
 ```
 ~/.octochan/
   config.yaml     настройки
-  .env            токен API (права 0600)
+  tokens/         токены исполнителей, файл на исполнителя (права 0600)
   roles.bin       роли, их права, логины и пароли (хеши), текущая роль
   state.json      что ochan помнит между запусками: история оболочки
   modules/        модули команд и языков (*.hcplugin), пакеты алиасов
@@ -99,9 +99,12 @@ go build -ldflags "-X octochan/cmd.Version=0.1.0-alpha" -o ochan .
 lang: ru                   # язык справки и сообщений: ru, eng (en) или язык модуля
 
 defaults:
-  api_url: https://rlm.example.internal/api/tasks.json   # исполнитель RLM
   max_parallel_tasks: 5    # одновременных итераций parallel for
   allow_unverified_modules: false
+
+executors:
+  rlm:                     # модуль RLM, если он стоит
+    api_url: https://rlm.example.internal/api/tasks.json
 
 logs:
   max_size: 100MB          # журнал ochan уходит в архив с датой в имени
@@ -111,8 +114,9 @@ server:
   listen: 127.0.0.1:7443   # серверный режим
 ```
 
-Адрес API не зашит в код: без `defaults.api_url` команды, которым нужен
-исполнитель RLM, откажут с объяснением. Всё остальное работает без него.
+Адрес API не зашит в код: без него исполнитель модуля откажет с
+объяснением. Всё остальное работает без него. Модуль RLM ставит `make rlm`
+(на Windows — `scripts\install.ps1 -Rlm`), см. [«Модуль RLM»](scenarios.md#модуль-rlm).
 
 ## Секреты
 
@@ -121,7 +125,7 @@ server:
 
 | Что | Где |
 |---|---|
-| Токен API | `ochan auth` (ввод скрыт, хранится в `~/.octochan/.env`, 0600) или `OCTOCHAN_API_TOKEN` |
+| Токен исполнителя | `ochan auth --executor <имя>` (ввод скрыт, `~/.octochan/tokens/<имя>`, 0600) или `OCTOCHAN_TOKEN_<ИМЯ>` |
 | Пароль почты | `OCTOCHAN_SMTP_PASSWORD` |
 | Пароль PostgreSQL | `PGPASSWORD` или `~/.pgpass` — не в строке подключения |
 | Пароли ролей | `ochan role … --npsw` спрашивает их; хранятся только хеши argon2id |

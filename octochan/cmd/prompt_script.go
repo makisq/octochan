@@ -23,6 +23,9 @@ type promptOptions struct {
 	// bundle — сценарий, промпт и отчёт приходят на stdin одним JSON:
 	// у процесса один stdin, а текстов три.
 	bundle bool
+	// trust — правила, которым оператор доверяет без журнала: их
+	// утверждения проходят кольцо 2.
+	trust []string
 }
 
 func (o *promptOptions) register(cmd *cobra.Command) {
@@ -31,9 +34,13 @@ func (o *promptOptions) register(cmd *cobra.Command) {
 	flags.StringVar(&o.report, "report", "", "отчёт модели (раздел report:), проверяется вместе с промптом")
 	flags.BoolVar(&o.bundle, "bundle", false,
 		"stdin — JSON {\"script\": …, \"prompt\": …, \"report\": …}; так их передаёт ochan-mcp")
+	flags.StringSliceVar(&o.trust, "trust", nil,
+		"правила (пакет.алиас, write, save), которым оператор доверяет без журнала: их утверждения проходят кольцо 2")
 }
 
-func (o *promptOptions) any() bool { return o.prompt != "" || o.report != "" || o.bundle }
+func (o *promptOptions) any() bool {
+	return o.prompt != "" || o.report != "" || o.bundle || len(o.trust) > 0
+}
 
 // scriptInput — сценарий и, если есть, промпт с отчётом.
 type scriptInput struct {
@@ -117,16 +124,18 @@ func loadScriptInput(opts *scriptOptions, popts *promptOptions, target string) (
 	if in.report != nil && in.prompt == nil {
 		return nil, errors.New("отчёт проверяется по промпту: укажите и промпт")
 	}
+	if len(popts.trust) > 0 && in.prompt == nil {
+		return nil, errors.New("--trust относится к кольцам, а кольца проверяют сценарий по промпту: укажите и промпт")
+	}
 	return in, nil
 }
 
-// stored — промпт и отчёт для заявки; rules — правила, которые план
-// соблюдает. Без промпта — nil.
-func (in *scriptInput) stored(rules []string) *workspace.ScriptPrompt {
+// stored — промпт и отчёт для заявки и решение о плане. Без промпта — nil.
+func (in *scriptInput) stored(j judgement) *workspace.ScriptPrompt {
 	if in.prompt == nil {
 		return nil
 	}
-	p := &workspace.ScriptPrompt{Name: in.prompt.Name, Text: in.prompt.Content, Rules: rules}
+	p := &workspace.ScriptPrompt{Name: in.prompt.Name, Text: in.prompt.Content, Rules: j.rules, Decision: j.decision}
 	if in.report != nil {
 		p.ReportName, p.Report = in.report.Name, in.report.Content
 	}
@@ -237,13 +246,22 @@ func checkSkills(prompt *fp.Result, file *lang.File, registry *lang.Registry) er
 // Нарушение — ошибка: план, который нарушает абсолютное правило, не
 // оформляется и не выполняется.
 func checkRules(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, calls []lang.Invocation) ([]string, error) {
+	passed, failed := runArbiter(cmd, result, effects, calls)
+	if len(failed) > 0 {
+		return nil, fmt.Errorf("план нарушает жёсткие правила промпта: %s", strings.Join(failed, "; "))
+	}
+	return passed, nil
+}
+
+// runArbiter проверяет план по жёстким правилам промпта, печатает итог и
+// возвращает соблюдённые и нарушенные правила.
+func runArbiter(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, calls []lang.Invocation) (passed, failed []string) {
 	if result == nil || len(result.Program.Rules) == 0 {
 		return nil, nil
 	}
 	outcomes := arbiter.Check(result.Program.Rules, effects, calls)
 
 	cmd.Println("\nЖёсткие правила промпта:")
-	var passed, failed []string
 	for _, o := range outcomes {
 		rule := arbiter.Describe(o.Rule)
 		if o.OK() {
@@ -260,10 +278,7 @@ func checkRules(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, ca
 		}
 		failed = append(failed, rule)
 	}
-	if len(failed) > 0 {
-		return nil, fmt.Errorf("план нарушает жёсткие правила промпта: %s", strings.Join(failed, "; "))
-	}
-	return passed, nil
+	return passed, failed
 }
 
 // describeReport — записи отчёта модели одной строкой каждая.

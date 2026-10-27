@@ -1077,7 +1077,9 @@ func TestRankLogsArgv(t *testing.T) {
 	args, _ := e.scriptCall("rank_logs", map[string]any{"file": "pg.log", "min": "error", "summary": true, "top": 3})
 	assertArgv(t, args, "logs", "rank", "--min=error", "--summary", "--top=3", "--", filepath.Join(e.root, "pg.log"))
 
-	e.assertRejected("rank_logs", map[string]any{"file": "/etc/passwd"}, "outside the allowed directories")
+	// Существующий файл вне корня: /etc/passwd есть не везде, и на Windows
+	// отказ приходил раньше — «файл не найден», а не «вне каталогов».
+	e.assertRejected("rank_logs", map[string]any{"file": e.outside}, "outside the allowed directories")
 	e.assertRejected("rank_logs", map[string]any{"file": "pg.log", "min": "--tail"}, "invalid value")
 }
 

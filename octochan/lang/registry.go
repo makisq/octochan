@@ -21,11 +21,41 @@ const ManifestName = "package.yaml"
 // versionPattern — версия из одного, двух или трёх чисел: 2, 2.3, 2.3.1.
 var versionPattern = regexp.MustCompile(`^v?(\d+(?:\.\d+){0,2})$`)
 
+// priorPattern — условный счёт правила: «успехи/применения», например 8/8.
+var priorPattern = regexp.MustCompile(`^(\d+)/(\d+)$`)
+
+// Prior — условный счёт автора скилла для алиаса: «как будто алиас
+// применялся Uses раз и Successes из них прошли» (раздел 7.5 манифеста ФПм).
+// Без него у нового скилла нет журнала, и каждое его правило проходило бы
+// кольцо 2 только после долгой проверки.
+type Prior struct {
+	Successes int
+	Uses      int
+}
+
+// ParsePrior разбирает запись «успехи/применения».
+func ParsePrior(text string) (Prior, error) {
+	m := priorPattern.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil {
+		return Prior{}, fmt.Errorf("условный счёт %q, ожидалось «успехи/применения», например 8/8", text)
+	}
+	var p Prior
+	fmt.Sscan(m[1], &p.Successes)
+	fmt.Sscan(m[2], &p.Uses)
+	if p.Successes > p.Uses {
+		return Prior{}, fmt.Errorf("условный счёт %q: успехов больше, чем применений", text)
+	}
+	return p, nil
+}
+
 // Package — описание пакета алиасов из его манифеста.
 type Package struct {
 	Name        string
 	Version     string
 	Description string
+	// Priors — условный счёт автора для алиасов пакета: ключи манифеста
+	// prior.<алиас>.
+	Priors map[string]Prior
 	// Manifest — путь к файлу описания.
 	Manifest string
 }
@@ -71,7 +101,19 @@ func LoadManifest(name, dir string) (*Package, error) {
 			case "description":
 				pkg.Description = value
 			default:
-				return nil, fmt.Errorf("%s: неизвестное поле %q; допустимы name, version, description", path, key)
+				alias, ok := strings.CutPrefix(key, "prior.")
+				if !ok || alias == "" {
+					return nil, fmt.Errorf("%s: неизвестное поле %q; допустимы name, version, description и prior.<алиас>",
+						path, key)
+				}
+				prior, err := ParsePrior(value)
+				if err != nil {
+					return nil, fmt.Errorf("%s: %s: %w", path, key, err)
+				}
+				if pkg.Priors == nil {
+					pkg.Priors = map[string]Prior{}
+				}
+				pkg.Priors[alias] = prior
 			}
 		}
 	}
@@ -563,8 +605,20 @@ func (r *Registry) LoadDir(module, dir string) error {
 	if err != nil {
 		return err
 	}
-	if pkg != nil {
-		r.packages[module] = pkg
+	if pkg == nil {
+		return nil
 	}
+	// Опечатка в prior.<алиас> молча оставила бы алиас без счёта автора.
+	aliases := make([]string, 0, len(pkg.Priors))
+	for alias := range pkg.Priors {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	for _, alias := range aliases {
+		if _, err := r.Lookup(module, alias); err != nil {
+			return fmt.Errorf("%s: prior.%s: в пакете %s нет алиаса %s", pkg.Manifest, alias, module, alias)
+		}
+	}
+	r.packages[module] = pkg
 	return nil
 }

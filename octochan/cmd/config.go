@@ -9,7 +9,6 @@ import (
 
 	"octochan/i18n"
 	"octochan/logs"
-	"octochan/rlm"
 	"octochan/workspace"
 
 	"github.com/spf13/viper"
@@ -51,6 +50,8 @@ func initConfig() error {
 
 	// Все пути живут под ~/.octochan. Прежняя версия держала config.yaml
 	// в ~/octochan, а всё остальное в ~/.octochan.
+	// Адрес API, время запроса и параллельность — общие умолчания для
+	// исполнителей модулей; свои у исполнителя — executors.<имя>.
 	viper.SetDefault("defaults.api_url", "")
 	viper.SetDefault("defaults.scenario_path", fm.ScenariosDir())
 	viper.SetDefault("defaults.log_path", fm.LogsDir())
@@ -60,7 +61,7 @@ func initConfig() error {
 	viper.SetDefault("defaults.module_command_timeout", "10m")
 	viper.SetDefault("defaults.plugin_log_level", "warn")
 	viper.SetDefault("defaults.allow_unverified_modules", false)
-	// Напоминание о смене токена RLM — по желанию: ochan timer on.
+	// Напоминание о смене токена исполнителя — по желанию: ochan timer on.
 	viper.SetDefault("defaults.token_timer_enabled", false)
 	viper.SetDefault("defaults.token_lifetime", "20m")
 
@@ -96,6 +97,20 @@ func initConfig() error {
 	viper.SetDefault("shell.history_size", 1000)
 	viper.SetDefault("shell.logo", true)
 
+	// Кольца формального промпта: порог well_True для плана и для заявки,
+	// условный счёт правила без журнала, показывать ли оценки и сколько
+	// отказов подряд по одному промпту допустимо до оператора.
+	viper.SetDefault("fp.rings.enabled", true)
+	viper.SetDefault("fp.rings.well_true.plan", 0.5)
+	viper.SetDefault("fp.rings.well_true.apply", 0.6)
+	viper.SetDefault("fp.rings.prior", "8/8")
+	viper.SetDefault("fp.rings.show_scores", false)
+	viper.SetDefault("fp.rings.budget.plan", 3)
+
+	// Пределы частоты ролей сверх тех, что задаёт role limit: в той же
+	// записи. Модель не строит больше 60 планов в час; [] снимает предел.
+	viper.SetDefault("roles.llm.limits", []string{"plan=60/1h"})
+
 	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
 	viper.SetDefault("ssl", true)
 	viper.SetDefault("tls.min_version", "1.2")
@@ -118,12 +133,6 @@ func initConfig() error {
 		}
 	} else if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)
-	}
-
-	// Токен читается отдельно и в viper не попадает, чтобы не уехать
-	// в config.yaml при следующем WriteConfig.
-	if err := rlm.LoadTokenFrom(fm.TokenFilePath()); err != nil {
-		return fmt.Errorf("не удалось прочитать токен: %w", err)
 	}
 
 	return nil

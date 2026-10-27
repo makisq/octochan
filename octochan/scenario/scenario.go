@@ -138,17 +138,47 @@ func Register(service string, runner Runner) {
 	runners[service] = runner
 }
 
+// Unregister убирает сервис из реестра: модуль, который его выполнял,
+// выгружен.
+func Unregister(service string) {
+	runnersMu.Lock()
+	defer runnersMu.Unlock()
+	delete(runners, service)
+}
+
+// moved — сервисы, которые выполнял встроенный исполнитель, а теперь
+// приносит модуль: сервис → модуль.
+var moved = make(map[string]string)
+
+// Moved объявляет, что сервис теперь приносит модуль: отказ Resolve
+// назовёт, что поставить, вместо голого «не зарегистрирован».
+func Moved(service, module string) {
+	runnersMu.Lock()
+	defer runnersMu.Unlock()
+	moved[service] = module
+}
+
 // Resolve находит исполнителя для сервиса.
 func Resolve(service string) (Runner, error) {
 	runnersMu.RLock()
 	runner, ok := runners[service]
+	module, wasBuiltin := moved[service]
 	runnersMu.RUnlock()
 
 	if ok {
 		return runner, nil
 	}
-	return nil, fmt.Errorf("сервис %q не зарегистрирован; доступны: %s",
-		service, strings.Join(Services(), ", "))
+	available := strings.Join(Services(), ", ")
+	if available == "" {
+		available = "—"
+	}
+	if wasBuiltin {
+		return nil, fmt.Errorf("сервис %q не зарегистрирован: его выполнял встроенный исполнитель, а теперь приносит "+
+			"модуль %s — соберите его (plugins/%s) и установите: ochan '!install' %s.hcplugin; доступны: %s",
+			service, module, module, module, available)
+	}
+	return nil, fmt.Errorf("сервис %q не зарегистрирован; доступны: %s. Исполнители приходят модулями: "+
+		"ochan '!install' <модуль>.hcplugin, установленные — ochan modules", service, available)
 }
 
 // Services перечисляет зарегистрированные сервисы.

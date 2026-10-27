@@ -214,23 +214,37 @@ type Archive struct {
 	Path     string
 	Size     int64
 	Modified time.Time
+
+	// stamp и seq — время из префикса и номер переноса в этот момент:
+	// по ним архивы упорядочиваются (см. Archives).
+	stamp time.Time
+	seq   int
 }
 
-// archivePattern — имя архива: префикс по шаблону, номер при совпадении
-// и имя журнала. Архив узнаётся по шаблону, а не по окончанию имени:
-// журнал может лежать в общем каталоге, и чужой file.octochan.log
+// archiveMatcher узнаёт архив по имени: префикс по шаблону, номер при
+// совпадении и имя журнала. Архив узнаётся по шаблону, а не по окончанию
+// имени: журнал может лежать в общем каталоге, и чужой file.octochan.log
 // удалять нельзя.
-func archivePattern(prefix, name string) *regexp.Regexp {
+type archiveMatcher struct {
+	re *regexp.Regexp
+	// fields — поля времени (Y, m, d, H, M, S) в порядке групп выражения.
+	fields []byte
+}
+
+func newArchiveMatcher(prefix, name string) archiveMatcher {
 	var b strings.Builder
+	var fields []byte
 	b.WriteString("^")
 	for i := 0; i < len(prefix); i++ {
 		if prefix[i] == '%' && i+1 < len(prefix) {
 			i++
 			switch prefix[i] {
 			case 'Y':
-				b.WriteString(`\d{4}`)
+				b.WriteString(`(\d{4})`)
+				fields = append(fields, 'Y')
 			case 'm', 'd', 'H', 'M', 'S':
-				b.WriteString(`\d{2}`)
+				b.WriteString(`(\d{2})`)
+				fields = append(fields, prefix[i])
 			default:
 				b.WriteString(regexp.QuoteMeta(string(prefix[i])))
 			}
@@ -238,10 +252,30 @@ func archivePattern(prefix, name string) *regexp.Regexp {
 		}
 		b.WriteString(regexp.QuoteMeta(string(prefix[i])))
 	}
-	b.WriteString(`(\d+\.)?`)
+	b.WriteString(`(?:(\d+)\.)?`)
 	b.WriteString(regexp.QuoteMeta(name))
 	b.WriteString("$")
-	return regexp.MustCompile(b.String())
+	return archiveMatcher{re: regexp.MustCompile(b.String()), fields: fields}
+}
+
+// match разбирает имя файла: время из префикса и номер переноса.
+// ok == false — это не архив журнала.
+func (m archiveMatcher) match(file string) (stamp time.Time, seq int, ok bool) {
+	sub := m.re.FindStringSubmatch(file)
+	if sub == nil {
+		return time.Time{}, 0, false
+	}
+	// Поля, которых в префиксе нет, — начало соответствующего периода.
+	value := map[byte]int{'Y': 1, 'm': 1, 'd': 1}
+	for i, field := range m.fields {
+		value[field], _ = strconv.Atoi(sub[i+1])
+	}
+	if s := sub[len(m.fields)+1]; s != "" {
+		seq, _ = strconv.Atoi(s)
+	}
+	stamp = time.Date(value['Y'], time.Month(value['m']), value['d'],
+		value['H'], value['M'], value['S'], 0, time.UTC)
+	return stamp, seq, true
 }
 
 // Archives возвращает журнал и его архивы с префиксом по шаблону prefix
@@ -250,7 +284,7 @@ func Archives(dir, name, prefix string) ([]Archive, error) {
 	if prefix == "" {
 		prefix = DefaultPrefix
 	}
-	pattern := archivePattern(prefix, name)
+	matcher := newArchiveMatcher(prefix, name)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -260,27 +294,43 @@ func Archives(dir, name, prefix string) ([]Archive, error) {
 	}
 	var out []Archive
 	for _, e := range entries {
-		if !e.Type().IsRegular() || (e.Name() != name && !pattern.MatchString(e.Name())) {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		stamp, seq, ok := matcher.match(e.Name())
+		if e.Name() != name && !ok {
 			continue
 		}
 		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		out = append(out, Archive{Path: filepath.Join(dir, e.Name()), Size: info.Size(), Modified: info.ModTime()})
+		out = append(out, Archive{Path: filepath.Join(dir, e.Name()), Size: info.Size(),
+			Modified: info.ModTime(), stamp: stamp, seq: seq})
 	}
+
+	// Порядок — по тому, что записано в имени: время из префикса, затем
+	// номер переноса. Время изменения файла — только последний довод: на
+	// Linux его отметка грубее миллисекунды, и переносы подряд получали
+	// одинаковое время. Тогда решало сравнение имён, а по нему
+	// «2026-10-23_octochan.log» новее «2026-10-23_1.octochan.log» —
+	// и удалялся не самый старый архив, а более новый.
 	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
 		// Текущий журнал — всегда первым: он новее любого архива.
-		if filepath.Base(out[i].Path) == name {
-			return true
+		if current, other := filepath.Base(a.Path) == name, filepath.Base(b.Path) == name; current != other {
+			return current
 		}
-		if filepath.Base(out[j].Path) == name {
-			return false
+		if !a.stamp.Equal(b.stamp) {
+			return a.stamp.After(b.stamp)
 		}
-		if !out[i].Modified.Equal(out[j].Modified) {
-			return out[i].Modified.After(out[j].Modified)
+		if a.seq != b.seq {
+			return a.seq > b.seq
 		}
-		return out[i].Path > out[j].Path
+		if !a.Modified.Equal(b.Modified) {
+			return a.Modified.After(b.Modified)
+		}
+		return a.Path > b.Path
 	})
 	return out, nil
 }

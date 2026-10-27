@@ -34,16 +34,20 @@ func TestTokenReminderNeedsSavedToken(t *testing.T) {
 	}
 
 	// Токен сохранили час назад — срок вышел.
-	e.must("auth", "token-1")
+	e.must("auth", "--executor", "rlm", "token-1")
 	fm, _ := mustFileManager()
+	path, err := fm.ExecutorTokenPath("rlm")
+	if err != nil {
+		t.Fatal(err)
+	}
 	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(fm.TokenFilePath(), old, old); err != nil {
+	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
 	restartTokenReminder()
 	select {
 	case msg := <-messages:
-		if !strings.Contains(msg, "истекло") {
+		if !strings.Contains(msg, "истекло") || !strings.Contains(msg, "ochan auth --executor rlm") {
 			t.Fatalf("напоминание: %s", msg)
 		}
 	case <-time.After(2 * time.Second):
@@ -51,7 +55,7 @@ func TestTokenReminderNeedsSavedToken(t *testing.T) {
 	}
 
 	// Свежий токен — до предупреждения ещё пятнадцать минут.
-	e.must("auth", "token-2")
+	e.must("auth", "--executor", "rlm", "token-2")
 	select {
 	case msg := <-messages:
 		t.Fatalf("о свежем токене напомнили сразу: %s", msg)
@@ -60,7 +64,7 @@ func TestTokenReminderNeedsSavedToken(t *testing.T) {
 
 	// Выключенное напоминание молчит и с вышедшим сроком.
 	viper.Set("defaults.token_timer_enabled", false)
-	if err := os.Chtimes(fm.TokenFilePath(), old, old); err != nil {
+	if err := os.Chtimes(path, old, old); err != nil {
 		t.Fatal(err)
 	}
 	restartTokenReminder()

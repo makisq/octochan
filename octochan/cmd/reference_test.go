@@ -116,10 +116,18 @@ func permissionFor(key string) string {
 	return requiredPerm(key)
 }
 
+// inReference — флаг, который описывает справочник. --help и --version
+// cobra добавляет сама, и только когда команда выполнялась: они есть у
+// всех. Флаги исполнителей зависят от установленных модулей.
+func inReference(f *pflag.Flag) bool {
+	_, dynamic := f.Annotations[executorFlagAnnotation]
+	return !f.Hidden && !dynamic && f.Name != "help" && f.Name != "version"
+}
+
 func hasOwnFlags(flags *pflag.FlagSet) bool {
 	own := false
 	flags.VisitAll(func(f *pflag.Flag) {
-		own = own || !f.Hidden && f.Name != "help" && f.Name != "version"
+		own = own || inReference(f)
 	})
 	return own
 }
@@ -127,9 +135,7 @@ func hasOwnFlags(flags *pflag.FlagSet) bool {
 func flagTable(b *strings.Builder, flags *pflag.FlagSet) {
 	b.WriteString("| Флаг | Тип | По умолчанию | Описание |\n|---|---|---|---|\n")
 	flags.VisitAll(func(f *pflag.Flag) {
-		// --help и --version cobra добавляет сама, и только когда команда
-		// выполнялась: в справочнике их нет, они есть у всех.
-		if f.Hidden || f.Name == "help" || f.Name == "version" {
+		if !inReference(f) {
 			return
 		}
 		name := "`--" + f.Name + "`"

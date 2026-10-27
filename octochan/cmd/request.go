@@ -401,6 +401,11 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	if err := store.Decide(request, state, who, comment); err != nil {
 		return err
 	}
+	if state == workspace.RequestApproved {
+		noteOperator(cmd, request, workspace.OperatorApproved)
+	} else {
+		noteOperator(cmd, request, workspace.OperatorRejected)
+	}
 
 	cmd.Printf("Заявка %s: %s (%s)\n", request.ID, request.State.Russian(), request.DecidedBy)
 	if state == workspace.RequestApproved {

@@ -67,6 +67,10 @@ type Invocation struct {
 	// Args — значения аргументов текстом: строки как есть, конфиг — его
 	// источником.
 	Args []string
+	// Outer — вызовы, внутри которых случился этот (их ID), от внешнего к
+	// внутреннему; пусто — вызов из самого сценария. По ним видно, что
+	// написала модель, а что — реализация скилла из библиотеки.
+	Outer []int
 }
 
 // Qualified возвращает имя вызова вида пакет.алиас.
@@ -84,7 +88,7 @@ func (in *Interpreter) Invocations() []Invocation { return append([]Invocation(n
 // beginCall запоминает вызов алиаса и делает его текущим.
 func (in *Interpreter) beginCall(decl *AliasDecl, args []Value) func() {
 	id := int(in.nextCall.Add(1))
-	call := Invocation{ID: id, Name: decl.Name, Module: decl.Module}
+	call := Invocation{ID: id, Name: decl.Name, Module: decl.Module, Outer: in.activeCalls()}
 	for _, arg := range args {
 		call.Args = append(call.Args, argText(arg))
 	}

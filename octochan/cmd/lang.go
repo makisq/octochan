@@ -44,13 +44,20 @@ func flagSource(f *pflag.Flag) string {
 	return f.Usage
 }
 
-// walkCommands обходит дерево команд вместе с флагами.
+// walkCommands обходит дерево команд вместе с флагами. Флаги, которые
+// появляются от установленных модулей (--rlm у status), не обходятся: их
+// справка — на языке, текущем при установке, и не часть ochan.
 func walkCommands(root *cobra.Command, each func(*cobra.Command), flag func(*pflag.Flag)) {
+	own := func(f *pflag.Flag) {
+		if _, dynamic := f.Annotations[executorFlagAnnotation]; !dynamic {
+			flag(f)
+		}
+	}
 	var walk func(c *cobra.Command)
 	walk = func(c *cobra.Command) {
 		each(c)
-		c.LocalNonPersistentFlags().VisitAll(flag)
-		c.PersistentFlags().VisitAll(flag)
+		c.LocalNonPersistentFlags().VisitAll(own)
+		c.PersistentFlags().VisitAll(own)
 		for _, sub := range c.Commands() {
 			walk(sub)
 		}

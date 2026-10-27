@@ -8,9 +8,10 @@
 промпт).
 
 Из коробки ochan работает с конфигурациями — файлами и живым
-PostgreSQL/pgbouncer — и с исполнителем RLM. Это ниши, а не предел:
-Linux, Ansible или что угодно ещё подключается источниками, исполнителями,
-модулями команд и пакетами алиасов. ochan собирают под себя — от пары
+PostgreSQL/pgbouncer; исполнитель RLM ставится модулем (`make rlm`). Это
+ниши, а не предел: Linux, Ansible или что угодно ещё подключается
+источниками, модулями — с командами или исполнителями — и пакетами
+алиасов. ochan собирают под себя — от пары
 алиасов до сложного оркестратора.
 
 Версия — **0.1.0-alpha**: [что в ней](CHANGELOG.md).
@@ -26,8 +27,7 @@ Linux, Ansible или что угодно ещё подключается ист
   [встроенных функций](docs/reference/builtins.md),
   [настроек](docs/reference/config.md).
 - [Сервер MCP](mcp/README.md) и [протокол формального промпта](fp/protocol.md).
-- Манифест формального промптирования — [md](docs/formal-prompting.md),
-  [pdf](docs/formal-prompting.pdf).
+- [Манифест формального промптирования](docs/formal-prompting.md), версия 0.4.
 
 ## Быстрый старт
 
@@ -93,7 +93,7 @@ ochan request rollout.ochan    согласование, затем apply --requ
 | | |
 |---|---|
 | [Конфигурации](docs/guide/configs.md) | сравнение по смыслу, проверка, правка; живой PostgreSQL через `pg_settings` |
-| [Сценарии исполнителей](docs/guide/scenarios.md) | YAML-сценарии по сервисам, исполнитель RLM |
+| [Сценарии исполнителей](docs/guide/scenarios.md) | YAML-сценарии по сервисам, модуль RLM |
 | [Язык алиасов](docs/guide/language.md) | строгие типы, алиасы и пакеты, потоки, `parallel for`, проверка до запуска, план, песочница ОС |
 | [План, заявки и откат](docs/guide/requests.md) | выполняется ровно согласованное; журнал и обратимый откат; `.docx` и почта |
 | [Роли и права](docs/guide/roles.md) | `master`, `llm`, свои роли с паролями, запреты, области, пределы, журнал аудита |
@@ -124,9 +124,8 @@ ochan request rollout.ochan    согласование, затем apply --requ
   независимого аудита не проходили. Не выставляйте их в недоверенную сеть
   и не используйте с боевыми паролями, пока код не посмотрит кто-то, кроме
   автора.
-- **Не проверялось вживую:** исполнитель RLM работал только против
-  поддельного API; тесты под Windows и macOS не запускались (только
-  сборка); песочница ядра проверена на Linux 6.x x86-64, на arm64 — только
+- **Не проверялось вживую:** модуль RLM работал только против
+  поддельного API; тесты под macOS не запускались (только сборка); песочница ядра проверена на Linux 6.x x86-64, на arm64 — только
   сборка.
 
 Единственное, на что альфа рассчитана твёрдо: нейросеть через `ochan-mcp`
@@ -136,8 +135,9 @@ ochan request rollout.ochan    согласование, затем apply --requ
 ## Устройство
 
 ```
-config  lang  arbiter  fp  i18n  logs  rbac  audit  sandbox  remote  pluginhost
-scenario  pgsource  rlm  workspace  report  module  cmd     mcp/ — отдельный модуль
+config  lang  arbiter  fp  rings  i18n  logs  rbac  audit  sandbox  remote
+pluginhost  runnerhost  scenario  pgsource  workspace  report  cmd
+mcp/ — отдельный Go-модуль        plugins/rlm — модуль RLM, ядро его не импортирует
 ```
 
 `config` не зависит ни от чего; СУБД и RLM — ниши, а не фундамент; ИИ —

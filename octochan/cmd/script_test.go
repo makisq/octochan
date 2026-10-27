@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"testing"
 
 	"octochan/lang"
@@ -103,11 +102,6 @@ func (e *scriptEnv) fails(want string, args ...string) {
 	if !strings.Contains(err.Error(), want) {
 		e.t.Fatalf("ochan %s: ожидался отказ с %q, получено: %v", strings.Join(args, " "), want, err)
 	}
-}
-
-func resetAliasCache() {
-	aliasRegistryOnce = sync.Once{}
-	aliasRegistry, aliasLoadErrs = nil, nil
 }
 
 var requestIDPattern = regexp.MustCompile(`Заявка ([0-9a-f]+) создана`)

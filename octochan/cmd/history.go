@@ -271,6 +271,15 @@ func rollbackFiles(cmd *cobra.Command, store *workspace.History, entry *workspac
 	if err := store.MarkReverted(entry, revert.ID); err != nil {
 		cmd.PrintErrf("внимание: файлы восстановлены, но пометить запись не удалось: %v\n", err)
 	}
+	// Откат сценария, выполненного по заявке, — исход его плана: оператор
+	// его исправил, и кольца засчитают это правилам плана.
+	if id, ok := strings.CutPrefix(entry.Command, "apply --request "); ok {
+		if requests, err := requestStore(); err == nil {
+			if request, err := requests.Get(id); err == nil {
+				noteOperator(cmd, request, workspace.OperatorRolledBack)
+			}
+		}
+	}
 	cmd.Printf("Операция %s откатена, файлов: %d (откат записан как %s)\n", entry.ID, len(restored), revert.ID)
 	return nil
 }

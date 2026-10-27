@@ -26,8 +26,8 @@ var statusCmd = &cobra.Command{
 		"apply: «Создано: …».\n\n" +
 		"Исполнитель выбирается флагом: --executor rlm или коротко --rlm (флаг\n" +
 		"есть у каждого исполнителя, который умеет показывать статус). Если такой\n" +
-		"исполнитель один, флаг не нужен. Свой исполнитель — Go-пакет, который\n" +
-		"регистрирует сервисы и реализует scenario.StatusReporter.",
+		"исполнитель один, флаг не нужен. Исполнители приходят модулями: статус\n" +
+		"показывает тот, кто реализует scenario.StatusReporter.",
 	Args: cobra.MinimumNArgs(1),
 	Example: "ochan status 4f1c2a\n" +
 		"ochan status 4f1c2a 9b7e01 --rlm\n" +
@@ -110,15 +110,20 @@ func pickStatusReporter(cmd *cobra.Command) (string, scenario.StatusReporter, er
 	}
 }
 
+// executorFlagAnnotation помечает флаги исполнителей: они зависят от
+// установленных модулей, и в справочник и шаблон перевода не входят.
+const executorFlagAnnotation = "executor"
+
 // addExecutorFlags даёт status флаг --<исполнитель> для каждого, кто умеет
-// показывать статус. Вызывается из Execute: исполнители регистрируются в
-// init своих пакетов, а они инициализируются после cmd.
+// показывать статус. Вызывается, когда меняется набор исполнителей: при
+// загрузке модулей и после !install.
 func addExecutorFlags() {
 	for name := range statusReporters() {
 		if name == "" || statusCmd.Flags().Lookup(name) != nil {
 			continue
 		}
 		statusCmd.Flags().Bool(name, false, i18n.Sprintf("статус от исполнителя %s", name))
+		_ = statusCmd.Flags().SetAnnotation(name, executorFlagAnnotation, []string{name})
 	}
 }
 

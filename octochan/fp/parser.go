@@ -196,18 +196,6 @@ func (c *cursor) punct(text, where string) bool {
 	return false
 }
 
-func (c *cursor) keyword(text string) bool {
-	if c.bad {
-		return false
-	}
-	if c.is(tIdent, text) {
-		c.next()
-		return true
-	}
-	c.fail(ErrSyn, "ожидалось %s, получено %s", text, c.peek().describe())
-	return false
-}
-
 // name читает имя со строчной буквы.
 func (c *cursor) name(what string) (Name, bool) {
 	if c.bad {

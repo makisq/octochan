@@ -27,6 +27,7 @@ type FileManager struct {
 	aliasesDir   string
 	historyDir   string
 	requestsDir  string
+	decisionsDir string
 }
 
 // NewFileManager создаёт (при необходимости) и возвращает рабочие директории.
@@ -47,9 +48,10 @@ func NewFileManager() (*FileManager, error) {
 		aliasesDir:   filepath.Join(base, "aliases"),
 		historyDir:   filepath.Join(base, "history"),
 		requestsDir:  filepath.Join(base, "requests"),
+		decisionsDir: filepath.Join(base, "decisions"),
 	}
 
-	for _, dir := range []string{fm.scenariosDir, fm.modulesDir, fm.logsDir, fm.reportsDir, fm.snapshotsDir, fm.aliasesDir, fm.historyDir, fm.requestsDir} {
+	for _, dir := range []string{fm.scenariosDir, fm.modulesDir, fm.logsDir, fm.reportsDir, fm.snapshotsDir, fm.aliasesDir, fm.historyDir, fm.requestsDir, fm.decisionsDir} {
 		if err := os.MkdirAll(dir, dirPerm); err != nil {
 			return nil, fmt.Errorf("не удалось создать директорию %s: %w", dir, err)
 		}
@@ -74,13 +76,9 @@ func (fm *FileManager) HistoryDir() string { return fm.historyDir }
 // RequestsDir — очередь заявок на согласование.
 func (fm *FileManager) RequestsDir() string { return fm.requestsDir }
 
-// TokenFilePath — файл с токеном внешней системы.
-//
-// Сам токен читает и пишет пакет rlm: где лежат рабочие директории — забота
-// этого пакета, а что именно в них хранится — забота владельца данных.
-func (fm *FileManager) TokenFilePath() string {
-	return filepath.Join(fm.baseDir, ".env")
-}
+// DecisionsDir — журнал решений формального промпта: из него кольца берут
+// надёжность правил.
+func (fm *FileManager) DecisionsDir() string { return fm.decisionsDir }
 
 // scenarioPath — единственное место, где формируется путь до сценария.
 // Раньше SaveScenario писал в scenarios/, LoadScenario читал из корня, а

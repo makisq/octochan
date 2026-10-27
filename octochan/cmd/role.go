@@ -304,7 +304,7 @@ var roleListCmd = &cobra.Command{
 			if role.Scoped() {
 				notes = append(notes, "область")
 			}
-			if len(role.Limits) > 0 {
+			if _, fromConfig, _ := effectiveLimits(role); len(role.Limits) > 0 || len(fromConfig) > 0 {
 				notes = append(notes, "пределы")
 			}
 			if temp := role.ActiveTemp(); len(temp) > 0 {

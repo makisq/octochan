@@ -182,7 +182,15 @@ var roleShowCmd = &cobra.Command{
 		cmd.Printf("Права:     %s\n", noneOr(role.Perms))
 		cmd.Printf("Запреты:   %s\n", noneOr(role.Deny))
 		cmd.Printf("Область:   %s\n", noneOr(role.Paths))
-		cmd.Printf("Пределы:   %s\n", noneOr(limitTexts(role.Limits)))
+		limits := limitTexts(role.Limits)
+		_, fromConfig, err := effectiveLimits(role)
+		if err != nil {
+			return err
+		}
+		for _, text := range limitTexts(fromConfig) {
+			limits = append(limits, text+" (config.yaml)")
+		}
+		cmd.Printf("Пределы:   %s\n", noneOr(limits))
 		now := rbac.Now()
 		if temp := role.ActiveTemp(); len(temp) > 0 {
 			cmd.Printf("На время:  %s\n", strings.Join(tempTexts(temp, now), "; "))
