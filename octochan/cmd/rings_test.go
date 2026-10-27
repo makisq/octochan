@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -177,4 +178,79 @@ func TestRingsContradictionAndBudget(t *testing.T) {
 	if out := e.must("plan", "bad.ochan", "--prompt", "task.fp"); strings.Contains(out, "Кольца") {
 		t.Fatalf("кольца работают выключенными:\n%s", out)
 	}
+}
+
+// Нарушение запрета — на счёт модели и промпта: модель, показывая планы с
+// нарушениями, не опускает надёжность скилла, который нужен оператору.
+func TestForbidViolationsBlameModelAndPrompt(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	setting(t, "roles.llm.limits", []string{})
+	e.write(e.path("other.conf"), "max_connections = 100\n")
+	e.write(e.path("good.ochan"), `c = config("prod.conf")
+put(c, "max_connections", "200")
+pgconf.store(c, "prod.conf")
+`)
+
+	// Модель перебирает промпты, и в каждом плане нарушает запрет.
+	t.Setenv(EnvRole, "llm")
+	for i := 0; i < 6; i++ {
+		prompt := e.path(fmt.Sprintf("p%d.fp", i))
+		e.write(prompt, promptHead+fmt.Sprintf("hard forbid store(except = {prod_conf})\n# %d\n", i))
+		e.write(e.path("bad.ochan"), fmt.Sprintf("pgconf.store(config(\"other.conf\"), \"other.conf\") # %d\n", i))
+		out, err := e.ochan("plan", "bad.ochan", "--prompt", prompt)
+		if err == nil || !strings.Contains(out, "нарушение запрета — на счёт модели и промпта: надёжность правила pgconf.store не меняется") {
+			t.Fatalf("план %d: %v\n%s", i, err, out)
+		}
+	}
+
+	// План оператора со скиллом проходит, как и до серии.
+	t.Setenv(EnvRole, "")
+	e.write(e.path("task.fp"), promptHead+"hard forbid store(except = {prod_conf})\n")
+	if out := e.must("plan", "good.ochan", "--prompt", "task.fp"); !strings.Contains(out, "well_True     pgconf.store(") {
+		t.Fatalf("скилл отравлен планами модели:\n%s", out)
+	}
+
+	journal := e.must("fp", "journal")
+	for _, want := range []string{"Нарушения запретов — на счёт модели и промпта:", "роль llm", "планов 6, с нарушением 6"} {
+		if !strings.Contains(journal, want) {
+			t.Fatalf("в журнале нет %q:\n%s", want, journal)
+		}
+	}
+	// Ни одного исхода на счёт правила: 0 верных из 0.
+	if !strings.Contains(journal, "pgconf.store                     0/0") {
+		t.Fatalf("нарушения засчитаны правилу скилла:\n%s", journal)
+	}
+}
+
+// Частота plan для llm — настройка roles.llm.limits; предел, заданный
+// командой role limit, важнее.
+func TestConfigRoleLimits(t *testing.T) {
+	e := newScriptEnv(t)
+	setting(t, "roles.llm.limits", []string{"plan=2/1h"})
+
+	if out := e.must("role", "show", "llm"); !strings.Contains(out, "Пределы:   request=30/1h, plan=2/1h (config.yaml)") {
+		t.Fatalf("предел из конфига не виден:\n%s", out)
+	}
+
+	t.Setenv(EnvRole, "llm")
+	e.must("plan", "tune.ochan")
+	e.must("plan", "tune.ochan")
+	e.fails("предел роли llm исчерпан: plan=2/1h", "plan", "tune.ochan")
+
+	// Предел хранилища ролей для того же права перекрывает конфиг.
+	t.Setenv(EnvRole, "")
+	e.must("role", "limit", "llm", "request=30/1h", "plan=5/1h")
+	t.Setenv(EnvRole, "llm")
+	e.must("plan", "tune.ochan")
+
+	// Опечатка в конфиге — отказ, а не тихое снятие предела.
+	setting(t, "roles.llm.limits", []string{"plan=много/1h"})
+	e.fails("config.yaml roles.llm.limits", "plan", "tune.ochan")
+
+	// У master пределов не бывает и из конфига.
+	t.Setenv(EnvRole, "")
+	setting(t, "roles.master.limits", []string{"plan=1/1h"})
+	e.must("plan", "tune.ochan")
+	e.must("plan", "tune.ochan")
 }

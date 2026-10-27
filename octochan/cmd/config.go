@@ -107,6 +107,10 @@ func initConfig() error {
 	viper.SetDefault("fp.rings.show_scores", false)
 	viper.SetDefault("fp.rings.budget.plan", 3)
 
+	// Пределы частоты ролей сверх тех, что задаёт role limit: в той же
+	// записи. Модель не строит больше 60 планов в час; [] снимает предел.
+	viper.SetDefault("roles.llm.limits", []string{"plan=60/1h"})
+
 	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
 	viper.SetDefault("ssl", true)
 	viper.SetDefault("tls.min_version", "1.2")

@@ -52,6 +52,9 @@ type Decision struct {
 	// Operator — решение оператора по заявке на этот план.
 	Operator string `json:"operator,omitempty"`
 	Request  string `json:"request,omitempty"`
+	// Role — роль, которая построила план: llm — это модель. Нарушение
+	// запрета ложится на неё и на промпт (Blame), а не на правила скиллов.
+	Role string `json:"role,omitempty"`
 }
 
 // DecisionPackage — утверждение плана и то, что о нём решили кольца.
@@ -100,6 +103,81 @@ func (d *Decision) contradiction() bool {
 		}
 	}
 	return false
+}
+
+// requireFailed — среди нарушенных арбитру правил есть «всегда».
+// Нарушенные правила хранятся в записи промпта: hard forbid … и
+// hard require ….
+func (d *Decision) requireFailed() bool {
+	if len(d.ArbiterReasons) == 0 {
+		// Причина не записана: неизвестно, что нарушено, — как прежде,
+		// на все утверждения.
+		return true
+	}
+	for _, reason := range d.ArbiterReasons {
+		if !strings.HasPrefix(reason, "hard forbid ") {
+			return true
+		}
+	}
+	return false
+}
+
+// Violated — план нарушил запрет промпта: кольцо 3 нашло противоречие
+// или арбитр отверг план за «никогда».
+func (d *Decision) Violated() bool {
+	if d.contradiction() {
+		return true
+	}
+	for _, reason := range d.ArbiterReasons {
+		if strings.HasPrefix(reason, "hard forbid ") {
+			return true
+		}
+	}
+	return false
+}
+
+// Blame — нарушения запретов на счёт модели и промпта: сколько планов
+// построено и в скольких из них нарушен запрет.
+type Blame struct {
+	Plans      int
+	Violations int
+}
+
+// Blames считает нарушения запретов по промптам и по ролям, построившим
+// планы. План считается один раз — последняя его запись, как в Decided.
+// Ключ промпта — имя и начало суммы текста: одно имя у разных текстов —
+// разные задачи.
+func Blames(decisions []*Decision) (byPrompt, byRole map[string]Blame) {
+	latest := map[string]*Decision{}
+	for _, d := range decisions {
+		key := d.PromptSum + "/" + d.ScriptSum
+		if prev, ok := latest[key]; !ok || !d.Time.Before(prev.Time) {
+			latest[key] = d
+		}
+	}
+	byPrompt, byRole = map[string]Blame{}, map[string]Blame{}
+	add := func(m map[string]Blame, key string, violated bool) {
+		b := m[key]
+		b.Plans++
+		if violated {
+			b.Violations++
+		}
+		m[key] = b
+	}
+	for _, d := range latest {
+		violated := d.Violated()
+		sum := d.PromptSum
+		if len(sum) > 8 {
+			sum = sum[:8]
+		}
+		add(byPrompt, d.Prompt+" ("+sum+")", violated)
+		role := d.Role
+		if role == "" {
+			role = "—"
+		}
+		add(byRole, role, violated)
+	}
+	return byPrompt, byRole
 }
 
 // Rejected сообщает, что план не прошёл: кольца или арбитр.
@@ -159,18 +237,25 @@ func Decided(decisions []*Decision) []*Decision {
 	return out
 }
 
-// PackageOutcome — исход утверждения плана: на кого ложится вердикт.
+// PackageOutcome — исход утверждения плана для правил его скиллов.
 //
-// Противоречие кольца 3 — вина самого утверждения, и только его: правила
-// соседних утверждений план с чужой ошибкой не позорит, их план просто не
-// дошёл до суда. Неудача плана, которую к утверждению не привязать, —
-// нарушенное «всегда», отказ или откат оператора — ложится на все
-// утверждения, прошедшие кольца. Отказ кольца 2 — не исход.
+// Нарушение запрета — противоречие кольца 3 или отказ арбитра по «никогда» —
+// говорит о том, что модель применила операцию там, где промпт её
+// запретил, а не о том, что операция ненадёжна. Оно ложится на модель и
+// промпт (Blame), а правилам скиллов исходом не считается: иначе модель,
+// показывая планы с нарушениями, опускала бы надёжность нужного оператору
+// скилла ниже порога. Правила соседних утверждений план с чужой ошибкой
+// тоже не позорит — их план просто не дошёл до суда.
+//
+// Неудача плана, которую к утверждению не привязать, — нарушенное
+// «всегда», отказ или откат оператора — ложится на все утверждения,
+// прошедшие кольца. Отказ кольца 2 — не исход.
 func (d *Decision) PackageOutcome(i int) (correct, decided bool) {
 	switch p := d.Packages[i]; {
-	case p.Verdict == string(rings.Contradiction):
-		return false, true
 	case p.Verdict != string(rings.WellTrue), d.contradiction():
+		return false, false
+	case d.Arbiter == ArbiterRejected && !d.requireFailed():
+		// Арбитр отверг план только за запреты: это на счёт модели.
 		return false, false
 	case d.Arbiter == ArbiterRejected:
 		return false, true

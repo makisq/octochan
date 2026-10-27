@@ -219,6 +219,9 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 		ScriptSum: textSum(in.script.Content),
 		WellTrue:  cfg.wellTrue,
 	}
+	if currentRole != nil {
+		d.Role = currentRole.Name
+	}
 	// С --trust план запускает оператор — тот, кого бюджет и зовёт.
 	history := workspace.ForPrompt(all, d.PromptSum)
 	if len(trust) == 0 {
@@ -353,6 +356,8 @@ func printRings(cmd *cobra.Command, cfg ringsConfig, packages []*rings.Package) 
 				indent, p.Rules[0], p.Rules[0])
 		case rings.Contradiction:
 			cmd.Printf("%s%s\n", indent, p.Reason)
+			cmd.Printf("%sнарушение запрета — на счёт модели и промпта: надёжность правила %s не меняется\n",
+				indent, p.Rules[0])
 		}
 		supports = append(supports, p.Support)
 	}
@@ -386,6 +391,8 @@ var fpJournalCmd = &cobra.Command{
 		"арбитра, и оператор его согласовал, не отклонил и не откатил. Без журнала\n" +
 		"действует условный счёт: prior.<алиас> в манифесте пакета или\n" +
 		"fp.rings.prior.\n\n" +
+		"Нарушение запрета промпта — ошибка модели и промпта, а не скилла: оно\n" +
+		"не снижает надёжность правил и считается отдельно, по ролям и промптам.\n\n" +
 		"Калибровка сравнивает поддержку плана с долей верных планов: если при\n" +
 		"поддержке 0,7–0,8 верных около 75 %, шкала честная.",
 	Args: cobra.NoArgs,
@@ -439,6 +446,20 @@ var fpJournalCmd = &cobra.Command{
 			c := counts[rule]
 			r := rings.Reliability(c.Successes, c.Uses, rings.Prior(rulePrior(rule, cfg.prior, registry)))
 			cmd.Printf("  %-26s %7d/%-7d [%.2f; %.2f]\n", rule, c.Successes, c.Uses, r.L, r.U)
+		}
+
+		// Нарушение запрета — ошибка модели и промпта, а не скилла: оно
+		// считается здесь, а не в надёжности правил.
+		byPrompt, byRole := workspace.Blames(all)
+		cmd.Println("\nНарушения запретов — на счёт модели и промпта:")
+		for _, name := range sortedPaths(byRole) {
+			b := byRole[name]
+			cmd.Printf("  роль %-21s планов %d, с нарушением %d\n", name, b.Plans, b.Violations)
+		}
+		for _, name := range sortedPaths(byPrompt) {
+			if b := byPrompt[name]; b.Violations > 0 {
+				cmd.Printf("  промпт %-19s планов %d, с нарушением %d\n", name, b.Plans, b.Violations)
+			}
 		}
 
 		if len(decided) > 0 {

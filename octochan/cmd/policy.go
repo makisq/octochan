@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -245,12 +246,18 @@ func pathCandidates(cmd *cobra.Command, args []string) []string {
 
 // checkLimits проверяет пределы частоты по недавним записям журнала.
 func checkLimits(role *rbac.Role, key string, recent audit.Recent) error {
-	limits := role.LimitsFor(key)
+	all, _, err := effectiveLimits(role)
+	if err != nil {
+		return err
+	}
+	limited := *role
+	limited.Limits = all
+	limits := limited.LimitsFor(key)
 	if len(limits) == 0 {
 		return nil
 	}
 	now := time.Now()
-	records, err := recent(now.Add(-role.MaxWindow()))
+	records, err := recent(now.Add(-limited.MaxWindow()))
 	if err != nil {
 		return err
 	}
@@ -273,6 +280,38 @@ func checkLimits(role *rbac.Role, key string, recent audit.Recent) error {
 		}
 	}
 	return nil
+}
+
+// effectiveLimits — пределы роли: из хранилища ролей (role limit) и из
+// config.yaml (roles.<роль>.limits, в той же записи: plan=60/1h).
+// Предел хранилища для того же права важнее: его задали этой роли командой.
+// fromConfig — пределы, которые пришли из конфига. У master пределов не
+// бывает: опечатка в конфиге не должна запереть владельца.
+//
+// Так задаётся частота plan для llm: модель, которой подсунули вредную
+// инструкцию, не построит сотню планов в минуту, а значение — настройка,
+// а не код.
+func effectiveLimits(role *rbac.Role) (all, fromConfig []rbac.Limit, err error) {
+	all = append(all, role.Limits...)
+	if strings.EqualFold(role.Name, rbac.Master) {
+		return all, nil, nil
+	}
+	key := "roles." + strings.ToLower(role.Name) + ".limits"
+	for _, text := range viper.GetStringSlice(key) {
+		limit, err := rbac.ParseLimit(text)
+		if err != nil {
+			return nil, nil, fmt.Errorf("config.yaml %s: %w", key, err)
+		}
+		if err := rbac.CheckPerms([]string{limit.Perm}, moduleCommands()); err != nil {
+			return nil, nil, fmt.Errorf("config.yaml %s: %w", key, err)
+		}
+		if slices.ContainsFunc(role.Limits, func(l rbac.Limit) bool { return l.Perm == limit.Perm }) {
+			continue
+		}
+		all = append(all, limit)
+		fromConfig = append(fromConfig, limit)
+	}
+	return all, fromConfig, nil
 }
 
 // visitChanged обходит флаги, заданные в этой команде. Visit из pflag

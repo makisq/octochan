@@ -67,18 +67,62 @@ func TestRuleCountsOncePerPlan(t *testing.T) {
 	}
 }
 
-// Противоречие ложится на своё утверждение, а не на соседей по плану;
-// неудача плана целиком — на всех.
+// Нарушение запрета ложится на модель и промпт, а не на правила скиллов;
+// нарушенное «всегда» и решение оператора — на все утверждения плана.
 func TestFailureAttribution(t *testing.T) {
-	bad := decision("p", "s1", 1, ArbiterRejected, "", "set_param", "write")
-	bad.Packages[1].Verdict = "contradiction"
-	missing := decision("p", "s2", 2, ArbiterRejected, "", "set_param", "store")
-	counts := RuleCounts([]*Decision{bad, missing})
-	want := map[string]Counts{"write": {Uses: 1}, "set_param": {Uses: 1}, "store": {Uses: 1}}
+	// Кольцо 3: write нарушил запрет.
+	contradiction := decision("p", "s1", 1, ArbiterRejected, "", "set_param", "write")
+	contradiction.Packages[1].Verdict = "contradiction"
+	contradiction.ArbiterReasons = []string{"hard forbid write()"}
+	// Арбитр: только запрет.
+	forbidden := decision("p", "s2", 2, ArbiterRejected, "", "set_param", "store")
+	forbidden.ArbiterReasons = []string{"hard forbid store(except = {prod_conf})"}
+	// Арбитр: не хватило «всегда».
+	missing := decision("p", "s3", 3, ArbiterRejected, "", "set_param", "store")
+	missing.ArbiterReasons = []string{"hard require verify(scope = {web})"}
+	// Причина не записана — как прежде.
+	unknown := decision("q", "s4", 4, ArbiterRejected, "", "reload")
+	// Оператор откатил.
+	rolledBack := decision("q", "s5", 5, ArbiterPassed, OperatorRolledBack, "reload")
+
+	counts := RuleCounts([]*Decision{contradiction, forbidden, missing, unknown, rolledBack})
+	want := map[string]Counts{"write": {}, "set_param": {Uses: 1}, "store": {Uses: 1}, "reload": {Uses: 2}}
 	for rule, c := range want {
 		if counts[rule] != c {
 			t.Errorf("%s: %+v, ожидалось %+v", rule, counts[rule], c)
 		}
+	}
+
+	// План с нарушением запрета для калибровки — по-прежнему неверный план.
+	if correct, decided := contradiction.Outcome(); correct || !decided {
+		t.Error("план с нарушением запрета засчитан верным или без исхода")
+	}
+}
+
+func TestBlames(t *testing.T) {
+	llm := func(d *Decision) *Decision { d.Role = "llm"; d.Prompt = "task.fp"; return d }
+	a := llm(decision("p1234567890", "s1", 1, ArbiterRejected, "", "store"))
+	a.ArbiterReasons = []string{"hard forbid store(except = {prod_conf})"}
+	b := llm(decision("p1234567890", "s2", 2, ArbiterRejected, "", "store"))
+	b.Packages[0].Verdict = "contradiction"
+	// Тот же план показан ещё раз — считается один раз.
+	again := llm(decision("p1234567890", "s2", 3, ArbiterRejected, "", "store"))
+	again.Packages[0].Verdict = "contradiction"
+	// Нарушенное «всегда» — не нарушение запрета.
+	c := llm(decision("p1234567890", "s3", 4, ArbiterRejected, "", "store"))
+	c.ArbiterReasons = []string{"hard require verify()"}
+	operator := decision("other", "s4", 5, ArbiterPassed, OperatorApproved, "store")
+	operator.Role, operator.Prompt = "master", "other.fp"
+
+	byPrompt, byRole := Blames([]*Decision{a, b, again, c, operator})
+	if got := byPrompt["task.fp (p1234567)"]; got != (Blame{Plans: 3, Violations: 2}) {
+		t.Errorf("промпт: %+v (%v)", got, byPrompt)
+	}
+	if got := byRole["llm"]; got != (Blame{Plans: 3, Violations: 2}) {
+		t.Errorf("llm: %+v", got)
+	}
+	if got := byRole["master"]; got != (Blame{Plans: 1}) {
+		t.Errorf("master: %+v", got)
 	}
 }
 
