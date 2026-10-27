@@ -132,8 +132,20 @@ type ScriptRun struct {
 	// Limit — селекторы --limit: хосты инвентаря, которые видел сценарий.
 	Limit []string `json:"limit,omitempty"`
 
+	// Exec — программы --allow-exec с суммами файлов: выполнение запускает
+	// те же программы, что видел план, или не запускает ничего.
+	Exec []ExecProgram `json:"exec,omitempty"`
+
 	// Prompt непуст, если сценарий написан по формальному промпту.
 	Prompt *ScriptPrompt `json:"prompt,omitempty"`
+}
+
+// ExecProgram — программа, которую сценарию разрешено запускать.
+type ExecProgram struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Sum         string `json:"sum"`
+	Interpreter string `json:"interpreter,omitempty"`
 }
 
 // ScriptPrompt — формальный промпт, по которому модель написала сценарий,

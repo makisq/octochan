@@ -21,6 +21,7 @@ type attempt struct {
 	attr   *syscall.SysProcAttr
 	userNS bool
 	netNS  bool
+	pidNS  bool
 }
 
 // spawnAttempts — способы запуска от лучшего к худшему. Свой
@@ -28,12 +29,32 @@ type attempt struct {
 // сетевое пространство — пустое, без интерфейсов. Если ядро не даёт
 // пространство пользователя (выключено настройкой или запрещено
 // контейнером), root ещё может получить сетевое пространство без него.
+//
+// С запуском программ (policy.Exec) запасных способов нет: процессы
+// живут в своём пространстве имён PID — сигналы не уходят наружу, а с
+// процессом песочницы (там он init) гибнут все запущенные им. Не дало
+// ядро этих пространств — песочница не запускается.
 func spawnAttempts(policy Policy) []attempt {
 	ns := uintptr(syscall.CLONE_NEWIPC)
 	if !policy.Network {
 		ns |= syscall.CLONE_NEWNET
 	}
 	uid, gid := os.Getuid(), os.Getgid()
+	if len(policy.Exec) > 0 {
+		return []attempt{{
+			stage: "1",
+			attr: &syscall.SysProcAttr{
+				Cloneflags:                 syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | ns,
+				UidMappings:                []syscall.SysProcIDMap{{ContainerID: uid, HostID: uid, Size: 1}},
+				GidMappings:                []syscall.SysProcIDMap{{ContainerID: gid, HostID: gid, Size: 1}},
+				GidMappingsEnableSetgroups: false,
+				Pdeathsig:                  syscall.SIGKILL,
+			},
+			userNS: true,
+			netNS:  !policy.Network,
+			pidNS:  true,
+		}}
+	}
 
 	list := []attempt{{
 		stage: "1",
@@ -84,6 +105,7 @@ func confine(policy Policy, raw string) error {
 		return err
 	}
 	exec = append(exec, exe)
+	exec = append(exec, policy.Exec...)
 
 	// Снимок памяти может унести секреты родителя наружу.
 	_ = unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{})
@@ -227,6 +249,13 @@ func handledFS(abi int) uint64 {
 // секретов в них нет: часовые пояса и кэш загрузчика.
 var systemRead = []string{"/etc/localtime", "/usr/share/zoneinfo", "/etc/ld.so.cache", "/etc/ld.so.preload"}
 
+// execLibraries — каталоги библиотек для запущенных программ.
+var execLibraries = []string{"/lib", "/lib32", "/lib64", "/usr/lib", "/usr/lib32", "/usr/lib64", "/usr/local/lib"}
+
+// execDevices — устройства без секретов, которые открывают почти все
+// программы.
+var execDevices = []string{"/dev/null", "/dev/zero", "/dev/urandom", "/dev/random"}
+
 // networkRead — что читает сетевой клиент: резолвер и корневые
 // сертификаты. Только при разрешённой сети.
 var networkRead = []string{
@@ -275,6 +304,20 @@ func restrictFiles(abi int, policy Policy, exec []string) error {
 	for _, path := range exec {
 		if err := addRule(int(ruleset), path, rightsExec&handled, false); err != nil {
 			return err
+		}
+	}
+	if len(policy.Exec) > 0 {
+		// Запущенной программе нужны библиотеки (их подгружает загрузчик
+		// ELF: чтение, не запуск) и /dev/null. Секретов там нет.
+		for _, path := range execLibraries {
+			if err := addRule(int(ruleset), path, rightsRead&handled, false); err != nil {
+				return err
+			}
+		}
+		for _, path := range execDevices {
+			if err := addRule(int(ruleset), path, (unix.LANDLOCK_ACCESS_FS_READ_FILE|unix.LANDLOCK_ACCESS_FS_WRITE_FILE)&handled, false); err != nil {
+				return err
+			}
 		}
 	}
 

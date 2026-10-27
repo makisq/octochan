@@ -148,3 +148,28 @@ func TestHint(t *testing.T) {
 		}
 	}
 }
+
+// Запуск программы — встроенное действие exec: его цель — имя программы.
+func TestExecRules(t *testing.T) {
+	prog, diags := fp.Parse("t.fp", "goal: g\nclasses:\n  G : \"g\"\nhard forbid exec(except = {kubectl})\nhard require exec(scope = kubectl)\n")
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
+	effects := []lang.Effect{
+		{Kind: lang.EffectExec, Path: "kubectl", Args: []string{"apply"}},
+		{Kind: lang.EffectExec, Path: "terraform", Args: []string{"apply"}},
+		{Kind: lang.EffectWrite, Path: "/srv/kubectl"},
+	}
+	outcomes := Check(prog.Rules, effects, nil)
+	if got := strings.Join(outcomes[0].Violations, ";"); got != "exec в terraform (terraform)" {
+		t.Fatalf("forbid: %q", got)
+	}
+	if !outcomes[1].OK() {
+		t.Fatalf("require: %v", outcomes[1].Violations)
+	}
+	// Запись файла kubectl — не запуск.
+	outcomes = Check(prog.Rules[1:], effects[2:], nil)
+	if outcomes[0].OK() {
+		t.Fatal("запись засчитана запуском")
+	}
+}

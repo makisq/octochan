@@ -198,8 +198,9 @@ hard require verify_config(scope = web_group)
 - The only parameters are `except` and `scope`. A value is a name or a set
   of names, never free text (H2).
 - The rule's action must be known to a skill or a relation, or be one of
-  the built-in writes `write` and `save`: otherwise the arbiter has no way
-  to check it against the plan (H1).
+  the built-in actions `write`, `save` and `exec` (running a program
+  allowed with `--allow-exec`; its target is the program name):
+  otherwise the arbiter has no way to check it against the plan (H1).
 - Rule targets are names: the file `prod.conf` is `prod_conf`,
   `/srv/web-1.conf` is `web_1_conf`. `forbid` is violated by a write
   outside `except`; an exception excuses only what the call actually

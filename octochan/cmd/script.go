@@ -38,6 +38,9 @@ type scriptOptions struct {
 	// limit — селекторы --limit: цели сценария исполнителя и хосты,
 	// которые видит inventory() сценария на языке алиасов.
 	limit []string
+	// exec — программы --allow-exec: exec() сценария запускает только их,
+	// и только в песочнице ядра.
+	exec []string
 }
 
 func (o *scriptOptions) register(cmd *cobra.Command) {
@@ -53,6 +56,9 @@ func (o *scriptOptions) register(cmd *cobra.Command) {
 	flags.StringArrayVar(&o.net, "allow-net", nil,
 		"разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз")
 	flags.StringVar(&o.name, "name", "", "имя сценария, поданного на stdin")
+	flags.StringSliceVar(&o.exec, "allow-exec", nil,
+		"разрешить exec() сценария запускать эти программы (kubectl,terraform) — только в песочнице ядра; "+
+			"оболочки и интерпретаторы не разрешаются")
 	flags.StringArrayVar(&o.limit, "limit", nil,
 		"только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз")
 }
@@ -73,14 +79,14 @@ func (o *scriptOptions) source(target string) (source, error) {
 }
 
 func (o *scriptOptions) any() bool {
-	return o.sandbox || len(o.roots) > 0 || len(o.env) > 0 || len(o.live) > 0 || len(o.net) > 0
+	return o.sandbox || len(o.roots) > 0 || len(o.env) > 0 || len(o.live) > 0 || len(o.net) > 0 || len(o.exec) > 0
 }
 
 // build строит песочницу; nil — песочницы нет.
 func (o *scriptOptions) build() (*lang.Sandbox, error) {
 	if !o.sandbox {
 		if o.any() {
-			return nil, errors.New("--root, --allow-env, --allow-live и --allow-net действуют только вместе с --sandbox")
+			return nil, errors.New("--root, --allow-env, --allow-live, --allow-net и --allow-exec действуют только вместе с --sandbox")
 		}
 		// Роль с областью выполняет сценарии только в песочнице: без
 		// --sandbox она ставится сама, с текущим каталогом.
@@ -107,6 +113,15 @@ func (o *scriptOptions) build() (*lang.Sandbox, error) {
 	if err := checkSandboxRoots(currentRole, box.Roots()); err != nil {
 		return nil, err
 	}
+	var programs []lang.Executable
+	for _, name := range o.exec {
+		program, err := lang.ResolveExecutable(name, box.Roots())
+		if err != nil {
+			return nil, err
+		}
+		programs = append(programs, program)
+	}
+	box.SetExec(programs)
 	return box, nil
 }
 
@@ -372,6 +387,9 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 		run.Env = box.Env()
 		run.Live = box.Live()
 		run.Net = box.Net()
+		for _, p := range box.Exec() {
+			run.Exec = append(run.Exec, workspace.ExecProgram{Name: p.Name, Path: p.Path, Sum: p.Sum, Interpreter: p.Interpreter})
+		}
 	}
 
 	return &workspace.Request{
@@ -417,6 +435,18 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		if err := box.AllowNet(run.Net); err != nil {
 			return fmt.Errorf("песочница заявки недоступна: %w", err)
 		}
+		// Запускается та же программа, с которой строился план: файл
+		// поменялся (обновили kubectl) — выполнение отменяется.
+		var programs []lang.Executable
+		for _, p := range run.Exec {
+			sum, err := lang.FileSum(p.Path)
+			if err != nil || sum != p.Sum {
+				return fmt.Errorf("программа %s (%s) изменилась после согласования заявки %s: "+
+					"запустилась бы не та, что видел план; оформите новую заявку", p.Name, p.Path, request.ID)
+			}
+			programs = append(programs, lang.Executable{Name: p.Name, Path: p.Path, Sum: p.Sum, Interpreter: p.Interpreter})
+		}
+		box.SetExec(programs)
 		setup.box = box
 	}
 	// Заявка, оформленная до фиксации зерна и времени, выполняется со
@@ -474,7 +504,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		entry   *workspace.Entry
 	)
 	for _, effect := range effects {
-		if effect.Kind != lang.EffectLive {
+		if effect.Writes() {
 			written = append(written, effect.Path)
 		}
 	}
@@ -532,7 +562,7 @@ func fileStates(effects []lang.Effect) []workspace.FileState {
 	index := make(map[string]int)
 	var states []workspace.FileState
 	for _, effect := range effects {
-		if effect.Kind == lang.EffectLive {
+		if !effect.Writes() {
 			continue
 		}
 		i, seen := index[effect.Path]
@@ -575,6 +605,9 @@ func describeDrift(approved []string, current []lang.Effect) string {
 		case wasKind != string(current[i].Kind) || wasPath != current[i].Path:
 			lines = append(lines, fmt.Sprintf("  действие %d: было %s %s, стало %s %s",
 				i+1, wasKind, wasPath, current[i].Kind, current[i].Path))
+		case current[i].Kind == lang.EffectExec:
+			lines = append(lines, fmt.Sprintf("  %s: запуск с другими аргументами — %s", current[i].Path,
+				strings.Join(current[i].Args, " ")))
 		default:
 			lines = append(lines, fmt.Sprintf("  %s: будет записано не то содержимое, что согласовали "+
 				"(поменялись данные, из которых сценарий его строит)", current[i].Path))

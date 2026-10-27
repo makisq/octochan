@@ -22,6 +22,8 @@ const (
 	// именно. Для правки конфига план перечисляет параметры, а запись
 	// произвольного текста по параметрам не разложить.
 	ChangeWrite ChangeKind = "write"
+	// ChangeExec — будет запущена программа (exec сценария в песочнице).
+	ChangeExec ChangeKind = "exec"
 )
 
 func (k ChangeKind) Russian() string {
@@ -36,6 +38,8 @@ func (k ChangeKind) Russian() string {
 		return "задача"
 	case ChangeWrite:
 		return "записать"
+	case ChangeExec:
+		return "запуск"
 	default:
 		return string(k)
 	}
@@ -164,7 +168,7 @@ func (p *Plan) Render(width int) string {
 		}
 
 		switch change.Kind {
-		case ChangeTask, ChangeWrite:
+		case ChangeTask, ChangeWrite, ChangeExec:
 			fmt.Fprintf(&b, "    %-10s %s", change.Kind.Russian(), change.Name)
 			if change.Detail != "" {
 				fmt.Fprintf(&b, " — %s", change.Detail)

@@ -526,6 +526,13 @@ func sandboxSummary(run *workspace.ScriptRun) string {
 	if len(run.Net) > 0 {
 		parts = append(parts, "сеть "+strings.Join(run.Net, ", "))
 	}
+	if len(run.Exec) > 0 {
+		var programs []string
+		for _, p := range run.Exec {
+			programs = append(programs, p.Name+" ("+p.Path+")")
+		}
+		parts = append(parts, "запуск "+strings.Join(programs, ", "))
+	}
 	return strings.Join(parts, "; ")
 }
 

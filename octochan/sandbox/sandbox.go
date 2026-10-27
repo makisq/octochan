@@ -51,6 +51,13 @@ type Policy struct {
 	Read []string `json:"read,omitempty"`
 	// Network разрешает исходящие соединения: они нужны живым источникам.
 	Network bool `json:"network,omitempty"`
+	// Exec — файлы, которые можно запустить: программы --allow-exec и их
+	// загрузчики ELF. Непусто — третья модель исполнения: seccomp
+	// пропускает execve, а что запускать, решает Landlock, и процессы живут
+	// в своём пространстве имён PID, чтобы сигналы не ушли наружу. Без
+	// Landlock, seccomp и этих пространств такой процесс не запускается
+	// вовсе (ExecReady).
+	Exec []string `json:"exec,omitempty"`
 }
 
 // Report — какая изоляция действует.
@@ -60,9 +67,13 @@ type Report struct {
 	Landlock int
 	// Seccomp — фильтр системных вызовов.
 	Seccomp bool
-	// UserNS и NetNS — свои пространства имён пользователя и сети.
+	// UserNS, NetNS и PidNS — свои пространства имён пользователя, сети и
+	// процессов.
 	UserNS bool
 	NetNS  bool
+	PidNS  bool
+	// Exec — программы, которые процессу разрешено запускать.
+	Exec []string
 	// Network — политика разрешила сеть.
 	Network bool
 }
@@ -85,6 +96,23 @@ func (r Report) Gaps() []string {
 		gaps = append(gaps, i18n.T("сеть не закрыта: нет ни seccomp, ни своего сетевого пространства"))
 	}
 	return gaps
+}
+
+// ExecReady — можно ли разрешить запуск программ: только когда ядро держит
+// и что запускать (Landlock), и какие вызовы (seccomp). Иначе разрешённый
+// execve — дверь для любой программы. Пустой ответ — можно.
+func (r Report) ExecReady() []string {
+	var missing []string
+	if r.OS != "linux" {
+		return []string{i18n.Sprintf("запуск программ из песочницы есть только на Linux, а здесь %s", r.OS)}
+	}
+	if r.Landlock == 0 {
+		missing = append(missing, i18n.T("нет Landlock — ядро не ограничит, какие файлы запускать"))
+	}
+	if !r.Seccomp {
+		missing = append(missing, i18n.T("нет seccomp — системные вызовы запущенной программы не ограничены"))
+	}
+	return missing
 }
 
 // Full сообщает, что действует вся изоляция, какую обещает пакет.
@@ -113,6 +141,9 @@ func (r Report) Lines() []string {
 	calls := i18n.T("нет")
 	if r.Seccomp {
 		calls = i18n.T("seccomp: exec, ptrace, mount, bpf, io_uring и другие запрещены")
+		if len(r.Exec) > 0 {
+			calls = i18n.T("seccomp: ptrace, mount, bpf, io_uring и другие запрещены; exec — только разрешённое Landlock")
+		}
 	}
 	user := i18n.T("нет")
 	if r.UserNS {
@@ -135,19 +166,24 @@ func (r Report) Lines() []string {
 			network = i18n.Sprintf("закрыта: %s", strings.Join(how, ", "))
 		}
 	}
-	return []string{
+	lines := []string{
 		line("Отдельный процесс", i18n.T("да, без окружения родителя, no_new_privs")),
 		line("Файлы", files),
 		line("Системные вызовы", calls),
 		line("Пользователь", user),
 		line("Сеть", network),
 	}
+	if len(r.Exec) > 0 {
+		lines = append(lines, line("Запуск программ", i18n.Sprintf("только %s; процессы — в своём пространстве имён",
+			strings.Join(r.Exec, ", "))))
+	}
+	return lines
 }
 
 // Probe сообщает, какую изоляцию получит процесс с этой политикой. Свои
 // пространства имён выясняются только при запуске: Process.Report.
 func Probe(policy Policy) Report {
-	report := Report{OS: runtime.GOOS, Network: policy.Network}
+	report := Report{OS: runtime.GOOS, Network: policy.Network, Exec: policy.Exec}
 	probe(&report)
 	return report
 }
@@ -200,6 +236,11 @@ func (c *Command) Start(ctx context.Context) (*Process, error) {
 	}
 
 	report := Probe(c.Policy)
+	if len(c.Policy.Exec) > 0 {
+		if missing := report.ExecReady(); len(missing) > 0 {
+			return nil, fmt.Errorf("запуск программ в песочнице невозможен: %s", strings.Join(missing, "; "))
+		}
+	}
 	attempts := spawnAttempts(c.Policy)
 	for i, attempt := range attempts {
 		child := exec.CommandContext(ctx, self, childArg, attempt.stage, string(policy))
@@ -213,9 +254,13 @@ func (c *Command) Start(ctx context.Context) (*Process, error) {
 			continue
 		}
 		if err != nil {
+			if len(c.Policy.Exec) > 0 {
+				return nil, fmt.Errorf("запуск программ требует своих пространств имён пользователя и процессов, "+
+					"а ядро их не дало: %w", err)
+			}
 			return nil, fmt.Errorf("не удалось запустить процесс песочницы: %w", err)
 		}
-		report.UserNS, report.NetNS = attempt.userNS, attempt.netNS
+		report.UserNS, report.NetNS, report.PidNS = attempt.userNS, attempt.netNS, attempt.pidNS
 		return &Process{cmd: child, Report: report}, nil
 	}
 	return nil, errors.New("не удалось запустить процесс песочницы")
