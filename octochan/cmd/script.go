@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"octochan/fp"
+	"octochan/inventory"
 	"octochan/lang"
 	"octochan/workspace"
 
@@ -34,6 +35,9 @@ type scriptOptions struct {
 	// name — имя сценария, поданного на stdin: оно попадает в сообщения
 	// об ошибках, в план и в заявку вместо безликого «stdin».
 	name string
+	// limit — селекторы --limit: цели сценария исполнителя и хосты,
+	// которые видит inventory() сценария на языке алиасов.
+	limit []string
 }
 
 func (o *scriptOptions) register(cmd *cobra.Command) {
@@ -49,6 +53,8 @@ func (o *scriptOptions) register(cmd *cobra.Command) {
 	flags.StringArrayVar(&o.net, "allow-net", nil,
 		"разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз")
 	flags.StringVar(&o.name, "name", "", "имя сценария, поданного на stdin")
+	flags.StringArrayVar(&o.limit, "limit", nil,
+		"только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз")
 }
 
 // source читает сценарий из файла или stdin.
@@ -116,6 +122,24 @@ type scriptSetup struct {
 	// зерно и текущее время.
 	seed  int64
 	clock time.Time
+	// inventory — хосты, которые увидит inventory() сценария (с --limit —
+	// только подходящие); inventoryErr — почему инвентаря нет.
+	inventory    []inventory.Host
+	inventoryErr error
+}
+
+// withInventory читает инвентарь для сценария и сужает его --limit.
+// Неправильный --limit — отказ; недоступный инвентарь — ошибка inventory()
+// в самом сценарии, если он им пользуется.
+func (s scriptSetup) withInventory(cmd *cobra.Command, limit []string) (scriptSetup, error) {
+	if _, err := inventory.ParseSelectors(limit); err != nil {
+		return s, fmt.Errorf("--limit: %w", err)
+	}
+	s.inventory, s.inventoryErr = scriptInventory(cmd.Context(), limit)
+	if len(limit) > 0 && s.inventoryErr != nil {
+		return s, s.inventoryErr
+	}
+	return s, nil
 }
 
 // fixed возвращает установку с зафиксированными зерном и временем: так
@@ -142,6 +166,7 @@ func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, ou
 	if !s.clock.IsZero() {
 		interp.SetClock(s.clock)
 	}
+	interp.SetInventory(s.inventory, s.inventoryErr)
 	return interp
 }
 
@@ -190,6 +215,7 @@ func execScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, se
 	if setup.box != nil {
 		spec := isolatedSpec{Mode: "run", Name: setup.script.Name, Content: setup.script.Content,
 			Check: true, Dir: setup.dir, Seed: setup.seed}
+		spec.setInventory(setup.inventory, setup.inventoryErr)
 		if !setup.clock.IsZero() {
 			spec.Clock = setup.clock.Format(time.RFC3339Nano)
 		}
@@ -293,7 +319,10 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 	if err != nil {
 		return nil, fmt.Errorf("не удалось определить текущий каталог: %w", err)
 	}
-	setup := scriptSetup{box: box, dir: dir, script: src}.fixed()
+	setup, err := scriptSetup{box: box, dir: dir, script: src}.fixed().withInventory(cmd, opts.limit)
+	if err != nil {
+		return nil, err
+	}
 
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)
@@ -335,6 +364,7 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 		Prompt:    input.stored(judged),
 		Seed:      setup.seed,
 		Clock:     setup.clock.Format(time.RFC3339Nano),
+		Limit:     opts.limit,
 	}
 	if box != nil {
 		run.Sandboxed = true
@@ -392,6 +422,12 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 	// Заявка, оформленная до фиксации зерна и времени, выполняется со
 	// случайными: в её плане их не было.
 	setup = setup.fixed()
+	// Инвентарь читается заново с тем же --limit: поменялся — поменяется
+	// план, и сверка с согласованным его поймает.
+	setup, err := setup.withInventory(cmd, run.Limit)
+	if err != nil {
+		return fmt.Errorf("заявка %s: %w", request.ID, err)
+	}
 
 	registry, errs := aliases()
 	reportAliasErrors(cmd, errs)

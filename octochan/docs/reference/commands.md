@@ -39,6 +39,8 @@
 - [`ochan history`](#ochan-history) — Показать журнал операций
 - [`ochan if`](#ochan-if) — Условная проверка значения в конфиге
 - [`ochan inspect`](#ochan-inspect) — Показать информацию о модуле
+- [`ochan inventory`](#ochan-inventory) — Цели: хосты инвентаря, их группы и переменные
+- [`ochan inventory ack`](#ochan-inventory-ack) — Отметить новые хосты увиденными
 - [`ochan lang`](#ochan-lang) — Показать языки: текущий, встроенные и из модулей
 - [`ochan lang template`](#ochan-lang-template) — Выгрузить шаблон перевода: русский текст → перевод
 - [`ochan logs`](#ochan-logs) — Показать журнал работы
@@ -158,6 +160,7 @@ cat scenario.yaml | ochan apply -
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--limit` | stringArray | — | только цели, подходящие под селектор: group=db_new, host=db*; можно указать несколько раз |
 | `--notify` | bool | — | отправить уведомление по почте |
 | `--request` | string | — | выполнить согласованную заявку |
 | `-w`, `--wait` | bool | — | дождаться завершения |
@@ -642,6 +645,53 @@ ochan inspect <module_path>
 
 Право: `install`.
 
+## ochan inventory
+
+Цели: хосты инвентаря, их группы и переменные.
+
+```
+ochan inventory [селектор...]
+```
+
+Инвентарь — откуда берутся цели сценариев. Источники — inventory.sources
+в config.yaml (имя: адрес) и ~/.octochan/inventory.yaml; схема адреса
+выбирает источник, как у конфигов (file — YAML-файл, остальные приносят
+модули). Цель сценария с полем host или group разворачивается в
+подходящие хосты, а --limit у plan, apply, request и run сужает цели.
+
+Хост, которого ещё не видели, — новый (+): --new показывает только их,
+ochan inventory ack отмечает их увиденными.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan inventory
+ochan inventory group=db_new
+ochan inventory --new
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--new` | bool | — | только новые хосты — которых ещё не видели |
+
+Подкоманды: [`ack`](#ochan-inventory-ack).
+
+## ochan inventory ack
+
+Отметить новые хосты увиденными.
+
+```
+ochan inventory ack [селектор...]
+```
+
+Новый хост — тот, которого ещё не видели: ochan watch строит для него план
+по политике. ack отмечает новые хосты увиденными — это решение оператора,
+а не чтение, и право на него — approve.
+
+Право: `approve`.
+
 ## ochan lang
 
 Показать языки: текущий, встроенные и из модулей.
@@ -813,6 +863,7 @@ ochan plan --script --sandbox --root ./configs - < сценарий.ochan
 | `--allow-live` | stringArray | — | разрешить в песочнице живые источники этой схемы, например postgres |
 | `--allow-net` | stringArray | — | разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз |
 | `--bundle` | bool | — | stdin — JSON {"script": …, "prompt": …, "report": …}; так их передаёт ochan-mcp |
+| `--limit` | stringArray | — | только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз |
 | `--name` | string | — | имя сценария, поданного на stdin |
 | `--prompt` | string | — | формальный промпт: его жёсткие правила проверяются по плану сценария |
 | `--report` | string | — | отчёт модели (раздел report:), проверяется вместе с промптом |
@@ -908,6 +959,7 @@ ochan request --script --sandbox --root ./configs - < сценарий.ochan
 | `--allow-net` | stringArray | — | разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз |
 | `--bundle` | bool | — | stdin — JSON {"script": …, "prompt": …, "report": …}; так их передаёт ochan-mcp |
 | `--doc` | string | — | выгрузить заявку в файл .docx |
+| `--limit` | stringArray | — | только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз |
 | `--name` | string | — | имя сценария, поданного на stdin |
 | `--prompt` | string | — | формальный промпт: его жёсткие правила проверяются по плану сценария |
 | `--report` | string | — | отчёт модели (раздел report:), проверяется вместе с промптом |
@@ -1226,6 +1278,7 @@ ochan run --sandbox --root ./configs сценарий.ochan
 | `--allow-env` | stringArray | — | разрешить в песочнице переменную окружения; можно указать несколько раз |
 | `--allow-live` | stringArray | — | разрешить в песочнице живые источники этой схемы, например postgres |
 | `--allow-net` | stringArray | — | разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз |
+| `--limit` | stringArray | — | только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз |
 | `--name` | string | — | имя сценария, поданного на stdin |
 | `--root` | stringArray | — | разрешённый каталог песочницы; можно указать несколько раз (по умолчанию — текущий) |
 | `--sandbox` | bool | — | песочница: файлы только внутри --root, окружение, живые источники и сеть — только разрешённые |

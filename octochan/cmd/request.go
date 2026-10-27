@@ -128,6 +128,9 @@ func scenarioRequest(cmd *cobra.Command, args []string) (*workspace.Request, err
 		return nil, err
 	}
 	parsed = parsed.WithOverrides(overrides)
+	if err := resolveTargets(cmd.Context(), parsed, requestOpts.limit); err != nil {
+		return nil, err
+	}
 
 	runner, err := scenario.Resolve(parsed.Service)
 	if err != nil {
@@ -151,10 +154,14 @@ func scenarioRequest(cmd *cobra.Command, args []string) (*workspace.Request, err
 		Plan:      plan,
 		Payload:   src.Content,
 		Overrides: overrides,
+		Limit:     requestOpts.limit,
 	}, nil
 }
 
 func configRequest(cmd *cobra.Command, args []string) (*workspace.Request, error) {
+	if len(requestOpts.limit) > 0 {
+		return nil, errLimitConfig
+	}
 	ctx := cmd.Context()
 	opts := config.SourceOptions{}
 
@@ -302,6 +309,12 @@ func showRequest(cmd *cobra.Command, request *workspace.Request) error {
 	}
 	for _, key := range sortedPaths(request.Overrides) {
 		cmd.Printf("Параметр:  %s=%s\n", key, request.Overrides[key])
+	}
+	if len(request.Limit) > 0 {
+		cmd.Printf("Цели:      --limit %s\n", strings.Join(request.Limit, " | "))
+	}
+	if request.Script != nil && len(request.Script.Limit) > 0 {
+		cmd.Printf("Инвентарь: --limit %s\n", strings.Join(request.Script.Limit, " | "))
 	}
 	cmd.Printf("Итог:      %s\n", request.Summary)
 	if request.Compensates != "" {

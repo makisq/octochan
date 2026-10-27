@@ -496,3 +496,21 @@ func TestTemporaryRole(t *testing.T) {
 		t.Fatalf("после чтения: %+v", back)
 	}
 }
+
+// Вложенная команда со своей группой не открывается правом на команду
+// верхнего уровня: чтение инвентаря не даёт отмечать новые серверы.
+func TestNestedCommandWithOwnGroup(t *testing.T) {
+	reader := &Role{Name: "r", Perms: []string{"read"}}
+	if !reader.Allows("inventory") || reader.Allows("inventory.ack") {
+		t.Fatal("read открывает inventory.ack или не открывает inventory")
+	}
+	if !(&Role{Name: "a", Perms: []string{"approve"}}).Allows("inventory.ack") {
+		t.Fatal("approve не открывает inventory.ack")
+	}
+	if (&Role{Name: "i", Perms: []string{"inventory"}}).Allows("inventory.ack") {
+		t.Fatal("право inventory открыло inventory.ack")
+	}
+	if !reader.Allows("fp.check") {
+		t.Fatal("fp в read больше не открывает fp.check")
+	}
+}

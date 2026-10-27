@@ -69,7 +69,7 @@ func compensationRequest(cmd *cobra.Command, original *workspace.Request) (*work
 			original.ID)
 	}
 
-	parsed, err := requestScenario(original)
+	parsed, err := requestScenario(cmd.Context(), original)
 	if err != nil {
 		return nil, err
 	}

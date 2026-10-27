@@ -72,6 +72,8 @@ type Request struct {
 	// Overrides — параметры из командной строки (key=value), с которыми
 	// строился план: без них при выполнении сценарий был бы другим.
 	Overrides map[string]string `json:"overrides,omitempty"`
+	// Limit — селекторы --limit, которыми сузили цели сценария.
+	Limit []string `json:"limit,omitempty"`
 
 	// Compensates — заявка, обратное действие которой выполняет эта:
 	// ochan compensate оформляет его второй согласованной операцией.
@@ -126,6 +128,9 @@ type ScriptRun struct {
 	// Effects — отпечатки действий из плана, по порядку. Перед выполнением
 	// план строится заново и сверяется с ними.
 	Effects []string `json:"effects"`
+
+	// Limit — селекторы --limit: хосты инвентаря, которые видел сценарий.
+	Limit []string `json:"limit,omitempty"`
 
 	// Prompt непуст, если сценарий написан по формальному промпту.
 	Prompt *ScriptPrompt `json:"prompt,omitempty"`

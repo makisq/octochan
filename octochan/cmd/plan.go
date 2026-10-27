@@ -95,7 +95,11 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	effects, calls, runErr := planScript(cmd, registry, file, scriptSetup{box: box, script: src}, cmd.OutOrStdout())
+	setup, err := scriptSetup{box: box, script: src}.withInventory(cmd, planOpts.limit)
+	if err != nil {
+		return err
+	}
+	effects, calls, runErr := planScript(cmd, registry, file, setup, cmd.OutOrStdout())
 
 	plan := lang.BuildPlan(file.Name, effects)
 	if runErr != nil {
@@ -126,6 +130,9 @@ func isOverride(arg string) bool {
 }
 
 func planConfig(cmd *cobra.Command, args []string) error {
+	if len(planOpts.limit) > 0 {
+		return errLimitConfig
+	}
 	ctx := cmd.Context()
 	opts := config.SourceOptions{}
 
@@ -166,6 +173,9 @@ func planScenario(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	parsed = parsed.WithOverrides(overrides)
+	if err := resolveTargets(cmd.Context(), parsed, planOpts.limit); err != nil {
+		return err
+	}
 
 	runner, err := scenario.Resolve(parsed.Service)
 	if err != nil {

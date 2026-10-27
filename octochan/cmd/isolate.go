@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"octochan/i18n"
+	"octochan/inventory"
 	"octochan/lang"
 	"octochan/sandbox"
 
@@ -54,6 +55,12 @@ type isolatedSpec struct {
 	Clock string `json:"clock,omitempty"`
 	// Protected — каталоги, закрытые для встроенных функций.
 	Protected []string `json:"protected,omitempty"`
+
+	// Inventory — хосты для inventory(): родитель читает инвентарь сам,
+	// ребёнку рабочий каталог ochan не виден. null — инвентаря нет;
+	// InventoryErr — почему.
+	Inventory    []inventory.Host `json:"inventory"`
+	InventoryErr string           `json:"inventory_err,omitempty"`
 
 	AliasesDir  string `json:"aliases_dir"`
 	ModulesDir  string `json:"modules_dir"`
@@ -96,6 +103,14 @@ const maxFrame = 4*maxRollbackBytes + 1<<20
 // setBox переносит в задание песочницу языка.
 func (s *isolatedSpec) setBox(box *lang.Sandbox) {
 	s.Roots, s.Env, s.Live, s.Net = box.Roots(), box.Env(), box.Live(), box.Net()
+}
+
+// setInventory переносит в задание инвентарь сценария.
+func (s *isolatedSpec) setInventory(hosts []inventory.Host, err error) {
+	s.Inventory = hosts
+	if err != nil {
+		s.InventoryErr = err.Error()
+	}
 }
 
 // isolated выполняет задание в процессе песочницы.
@@ -343,6 +358,11 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 		}
 		interp.SetClock(clock)
 	}
+	var inventoryErr error
+	if spec.InventoryErr != "" {
+		inventoryErr = errors.New(spec.InventoryErr)
+	}
+	interp.SetInventory(spec.Inventory, inventoryErr)
 
 	switch spec.Mode {
 	case "call":

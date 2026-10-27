@@ -31,13 +31,15 @@ const All = "all"
 // Groups — группы прав. Право — имя группы или имя команды. Вложенная
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
-	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "lang", "logs",
+	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "inventory", "lang", "logs",
 		"modules", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
-	"plan":    {"plan"},
+	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
 	"request": {"compensate", "request"},
-	"approve": {"approve", "reject"},
+	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
+	// больше не построит для него план.
+	"approve": {"approve", "inventory.ack", "reject"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
 	"install": {"!install", "inspect"},
 	"auth":    {"auth", "timer"},
@@ -121,17 +123,16 @@ func (r *Role) Denies(command string) bool {
 		return false
 	}
 	for _, perm := range append(append([]string(nil), r.Deny...), active(r.TempDeny, Now())...) {
-		if Covers(perm, command) {
+		if blocks(perm, command) {
 			return true
 		}
 	}
 	return false
 }
 
-// Covers сообщает, что право открывает команду: это all, сама команда,
-// команда верхнего уровня (role открывает role.create) или группа, в
-// которой есть одно из них.
-func Covers(perm, command string) bool {
+// blocks — запрет закрывает команду. Запрет шире права: запрет команды
+// верхнего уровня закрывает все её подкоманды, даже со своей группой.
+func blocks(perm, command string) bool {
 	top := command
 	if i := strings.IndexByte(command, '.'); i > 0 {
 		top = command[:i]
@@ -141,6 +142,37 @@ func Covers(perm, command string) bool {
 	}
 	for _, member := range Groups[perm] {
 		if member == command || member == top {
+			return true
+		}
+	}
+	return false
+}
+
+// Covers сообщает, что право открывает команду: это all, сама команда,
+// команда верхнего уровня (fp открывает fp.check) или группа, в которой
+// есть одно из них. Вложенная команда, у которой своя группа, открывается
+// только ею: право inventory (чтение) не открывает inventory.ack (решение).
+func Covers(perm, command string) bool {
+	top := command
+	if i := strings.IndexByte(command, '.'); i > 0 {
+		top = command[:i]
+	}
+	own := top != command && grouped(command)
+	if perm == All || perm == command || (perm == top && !own) {
+		return true
+	}
+	for _, member := range Groups[perm] {
+		if member == command || (member == top && !own) {
+			return true
+		}
+	}
+	return false
+}
+
+// grouped — команда сама названа в какой-нибудь группе.
+func grouped(command string) bool {
+	for _, members := range Groups {
+		if contains(members, command) {
 			return true
 		}
 	}

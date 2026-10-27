@@ -50,6 +50,21 @@ executors:
 кладутся — `ochan auth --executor <имя>`. Подробнее —
 [«Модуль-исполнитель»](../guide/modules.md#модуль-исполнитель).
 
+## inventory — цели
+
+Источники инвентаря — имя и адрес; схема адреса выбирает источник (`file` —
+YAML-файл, путь без схемы — тоже файл). `~/.octochan/inventory.yaml`, если
+он есть, — источник `local` без настройки.
+
+```yaml
+inventory:
+  sources:
+    main: /srv/inventory/hosts.yaml
+    cmdb: file:///srv/cmdb/export.yaml
+```
+
+Подробнее — [«Инвентарь и --limit»](../guide/scenarios.md#инвентарь-и---limit).
+
 ## logs
 
 | Ключ | По умолчанию | |

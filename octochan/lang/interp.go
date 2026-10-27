@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"octochan/inventory"
 	"os"
 	"sort"
 	"strings"
@@ -197,6 +198,11 @@ type Interpreter struct {
 	clock time.Time
 	seed  int64
 	rng   *rand.Rand
+
+	// inventory — хосты инвентаря, которые видит сценарий (с --limit —
+	// только подходящие); inventoryErr — почему инвентаря нет.
+	inventory    []inventory.Host
+	inventoryErr error
 }
 
 // NewInterpreter создаёт вычислитель поверх реестра алиасов.
@@ -241,6 +247,13 @@ func (in *Interpreter) SetSeed(seed int64) {
 
 // Seed — зерно rand().
 func (in *Interpreter) Seed() int64 { return in.seed }
+
+// SetInventory задаёт хосты, которые вернёт inventory(): ядро читает
+// источники и сужает их --limit до запуска, а сценарий видит готовый
+// список — и в песочнице, и в плане. err — почему инвентаря нет.
+func (in *Interpreter) SetInventory(hosts []inventory.Host, err error) {
+	in.inventory, in.inventoryErr = hosts, err
+}
 
 // SetErr задаёт поток ошибок сценария: туда пишет print(stderr(), …).
 func (in *Interpreter) SetErr(w io.Writer) { in.errOut = w }

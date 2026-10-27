@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -14,7 +15,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-var waitDone bool
+var (
+	waitDone   bool
+	applyLimit []string
+)
 
 var applyCmd = &cobra.Command{
 	Use:   "apply <сценарий|-> [key=value ...] | apply --request <id>",
@@ -49,6 +53,9 @@ var applyCmd = &cobra.Command{
 			return err
 		}
 		parsed = parsed.WithOverrides(overrides)
+		if err := resolveTargets(cmd.Context(), parsed, applyLimit); err != nil {
+			return err
+		}
 
 		runner, err := scenario.Resolve(parsed.Service)
 		if err != nil {
@@ -148,7 +155,7 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		return applyConfigRequest(cmd, store, request)
 	}
 
-	parsed, err := requestScenario(request)
+	parsed, err := requestScenario(cmd.Context(), request)
 	if err != nil {
 		return err
 	}
@@ -184,14 +191,19 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 	return waitForRefs(cmd, runner, result)
 }
 
-// requestScenario — сценарий заявки: сохранённый текст с параметрами,
-// с которыми строился план.
-func requestScenario(request *workspace.Request) (*scenario.Scenario, error) {
+// requestScenario — сценарий заявки: сохранённый текст с параметрами и
+// --limit, с которыми строился план. Цели из инвентаря разворачиваются
+// заново: поменялся инвентарь — поменяется план, и сверка его поймает.
+func requestScenario(ctx context.Context, request *workspace.Request) (*scenario.Scenario, error) {
 	parsed, err := scenario.Parse(request.Source, []byte(request.Payload))
 	if err != nil {
 		return nil, fmt.Errorf("сохранённый в заявке сценарий не разбирается: %w", err)
 	}
-	return parsed.WithOverrides(request.Overrides), nil
+	parsed = parsed.WithOverrides(request.Overrides)
+	if err := resolveTargets(ctx, parsed, request.Limit); err != nil {
+		return nil, fmt.Errorf("заявка %s: %w", request.ID, err)
+	}
+	return parsed, nil
 }
 
 // planDrift сверяет согласованный план с построенным перед выполнением.
@@ -389,6 +401,8 @@ func scenarioServices() []serviceInfo {
 
 func init() {
 	applyCmd.Flags().BoolVarP(&waitDone, "wait", "w", false, "дождаться завершения")
+	applyCmd.Flags().StringArrayVar(&applyLimit, "limit", nil,
+		"только цели, подходящие под селектор: group=db_new, host=db*; можно указать несколько раз")
 }
 
 // applyConfigRequest выполняет согласованную правку конфига.

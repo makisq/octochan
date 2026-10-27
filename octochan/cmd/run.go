@@ -129,9 +129,14 @@ var runCmd = &cobra.Command{
 			return runSandboxed(cmd, box, target, args[1:])
 		}
 
+		hosts, invErr := scriptInventory(cmd.Context(), runOpts.limit)
+		if len(runOpts.limit) > 0 && invErr != nil {
+			return invErr
+		}
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
+		interp.SetInventory(hosts, invErr)
 
 		if target == "-" || config.FileExists(target) {
 			src, err := runOpts.source(target)
@@ -169,6 +174,11 @@ func runSandboxed(cmd *cobra.Command, box *lang.Sandbox, target string, args []s
 		spec = isolatedSpec{Mode: "run", Name: src.Name, Content: src.Content}
 	}
 	spec.setBox(box)
+	hosts, invErr := scriptInventory(cmd.Context(), runOpts.limit)
+	if len(runOpts.limit) > 0 && invErr != nil {
+		return invErr
+	}
+	spec.setInventory(hosts, invErr)
 
 	result, err := isolated(cmd, spec, cmd.OutOrStdout())
 	if err != nil {
