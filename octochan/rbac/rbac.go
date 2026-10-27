@@ -32,14 +32,17 @@ const All = "all"
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
 	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "inventory", "lang", "logs",
-		"modules", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
+		"modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
 	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
-	"request": {"compensate", "request"},
+	// watch оформляет заявки; выполнить по политике он может, только если у
+	// роли есть и apply — это проверяется как у команды apply.
+	"request": {"compensate", "request", "watch"},
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
-	// больше не построит для него план.
-	"approve": {"approve", "inventory.ack", "reject"},
+	// больше не построит для него план. policy.add — заранее данное
+	// согласование: по политике watch согласует заявки сам.
+	"approve": {"approve", "inventory.ack", "policy.add", "policy.revoke", "reject"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
 	"install": {"!install", "inspect"},
 	"auth":    {"auth", "timer"},

@@ -93,6 +93,10 @@ type Request struct {
 	// Script непуст, если заявка на выполнение сценария на языке алиасов.
 	Script *ScriptRun `json:"script,omitempty"`
 
+	// Policy — политика, которой заявка согласована без человека (ochan
+	// watch); пусто — согласовал человек.
+	Policy string `json:"policy,omitempty"`
+
 	Decision   string    `json:"decision,omitempty"`
 	DecidedBy  string    `json:"decided_by,omitempty"`
 	DecidedAt  time.Time `json:"decided_at,omitempty"`

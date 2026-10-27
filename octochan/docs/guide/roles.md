@@ -13,10 +13,10 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | aliases, check, diff, else, find, fp, history, if, lang, logs, modules, print, requests, sandbox, services, stats, status, validate |
+| `read` | aliases, check, diff, else, find, fp, history, if, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, validate |
 | `plan` | plan |
-| `request` | request |
-| `approve` | approve, reject |
+| `request` | compensate, request, watch |
+| `approve` | approve, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
 | `install` | !install, inspect |
 | `auth` | auth, timer |
@@ -28,6 +28,11 @@
 `help`, `shell`, `role`, `role list`, `role show`, `set role` и `back role`
 доступны любой роли: без них нельзя узнать, кто ты, и вернуться обратно. Право на
 каждую команду — в [справочнике команд](../reference/commands.md).
+
+Вложенная команда со своей группой открывается только ею: право
+`inventory` (чтение) не открывает `inventory ack`, а `policy` — `policy
+add`. `watch` без политики только оформляет заявки; выполнить по политике
+он может, только если у роли есть и `apply`.
 
 ## Управление ролями
 
