@@ -38,8 +38,17 @@ func auditJournal() (*audit.Journal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &audit.Journal{Path: filepath.Join(fm.BaseDir(), "audit.log")}, nil
+	name := "audit.log"
+	if remoteChild() && os.Getenv(EnvHAStandby) == "1" {
+		// Процесс резервного узла пары: общий журнал приходит копией от
+		// primary, свои записи — в своём.
+		name = standbyAudit
+	}
+	return &audit.Journal{Path: filepath.Join(fm.BaseDir(), name)}, nil
 }
+
+// standbyAudit — журнал аудита резервного узла пары.
+const standbyAudit = "audit.standby.log"
 
 // unaudited — команды, которые не пишутся в журнал: справка и
 // автодополнение оболочки, которое вызывается на каждое нажатие Tab.

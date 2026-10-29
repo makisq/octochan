@@ -131,8 +131,15 @@ roles:
 | `server.dir` | `""` | каталог, над файлами которого работают команды; пусто — где запущен `serve` |
 | `server.session_timeout` | `30m` | сессия без запросов |
 | `server.command_timeout` | `10m` | одна команда |
+| `ha.peer` | `""` | пара серверов: адрес второго узла |
+| `ha.self` | `server.listen` | адрес этого узла, который видят клиенты |
+| `ha.token_file` | `~/.octochan/ha.token` | общий секрет пары (`ochan ha init`), одинаковый на обоих узлах |
+| `ha.replicate_every` | `10s` | как часто standby забирает копию и узлы сверяют эпохи |
+| `ha.require_standby` | `false` | `true` — без подтверждения резерва выполнение заявки не начинается |
+| `remote.balance_reads` | `false` | клиент: чтение по очереди на все узлы пары (как `--balance`) |
 
-Подробнее — [«Серверный режим»](../guide/server.md).
+Подробнее — [«Серверный режим»](../guide/server.md) и
+[«Пара серверов»](../guide/server.md#пара-серверов-primary-и-standby).
 
 ## sandbox — песочница ОС
 

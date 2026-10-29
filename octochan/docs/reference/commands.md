@@ -15,6 +15,11 @@
 ## Оглавление
 
 - [`ochan !install`](#ochan-install) — Установить модуль или пакет алиасов
+- [`ochan agent`](#ochan-agent) — Машина-агент: сообщать серверу о себе
+- [`ochan agent run`](#ochan-agent-run) — Сообщать серверу о себе раз в --every
+- [`ochan agents`](#ochan-agents) — Реестр агентов: машины, которые сами сообщают серверу о себе
+- [`ochan agents beat`](#ochan-agents-beat) — Сообщить серверу о себе — это вызывает ochan agent run
+- [`ochan agents forget`](#ochan-agents-forget) — Убрать агента из реестра
 - [`ochan aliases`](#ochan-aliases) — Показать доступные алиасы и встроенные функции
 - [`ochan apply`](#ochan-apply) — Выполнить сценарий
 - [`ochan approve`](#ochan-approve) — Согласовать заявку
@@ -35,6 +40,10 @@
 - [`ochan fp journal`](#ochan-fp-journal) — Журнал решений: надёжность правил и калибровка
 - [`ochan fp protocol`](#ochan-fp-protocol) — Показать протокол — то, что модель читает первым
 - [`ochan fp words`](#ochan-fp-words) — Словарь языка: слова, их смыслы и откуда они
+- [`ochan ha`](#ochan-ha) — Пара серверов primary/standby: настройка, состояние, переключение
+- [`ochan ha init`](#ochan-ha-init) — Сделать этот узел узлом пары
+- [`ochan ha promote`](#ochan-ha-promote) — Сделать этот узел primary: переключение пары
+- [`ochan ha status`](#ochan-ha-status) — Состояние узлов пары
 - [`ochan help`](#ochan-help) — Отобразить список всех доступных команд
 - [`ochan history`](#ochan-history) — Показать журнал операций
 - [`ochan if`](#ochan-if) — Условная проверка значения в конфиге
@@ -126,6 +135,99 @@ ochan '!install' --remove pgconf
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--remove` | bool | — | удалить модуль или пакет алиасов |
+
+## ochan agent
+
+Машина-агент: сообщать серверу о себе.
+
+```
+ochan agent
+```
+
+Подкоманды: [`run`](#ochan-agent-run).
+
+## ochan agent run
+
+Сообщать серверу о себе раз в --every.
+
+```
+ochan agent run --server <host:port[,host:port]> --name <имя> [--group g] [--var k=v]
+```
+
+Входит на сервер в роли --role (по умолчанию agent; ей нужно право agent),
+раз в --every выполняет там ochan agents beat с именем, группами и
+переменными этой машины. Логин и пароль — из OCTOCHAN_REMOTE_LOGIN и
+OCTOCHAN_REMOTE_PASSWORD: спросить некого. Пара серверов — адреса через
+запятую: агент переживает её переключение. --once — один раз, для cron.
+
+Право: `remote`.
+
+Примеры:
+
+```
+ochan agent run --server a.example:7443,b.example:7443 --name db7 --group db,db_new \
+  --var svm_ci=CI007 --every 1m
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--allow-plaintext` | bool | — | разрешить подключение без ssl к другой машине |
+| `--every` | duration | `1m0s` | как часто сообщать о себе |
+| `--group` | stringSlice | — | группы агента |
+| `--name` | string | — | имя агента — имя хоста в инвентаре |
+| `--once` | bool | — | сообщить один раз и выйти |
+| `--role` | string | `agent` | роль агента на сервере |
+| `--server` | string | — | адрес сервера; пара — через запятую |
+| `--var` | stringArray | — | переменная агента ключ=значение |
+
+## ochan agents
+
+Реестр агентов: машины, которые сами сообщают серверу о себе.
+
+```
+ochan agents
+```
+
+Агент — машина с ochan agent run: раз в --every он сообщает серверу имя,
+группы и переменные, а сервер запоминает и его адрес. Реестр — источник
+инвентаря agents:// (agents://online — только на связи): цели сценариев
+берутся из него, а ochan watch --source agents видит новый агент как
+новый хост и действует по политике.
+
+Право: `read`.
+
+Подкоманды: [`beat`](#ochan-agents-beat), [`forget`](#ochan-agents-forget).
+
+## ochan agents beat
+
+Сообщить серверу о себе — это вызывает ochan agent run.
+
+```
+ochan agents beat --name <имя> [--group g] [--var k=v]
+```
+
+Обновляет запись агента в реестре: группы, переменные, адрес, время.
+Имя принадлежит роли, в которой агент сообщил о себе первый раз: другая
+роль его не займёт. Право — agent.
+
+Право: `agent`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--every` | duration | `1m0s` | как часто агент сообщает о себе |
+| `--group` | stringSlice | — | группы агента |
+| `--name` | string | — | имя агента — имя хоста в инвентаре |
+| `--var` | stringArray | — | переменная агента ключ=значение |
+
+## ochan agents forget
+
+Убрать агента из реестра.
+
+```
+ochan agents forget <имя>
+```
+
+Право: `approve`.
 
 ## ochan aliases
 
@@ -362,13 +464,17 @@ ochan apply --request <id обратного действия>
 Подключиться к общему оркестратору.
 
 ```
-ochan connect <host:port>
+ochan connect <host:port[,host:port]>
 ```
 
 Открывает сессию на сервере в роли --role (по умолчанию master). Если у роли
 есть логин или пароль, их спросят. Внутри сессии: команды ochan выполняются
 на сервере, role показывает роль сессии, set role и back role переключают её,
 exit завершает сессию.
+
+Пара серверов — адреса через запятую: запись идёт на primary, после
+переключения пары — на новый; с --balance чтение идёт по очереди на все
+узлы на связи.
 
 Без вопросов — из OCTOCHAN_REMOTE_LOGIN и OCTOCHAN_REMOTE_PASSWORD.
 
@@ -378,11 +484,13 @@ exit завершает сессию.
 
 ```
 ochan connect orchestrator.example:7443 --role Dan
+ochan connect a.example:7443,b.example:7443 --balance
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--allow-plaintext` | bool | — | разрешить подключение без ssl к другой машине |
+| `--balance` | bool | — | чтение — по очереди на все узлы пары на связи |
 | `--role` | string | `master` | роль на сервере |
 
 ## ochan diff
@@ -596,6 +704,94 @@ ochan fp words rock limit
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--skill` | string | — | словарь этого скилла (пакета алиасов) |
+
+## ochan ha
+
+Пара серверов primary/standby: настройка, состояние, переключение.
+
+```
+ochan ha
+```
+
+Два узла ochan serve: primary пишет, standby держит копию его состояния
+(заявки, журнал, роли, аудит, политики, реестр агентов) и отвечает на
+чтение. Консенсуса нет: переключение — ochan ha promote на standby,
+решение человека. Эпоха — забор: узел, увидевший primary с эпохой больше
+своей, перестаёт быть primary сам и откладывает то, что записал после
+разрыва, в ha/diverged-….
+
+Настройки — config.yaml: ha.peer (адрес второго узла), ha.self (адрес
+этого узла для клиентов), ha.token_file, ha.replicate_every,
+ha.require_standby.
+
+Примеры:
+
+```
+ochan ha init --node a --role primary
+ochan ha init --node b --role standby
+ochan ha status
+ochan ha status a.example:7443,b.example:7443
+ochan ha promote
+```
+
+Подкоманды: [`init`](#ochan-ha-init), [`promote`](#ochan-ha-promote), [`status`](#ochan-ha-status).
+
+## ochan ha init
+
+Сделать этот узел узлом пары.
+
+```
+ochan ha init
+```
+
+Записывает ha.json узла: имя и роль. Первый узел — primary, второй —
+standby. Общий секрет пары (ha.token_file) создаётся, если его нет:
+скопируйте его на второй узел так же бережно, как ключ TLS.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--node` | string | — | имя узла |
+| `--role` | string | — | primary или standby |
+
+## ochan ha promote
+
+Сделать этот узел primary: переключение пары.
+
+```
+ochan ha promote
+```
+
+Эпоха узла становится на единицу больше известной. Работающий ochan serve
+подхватывает её сам; бывший primary, увидев большую эпоху, отступает и
+откладывает то, что успел записать после разрыва.
+
+Консенсуса нет: решение — ваше. Если бывший primary жив и отрезан сетью,
+до восстановления связи он будет принимать запись — остановите его или
+отрежьте от клиентов, прежде чем повышать резерв.
+
+Заявки, которые числились выполняемыми на бывшем primary, становятся
+упавшими с неизвестным исходом: второй раз они не выполняются.
+
+Право: `read`.
+
+## ochan ha status
+
+Состояние узлов пары.
+
+```
+ochan ha status [host:port,...]
+```
+
+Без адресов — этот узел (ha.json) и второй (ha.peer). С адресами — что
+говорят о себе эти узлы: так клиент видит, кто primary.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--allow-plaintext` | bool | — | разрешить опрос без ssl другой машины |
 
 ## ochan help
 
@@ -989,7 +1185,7 @@ ochan reject <id>
 Выполнить одну команду на общем оркестраторе.
 
 ```
-ochan remote <host:port> <команда>...
+ochan remote <host:port[,host:port]> <команда>...
 ```
 
 Входит в роль --role, выполняет команду на сервере и выходит. Аргумент «-»
@@ -1008,6 +1204,7 @@ cat новый.conf | ochan remote --role Dan orchestrator.example:7443 validate
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--allow-plaintext` | bool | — | разрешить подключение без ssl к другой машине |
+| `--balance` | bool | — | чтение — по очереди на все узлы пары на связи |
 | `--role` | string | `master` | роль на сервере |
 
 ## ochan request
@@ -1097,7 +1294,7 @@ ochan role
 
 После установки есть две роли: master — первая и высшая, ей доступно всё;
 llm — для нейросетей: читать, планировать, оформлять заявки. Права — группы
-(admin, apply, approve, audit, auth, install, plan, read, remote, request, server), all или имя команды.
+(admin, agent, apply, approve, audit, auth, install, plan, read, remote, request, server), all или имя команды.
 
 Право: `свободная — доступна любой роли`.
 

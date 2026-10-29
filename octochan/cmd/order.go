@@ -92,6 +92,9 @@ func markOutcome(cmd *cobra.Command, store *workspace.Requests, request *workspa
 		return
 	}
 	if scenario.IsNotStarted(runErr) && len(refs) == 0 {
+		if err := store.Unrun(request); err != nil {
+			cmd.PrintErrf("внимание: %v\n", err)
+		}
 		cmd.PrintErrf("Выполнение не начиналось: заявка %s остаётся согласованной.\n", request.ID)
 		return
 	}

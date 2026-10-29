@@ -72,6 +72,8 @@ type Problem struct {
 	NeedPassword bool `json:"need_password,omitempty"`
 	// RetryAfter — через сколько секунд можно пробовать снова.
 	RetryAfter int `json:"retry_after,omitempty"`
+	// Primary — адрес primary пары: этот узел — standby, и запись — туда.
+	Primary string `json:"primary,omitempty"`
 }
 
 // Executor выполняет команду в роли role. Адрес клиента — ClientAddr(ctx).
@@ -88,14 +90,20 @@ func ClientAddr(ctx context.Context) string {
 // record пишет событие сервера в журнал аудита. Сбой журнала не
 // останавливает сервер, но попадает в его лог.
 func (s *Server) record(rec audit.Record, refused string) {
-	if s.Audit == nil {
+	journal := s.Audit
+	if s.HA != nil && !s.HA.Writable() {
+		// Общий журнал standby получает копией от primary: свои записи у
+		// него в отдельном журнале, иначе копия их затёрла бы.
+		journal = s.StandbyAudit
+	}
+	if journal == nil {
 		return
 	}
 	var guard func(audit.Recent) error
 	if refused != "" {
 		guard = func(audit.Recent) error { return errors.New(refused) }
 	}
-	if err := s.Audit.Append(rec, guard); err != nil && refused == "" {
+	if err := journal.Append(rec, guard); err != nil && refused == "" {
 		s.Logger.Printf("журнал аудита: %v", err)
 	}
 }
@@ -114,6 +122,13 @@ type Server struct {
 	// которые сервер пропустил, пишет в журнал сам дочерний процесс.
 	// nil — без журнала.
 	Audit *audit.Journal
+
+	// HA — узел пары primary/standby; nil — сервер один. На standby
+	// выполняются только команды, для которых ReadOnly — правда, а журнал
+	// аудита — StandbyAudit.
+	HA           *HA
+	ReadOnly     func(args []string) bool
+	StandbyAudit *audit.Journal
 
 	// SessionTimeout — сколько живёт сессия без запросов.
 	SessionTimeout time.Duration
@@ -203,6 +218,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/role", s.authed(s.role))
 	mux.HandleFunc("GET /v1/whoami", s.authed(s.whoami))
 	mux.HandleFunc("POST /v1/logout", s.authed(s.logout))
+	if s.HA != nil {
+		s.HA.register(mux)
+	}
 	return mux
 }
 
@@ -458,6 +476,19 @@ func (s *Server) exec(w http.ResponseWriter, r *http.Request, sess *session, sto
 
 	roleName := s.state(sess).Role
 	role := store.Find(roleName)
+	if s.HA != nil {
+		if st := s.HA.Status(); !st.Writable() && (s.ReadOnly == nil || !s.ReadOnly(req.Args)) {
+			why := fmt.Sprintf("узел %s — standby (эпоха %d): здесь только чтение; запись — на primary %s",
+				st.Node, st.Epoch, st.Primary)
+			if st.Conflict {
+				why = fmt.Sprintf("узел %s: конфликт двух primary эпохи %d — запись закрыта, пока один не повышен",
+					st.Node, st.Epoch)
+			}
+			s.record(audit.Record{Event: audit.EventCommand, Role: role.Name, Remote: sess.remote, Args: req.Args}, why)
+			reply(w, http.StatusConflict, Problem{Error: why, Primary: st.Primary})
+			return
+		}
+	}
 	if err := s.Authorize(role, req.Args); err != nil {
 		s.Logger.Printf("отказ: %s@%s: %s: %v", role.Name, sess.remote, strings.Join(req.Args, " "), err)
 		s.record(audit.Record{Event: audit.EventCommand, Role: role.Name, Remote: sess.remote, Args: req.Args}, err.Error())
@@ -646,6 +677,9 @@ func (s *Server) Serve(ctx context.Context, addr string, settings Settings, allo
 		ready(scheme + "://" + listener.Addr().String())
 	}
 
+	if s.HA != nil {
+		go s.HA.Run(ctx)
+	}
 	done := make(chan error, 1)
 	go func() {
 		if settings.SSL {

@@ -141,6 +141,9 @@ func applyApprovedRequest(cmd *cobra.Command, id string) error {
 	if err != nil {
 		return err
 	}
+	if request.State == workspace.RequestRunning {
+		return settleRunning(cmd, store, request)
+	}
 	if request.State != workspace.RequestApproved {
 		return fmt.Errorf("заявка %s не согласована (%s): выполнять нельзя",
 			request.ID, request.State.Russian())
@@ -183,6 +186,9 @@ func applyApprovedRequest(cmd *cobra.Command, id string) error {
 		return err
 	}
 
+	if err := beginRun(cmd, store, request); err != nil {
+		return err
+	}
 	result, applyErr := runner.Apply(cmd.Context(), parsed, request.Plan)
 	finishScenarioApply(cmd, store, request, parsed, result, applyErr, "apply --request "+request.ID)
 	if applyErr != nil {
@@ -455,6 +461,9 @@ func applyConfigRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		for key, value := range params {
 			before[section][key] = value
 		}
+	}
+	if err := beginRun(cmd, store, request); err != nil {
+		return err
 	}
 	result := config.ApplyPlan(current.Data, request.Plan)
 	if err := config.SaveConfig(result, target); err != nil {

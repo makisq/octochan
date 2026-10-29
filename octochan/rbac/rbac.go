@@ -33,8 +33,8 @@ const All = "all"
 // Groups — группы прав. Право — имя группы или имя команды. Вложенная
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
-	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "inventory", "lang", "logs",
-		"modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
+	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
+		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
 	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
@@ -44,7 +44,9 @@ var Groups = map[string][]string{
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
 	// больше не построит для него план. policy.add — заранее данное
 	// согласование: по политике watch согласует заявки сам.
-	"approve": {"approve", "inventory.ack", "policy.add", "policy.revoke", "reject"},
+	"approve": {"agents.forget", "approve", "inventory.ack", "policy.add", "policy.revoke", "reject"},
+	// agent — машина-агент: сообщать серверу о себе и только.
+	"agent":   {"agents.beat"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
 	"install": {"!install", "inspect"},
 	"auth":    {"auth", "timer"},
@@ -55,8 +57,9 @@ var Groups = map[string][]string{
 	// server — держать общий оркестратор; remote — подключаться к чужому.
 	// Ни то ни другое не входит в потолок llm: нейросеть, подключившись
 	// к серверу, где у master нет пароля, стала бы master.
-	"server": {"serve", "tls.init"},
-	"remote": {"connect", "remote"},
+	// ha.init и ha.promote — пара серверов: настроить узел и переключить.
+	"server": {"ha.init", "ha.promote", "serve", "tls.init"},
+	"remote": {"agent", "connect", "remote"},
 }
 
 // Free — команды, доступные любой роли: без них нельзя узнать, кто ты,

@@ -126,6 +126,9 @@ func applyCompensation(cmd *cobra.Command, store *workspace.Requests, request *w
 	if err := planDrift(request, now); err != nil {
 		return err
 	}
+	if err := beginRun(cmd, store, request); err != nil {
+		return err
+	}
 	result, applyErr := compensator.Compensate(cmd.Context(), parsed, request.Plan, original.AppliedRef)
 	finishScenarioApply(cmd, store, request, parsed, result, applyErr,
 		"apply --request "+request.ID+" (обратное действие "+original.ID+")")

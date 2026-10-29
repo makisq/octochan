@@ -100,6 +100,19 @@ func (s *serverEnv) client(role, login, password string) *remote.Client {
 	return c
 }
 
+// pool — то же через пул, как входит ochan connect.
+func (s *serverEnv) pool(role, login, password string) *remote.Pool {
+	s.t.Helper()
+	p, err := remote.DialPool(context.Background(), []string{s.addr}, tlsSettings(), false)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	if _, err := p.Login(context.Background(), role, login, password); err != nil {
+		s.t.Fatalf("вход в %s: %v", role, err)
+	}
+	return p
+}
+
 func (s *serverEnv) exec(c *remote.Client, args ...string) *remote.Result {
 	s.t.Helper()
 	result, err := c.Exec(context.Background(), args, "")
@@ -190,7 +203,7 @@ func TestConnectSession(t *testing.T) {
 	cmd.SetErr(&out)
 	typed(t, "")
 
-	master := s.client("master", "", "m")
+	master := s.pool("master", "", "m")
 	input := bufio.NewReader(strings.NewReader(strings.Join([]string{
 		"role",
 		"set role dan", "dan", "d",

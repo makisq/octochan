@@ -496,6 +496,9 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 
 	cmd.Printf("Заявка %s, сценарий %s\n", request.ID, request.Source)
 
+	if err := beginRun(cmd, store, request); err != nil {
+		return err
+	}
 	effects, _, runErr := execScript(cmd, registry, file, setup, false, cmd.OutOrStdout())
 
 	// След остаётся и при ошибке: записанное до сбоя уже записано.
