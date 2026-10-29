@@ -13,10 +13,10 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | aliases, check, diff, else, find, fp, history, if, lang, logs, modules, print, requests, sandbox, services, stats, status, validate |
+| `read` | aliases, check, diff, else, find, fp, history, if, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, validate |
 | `plan` | plan |
-| `request` | request |
-| `approve` | approve, reject |
+| `request` | compensate, request, watch |
+| `approve` | approve, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
 | `install` | !install, inspect |
 | `auth` | auth, timer |
@@ -25,9 +25,14 @@
 | `server` | serve, tls init |
 | `remote` | connect, remote |
 
-`help`, `shell`, `role`, `role list`, `role show`, `set role` и `back role`
+`help`, `shell`, `role`, `role list`, `role show`, `role proof`, `set role` и `back role`
 доступны любой роли: без них нельзя узнать, кто ты, и вернуться обратно. Право на
 каждую команду — в [справочнике команд](../reference/commands.md).
+
+Вложенная команда со своей группой открывается только ею: право
+`inventory` (чтение) не открывает `inventory ack`, а `policy` — `policy
+add`. `watch` без политики только оформляет заявки; выполнить по политике
+он может, только если у роли есть и `apply`.
 
 ## Управление ролями
 
@@ -292,9 +297,16 @@ OCTOCHAN_ROLE=ci ochan validate prod.conf
 
 ## Чем роли являются и чем нет
 
-Локально роли — защита от ошибки и граница для нейросети, а не от
-владельца компьютера: кто может удалить `~/.octochan`, тот вернёт роли к
-исходным. Границей против других людей они становятся в
+Локально хранилище ролей — защита от ошибки и граница для нейросети, а не
+от владельца компьютера: кто может удалить `~/.octochan`, тот вернёт роли
+к исходным. Чтобы роль подтверждал не рабочий каталог, root кладёт
+**системную политику ролей** `/etc/octochan/roles.yaml`: какие роли
+положены пользователю ОС (по uid от ядра) и потолок прав каждой.
+Хранилище тогда может права только сузить; `ochan role proof` показывает,
+что машина доказывает о твоей роли и чего не доказывает. Подробно —
+[«Безопасность»](security.md#роль-которую-подтверждает-не-рабочий-каталог).
+
+Границей против других людей роли становятся в
 [серверном режиме](server.md): хранилище ролей лежит у сервера, а
 подключаются к нему по сети.
 

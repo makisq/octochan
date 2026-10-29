@@ -9,11 +9,14 @@
 #   make dist                    релиз под все платформы в dist/
 #
 # Версия — VERSION; её печатают ochan --version и ochan-mcp --version.
-VERSION ?= 0.2.0-alpha
-PREFIX  ?= $(HOME)/.local
-OUT     ?= bin
+# SYSTEM_ROLES — системная политика ролей (docs/guide/security.md): путь
+# зашивается в программу, окружением его не поменять.
+VERSION      ?= 0.2.0-alpha
+PREFIX       ?= $(HOME)/.local
+OUT          ?= bin
+SYSTEM_ROLES ?= /etc/octochan/roles.yaml
 
-LDFLAGS     := -X octochan/cmd.Version=$(VERSION)
+LDFLAGS     := -X octochan/cmd.Version=$(VERSION) -X octochan/rbac.SystemPolicyPath=$(SYSTEM_ROLES)
 MCP_LDFLAGS := -X main.serverVersion=$(VERSION)
 PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 

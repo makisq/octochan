@@ -154,10 +154,17 @@ func (c *Client) call(ctx context.Context, method, path string, body, out any) e
 	if resp.StatusCode >= 300 {
 		var problem Problem
 		if json.Unmarshal(data, &problem) != nil || problem.Error == "" {
-			return fmt.Errorf("сервер ответил %s", resp.Status)
+			return &statusError{code: resp.StatusCode, text: resp.Status}
 		}
 		if resp.StatusCode == http.StatusUnauthorized && (problem.NeedLogin || problem.NeedPassword) {
 			return &AuthNeeded{Login: problem.NeedLogin, Password: problem.NeedPassword, Message: problem.Error}
+		}
+		if resp.StatusCode == http.StatusUnauthorized && c.token != "" {
+			c.token = ""
+			return &SessionExpired{Message: problem.Error}
+		}
+		if resp.StatusCode == http.StatusConflict && problem.Primary != "" {
+			return &NotPrimary{Message: problem.Error, Primary: problem.Primary}
 		}
 		return errors.New(problem.Error)
 	}
@@ -185,3 +192,39 @@ func explainDialError(base string, err error) error {
 	}
 	return fmt.Errorf("нет связи с %s: %w", base, err)
 }
+
+// ErrNotPaired — сервер не в паре: на /v1/ha/status он не отвечает.
+var ErrNotPaired = errors.New("сервер не в паре primary/standby")
+
+// NodeStatus — что узел говорит о себе. Входа не нужно.
+func NodeStatus(ctx context.Context, addr string, settings Settings, allowPlaintext bool) (*HAStatus, error) {
+	c, err := Dial(addr, settings, allowPlaintext)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var st HAStatus
+	if err := c.call(ctx, http.MethodGet, "/v1/ha/status", nil, &st); err != nil {
+		var status *statusError
+		if errors.As(err, &status) && status.code == http.StatusNotFound {
+			return nil, ErrNotPaired
+		}
+		return nil, err
+	}
+	return &st, nil
+}
+
+// statusError — сервер ответил кодом без описания.
+type statusError struct {
+	code int
+	text string
+}
+
+func (e *statusError) Error() string { return "сервер ответил " + e.text }
+
+// SessionExpired — сессия на сервере кончилась: команда не выполнялась,
+// нужно войти снова.
+type SessionExpired struct{ Message string }
+
+func (e *SessionExpired) Error() string { return e.Message }

@@ -69,6 +69,16 @@ go build -ldflags "-X octochan/cmd.Version=0.2.0-alpha" -o ochan .
 make build VERSION=0.2.0-alpha+site     # то же через make
 ```
 
+Путь системной политики ролей тоже задаётся при сборке, а не окружением
+([«Безопасность»](security.md#роль-которую-подтверждает-не-рабочий-каталог)):
+
+```bash
+make build SYSTEM_ROLES=/opt/octochan/roles.yaml
+go build -ldflags "-X octochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o ochan .
+```
+
+По умолчанию — `/etc/octochan/roles.yaml`; файла нет — политики нет.
+
 ### Закрытые системы
 
 Там, где класть программы в `/bin`, `/usr/bin` и `/usr/local/bin` нельзя,

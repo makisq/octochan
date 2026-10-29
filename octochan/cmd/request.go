@@ -338,6 +338,9 @@ func showRequest(cmd *cobra.Command, request *workspace.Request, graph workspace
 	if request.Failure != "" {
 		cmd.Printf("Сбой:      %s\n", request.Failure)
 	}
+	if request.Runner != nil && request.State == workspace.RequestRunning {
+		cmd.Printf("Выполняет: %s\n", request.Runner)
+	}
 	cmd.Printf("Автор:     %s\n", authorLine(request))
 	cmd.Printf("Создана:   %s\n", request.Created.Local().Format("2006-01-02 15:04:05"))
 	cmd.Printf("Источник:  %s\n", request.Source)

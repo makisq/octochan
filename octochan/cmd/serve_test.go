@@ -22,6 +22,9 @@ import (
 // TestMain позволяет тестовому бинарю быть ochan: сервер и песочница
 // запускают дочерним процессом самого себя, и в тестах это тестовый бинарь.
 func TestMain(m *testing.M) {
+	// Тесты не зависят от системной политики ролей машины, на которой
+	// идут: её проверяют отдельно (system_test.go).
+	rbac.SystemPolicyPath = ""
 	if sandbox.Enter() {
 		os.Exit(SandboxChild())
 	}
@@ -95,6 +98,19 @@ func (s *serverEnv) client(role, login, password string) *remote.Client {
 		s.t.Fatalf("вход в %s: %v", role, err)
 	}
 	return c
+}
+
+// pool — то же через пул, как входит ochan connect.
+func (s *serverEnv) pool(role, login, password string) *remote.Pool {
+	s.t.Helper()
+	p, err := remote.DialPool(context.Background(), []string{s.addr}, tlsSettings(), false)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	if _, err := p.Login(context.Background(), role, login, password); err != nil {
+		s.t.Fatalf("вход в %s: %v", role, err)
+	}
+	return p
 }
 
 func (s *serverEnv) exec(c *remote.Client, args ...string) *remote.Result {
@@ -187,7 +203,7 @@ func TestConnectSession(t *testing.T) {
 	cmd.SetErr(&out)
 	typed(t, "")
 
-	master := s.client("master", "", "m")
+	master := s.pool("master", "", "m")
 	input := bufio.NewReader(strings.NewReader(strings.Join([]string{
 		"role",
 		"set role dan", "dan", "d",

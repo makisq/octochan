@@ -126,6 +126,9 @@ func initConfig() error {
 	viper.SetDefault("server.dir", "")
 	viper.SetDefault("server.session_timeout", "30m")
 	viper.SetDefault("server.command_timeout", "10m")
+	viper.SetDefault("ha.replicate_every", "10s")
+	viper.SetDefault("ha.require_standby", false)
+	viper.SetDefault("ha.token_file", filepath.Join(fm.BaseDir(), "ha.token"))
 
 	path := configPath(fm)
 	viper.SetConfigFile(path)

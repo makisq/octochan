@@ -35,7 +35,7 @@ var applyCmd = &cobra.Command{
 		"cat scenario.yaml | ochan apply -",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if applyRequestID != "" {
-			return applyApprovedRequest(cmd)
+			return applyApprovedRequest(cmd, applyRequestID)
 		}
 
 		target, overrides, err := scenarioArgs(args)
@@ -131,15 +131,18 @@ func applyMailBody(name string, parsed *scenario.Scenario, result *scenario.Resu
 // Выполняется текст сценария, сохранённый в самой заявке, а не перечитанный
 // с диска файл: между согласованием и выполнением его могли поправить,
 // и тогда выполнилось бы не то, на что сказали «да».
-func applyApprovedRequest(cmd *cobra.Command) error {
+func applyApprovedRequest(cmd *cobra.Command, id string) error {
 	store, err := requestStore()
 	if err != nil {
 		return err
 	}
 
-	request, err := store.Get(applyRequestID)
+	request, err := store.Get(id)
 	if err != nil {
 		return err
+	}
+	if request.State == workspace.RequestRunning {
+		return settleRunning(cmd, store, request)
 	}
 	if request.State != workspace.RequestApproved {
 		return fmt.Errorf("заявка %s не согласована (%s): выполнять нельзя",
@@ -183,6 +186,9 @@ func applyApprovedRequest(cmd *cobra.Command) error {
 		return err
 	}
 
+	if err := beginRun(cmd, store, request); err != nil {
+		return err
+	}
 	result, applyErr := runner.Apply(cmd.Context(), parsed, request.Plan)
 	finishScenarioApply(cmd, store, request, parsed, result, applyErr, "apply --request "+request.ID)
 	if applyErr != nil {
@@ -455,6 +461,9 @@ func applyConfigRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		for key, value := range params {
 			before[section][key] = value
 		}
+	}
+	if err := beginRun(cmd, store, request); err != nil {
+		return err
 	}
 	result := config.ApplyPlan(current.Data, request.Plan)
 	if err := config.SaveConfig(result, target); err != nil {

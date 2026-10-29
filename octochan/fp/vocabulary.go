@@ -192,7 +192,14 @@ func (c *checker) checkVocabulary() {
 		for _, pr := range g.Params {
 			c.checkMeaningful(Name{Pos: pr.Pos, Text: pr.Name}, "слот")
 			for _, v := range pr.Domain {
-				c.checkMeaningful(Name{Pos: pr.Pos, Text: v}, "значение домена")
+				if _, _, number := ParseNumber(v); !number {
+					c.checkMeaningful(Name{Pos: pr.Pos, Text: v}, "значение домена")
+				} else {
+					c.checkUnit(v, pr.Pos)
+				}
+			}
+			if pr.Range != nil && pr.Range.Unit != "" {
+				c.checkUnit("1 "+pr.Range.Unit, pr.Pos)
 			}
 		}
 	}

@@ -291,6 +291,66 @@ func (c *cursor) set(what string) ([]string, bool) {
 	return values, true
 }
 
+// domain читает домен слота {a, b} или {100, 200} или {16 MB, 32 MB}:
+// имена или числа с единицей.
+func (c *cursor) domain() ([]string, bool) {
+	if !c.punct("{", "— начало домена") {
+		return nil, false
+	}
+	var values []string
+	for {
+		if c.is(tNumber, "") {
+			text := c.next().text
+			if unit := c.unit(); unit != "" {
+				text += " " + unit
+			}
+			values = append(values, text)
+		} else {
+			n, ok := c.name("значение домена")
+			if !ok {
+				return nil, false
+			}
+			values = append(values, n.Text)
+		}
+		if !c.is(tPunct, ",") {
+			break
+		}
+		c.next()
+	}
+	if c.bad || !c.punct("}", "— конец домена") {
+		return nil, false
+	}
+	return values, true
+}
+
+// numberRange читает диапазон 100..500 или 16..64 MB: единица после
+// второго конца относится к обоим.
+func (c *cursor) numberRange() (*Range, bool) {
+	lo := c.next().text
+	loUnit := c.unit()
+	if !c.punct("..", "— диапазон пишется lo..hi") {
+		return nil, false
+	}
+	if !c.is(tNumber, "") {
+		c.fail(ErrSyn, "после «..» ожидалось число — верхний конец диапазона")
+		return nil, false
+	}
+	hi := c.next().text
+	unit := c.unit()
+	if loUnit != "" && loUnit != unit {
+		c.fail(ErrSyn, "концы диапазона в разных единицах: %s и %s", loUnit, unit)
+		return nil, false
+	}
+	r := &Range{Unit: unit}
+	r.Lo, _ = strconv.ParseFloat(lo, 64)
+	r.Hi, _ = strconv.ParseFloat(hi, 64)
+	r.Text = lo + ".." + hi
+	if unit != "" {
+		r.Text += " " + unit
+	}
+	return r, true
+}
+
 // value читает значение: имя, ссылку через точку или число с единицей.
 func (c *cursor) value(what string) (Value, bool) {
 	if c.bad {
@@ -515,7 +575,9 @@ func (p *parser) generalization(c *cursor) {
 		}
 		pr := &Param{Pos: param.Pos, Name: param.Text}
 		if c.is(tPunct, "{") {
-			pr.Domain, ok = c.set("значение домена")
+			pr.Domain, ok = c.domain()
+		} else if c.is(tNumber, "") {
+			pr.Range, ok = c.numberRange()
 		} else {
 			var class Name
 			class, ok = c.class("тип слота")

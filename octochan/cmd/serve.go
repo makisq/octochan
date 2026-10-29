@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"octochan/audit"
 	"octochan/i18n"
 	"octochan/rbac"
 	"octochan/remote"
@@ -42,6 +43,7 @@ var (
 	tlsForce       bool
 	remoteRole     string
 	remotePlain    bool
+	remoteBalance  bool
 )
 
 // tlsSettings — параметры ssl и tls из конфига.
@@ -85,15 +87,47 @@ var serveCmd = &cobra.Command{
 			return err
 		}
 
-		// Новый ключ допусков: допуски прошлого запуска больше не действуют.
-		if err := mutateRoles(func(store *rbac.Store) error { return store.RotateServerKey() }); err != nil {
-			return err
+		logger := log.New(cmd.ErrOrStderr(), "ochan serve: ", log.LstdFlags)
+		var pair *remote.HA
+		if pairConfigured() {
+			if pair, err = newPairNode(listen, logger); err != nil {
+				return err
+			}
 		}
 
-		srv := newRemoteServer(dir, log.New(cmd.ErrOrStderr(), "ochan serve: ", log.LstdFlags))
+		// Новый ключ допусков: допуски прошлого запуска больше не действуют.
+		// Standby ключ не меняет: роли у него — копия от primary.
+		if pair == nil || pair.Writable() {
+			if err := mutateRoles(func(store *rbac.Store) error { return store.RotateServerKey() }); err != nil {
+				return err
+			}
+		}
+
+		srv := newRemoteServer(dir, logger)
+		if pair != nil {
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			barrier, err := serveBarrier(ctx, pair)
+			if err != nil {
+				return err
+			}
+			fm, err := mustFileManager()
+			if err != nil {
+				return err
+			}
+			srv.HA, srv.ReadOnly = pair, readOnlyCommand
+			srv.StandbyAudit = &audit.Journal{Path: filepath.Join(fm.BaseDir(), standbyAudit)}
+			srv.Exec = childExecutor(dir, viper.GetDuration("server.command_timeout"), pairEnv(pair, barrier))
+		}
 		return srv.Serve(cmd.Context(), listen, settings, servePlaintext, func(url string) {
 			cmd.Printf("Сервер слушает %s\n", url)
 			cmd.Printf("Каталог:   %s\n", dir)
+			if pair != nil {
+				st := pair.Status()
+				cmd.Printf("Пара:      узел %s — %s, эпоха %d; второй узел %s\n", st.Node, st.Role, st.Epoch, orDash(st.Peer))
+			}
 			if settings.SSL {
 				if fp, err := certFingerprint(settings.Cert); err == nil {
 					cmd.Printf("Сертификат: %s\n", fp)
@@ -142,7 +176,7 @@ func newRemoteServer(dir string, logger *log.Logger) *remote.Server {
 			return store, err
 		},
 		Authorize:      remoteAuthorize,
-		Exec:           childExecutor(dir, viper.GetDuration("server.command_timeout")),
+		Exec:           childExecutor(dir, viper.GetDuration("server.command_timeout"), nil),
 		Logger:         logger,
 		SessionTimeout: viper.GetDuration("server.session_timeout"),
 	}
@@ -222,7 +256,9 @@ func remoteAuthorize(role *rbac.Role, args []string) error {
 // Отдельный процесс — потому что команды ochan держат состояние в
 // глобальных переменных и между собой не параллелятся. Роль процессу
 // передаётся допуском сервера: пароль роли уже проверен при входе.
-func childExecutor(dir string, timeout time.Duration) remote.Executor {
+//
+// extra — окружение узла пары: эпоха, барьер, признак standby.
+func childExecutor(dir string, timeout time.Duration, extra func() []string) remote.Executor {
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
@@ -248,6 +284,9 @@ func childExecutor(dir string, timeout time.Duration) remote.Executor {
 		c := exec.CommandContext(ctx, self, args...)
 		c.Dir = dir
 		c.Env = childEnv(role, grant, remote.ClientAddr(ctx))
+		if extra != nil {
+			c.Env = append(c.Env, extra()...)
+		}
 		if stdin != "" {
 			c.Stdin = strings.NewReader(stdin)
 		}
@@ -285,12 +324,26 @@ func childEnv(role, grant, client string) []string {
 	var env []string
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, EnvRole+"=") || strings.HasPrefix(kv, EnvGrant+"=") ||
-			strings.HasPrefix(kv, EnvRemoteAddr+"=") {
+			strings.HasPrefix(kv, EnvRemoteAddr+"=") || strings.HasPrefix(kv, "OCTOCHAN_HA_") {
 			continue
 		}
 		env = append(env, kv)
 	}
 	return append(env, EnvRole+"="+role, EnvGrant+"="+grant, EnvRemoteAddr+"="+client)
+}
+
+// pairEnv — окружение дочернего процесса узла пары: узел и эпоха для
+// пометки «кто выполняет»; на primary — барьер, на standby — признак
+// standby (свой журнал аудита).
+func pairEnv(pair *remote.HA, barrier string) func() []string {
+	return func() []string {
+		st := pair.Status()
+		env := []string{fmt.Sprintf("%s=%s:%d", EnvHANode, st.Node, st.Epoch)}
+		if st.Writable() {
+			return append(env, EnvHABarrier+"="+barrier+" "+pair.BarrierToken())
+		}
+		return append(env, EnvHAStandby+"=1")
+	}
 }
 
 // cappedBuffer — буфер с пределом: вывод сверх предела отбрасывается
@@ -385,15 +438,18 @@ var tlsInitCmd = &cobra.Command{
 // ---------------------------------------------------------------------------
 
 var connectCmd = &cobra.Command{
-	Use:   "connect <host:port>",
+	Use:   "connect <host:port[,host:port]>",
 	Short: "Подключиться к общему оркестратору",
 	Long: "Открывает сессию на сервере в роли --role (по умолчанию master). Если у роли\n" +
 		"есть логин или пароль, их спросят. Внутри сессии: команды ochan выполняются\n" +
 		"на сервере, role показывает роль сессии, set role и back role переключают её,\n" +
 		"exit завершает сессию.\n\n" +
+		"Пара серверов — адреса через запятую: запись идёт на primary, после\n" +
+		"переключения пары — на новый; с --balance чтение идёт по очереди на все\n" +
+		"узлы на связи.\n\n" +
 		"Без вопросов — из " + EnvRemoteLogin + " и " + EnvRemotePassword + ".",
 	Args:    cobra.ExactArgs(1),
-	Example: "ochan connect orchestrator.example:7443 --role Dan",
+	Example: "ochan connect orchestrator.example:7443 --role Dan\nochan connect a.example:7443,b.example:7443 --balance",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		input := bufio.NewReader(roleInput)
 		client, err := openSession(cmd, args[0], input)
@@ -405,7 +461,7 @@ var connectCmd = &cobra.Command{
 }
 
 var remoteCmd = &cobra.Command{
-	Use:   "remote <host:port> <команда>...",
+	Use:   "remote <host:port[,host:port]> <команда>...",
 	Short: "Выполнить одну команду на общем оркестраторе",
 	Long: "Входит в роль --role, выполняет команду на сервере и выходит. Аргумент «-»\n" +
 		"передаёт серверу stdin. Флаги remote пишутся до адреса: всё после него —\n" +
@@ -457,18 +513,21 @@ var remoteCmd = &cobra.Command{
 
 // openSession подключается и входит в роль, спрашивая логин и пароль,
 // если сервер их ждёт.
-func openSession(cmd *cobra.Command, addr string, input *bufio.Reader) (*remote.Client, error) {
-	client, err := remote.Dial(addr, tlsSettings(), remotePlain)
-	if err != nil {
-		return nil, err
-	}
-	if client.Plain() {
-		cmd.PrintErrln("внимание: ssl выключен, соединение не шифруется")
-	}
-
+func openSession(cmd *cobra.Command, addr string, input *bufio.Reader) (*remote.Pool, error) {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	client, err := remote.DialPool(ctx, splitAddrs(addr), tlsSettings(), remotePlain)
+	if err != nil {
+		return nil, err
+	}
+	client.Balance = remoteBalance || viper.GetBool("remote.balance_reads")
+	client.OnSwitch = func(from, to string) {
+		cmd.PrintErrf("primary пары сменился: %s → %s\n", from, to)
+	}
+	if client.Plain() {
+		cmd.PrintErrln("внимание: ssl выключен, соединение не шифруется")
 	}
 	login, password := os.Getenv(EnvRemoteLogin), os.Getenv(EnvRemotePassword)
 	state, err := client.Login(ctx, remoteRole, login, password)
@@ -484,7 +543,7 @@ func openSession(cmd *cobra.Command, addr string, input *bufio.Reader) (*remote.
 	if err != nil {
 		return nil, err
 	}
-	cmd.Printf("Подключено к %s, роль %s\n", addr, state.Role)
+	cmd.Printf("Подключено к %s, роль %s\n", client.Primary(), state.Role)
 	return client, nil
 }
 
@@ -506,7 +565,7 @@ func askCredentials(cmd *cobra.Command, input *bufio.Reader, need *remote.AuthNe
 }
 
 // runSession — интерактивная сессия на сервере.
-func runSession(cmd *cobra.Command, client *remote.Client, addr string, input *bufio.Reader) error {
+func runSession(cmd *cobra.Command, client *remote.Pool, addr string, input *bufio.Reader) error {
 	defer client.Logout(context.Background())
 
 	state, err := client.WhoAmI(context.Background())
@@ -516,7 +575,7 @@ func runSession(cmd *cobra.Command, client *remote.Client, addr string, input *b
 	role := state.Role
 
 	for {
-		cmd.Printf("ochan@%s[%s]> ", addr, role)
+		cmd.Printf("ochan@%s[%s]> ", client.Primary(), role)
 		line, err := input.ReadString('\n')
 		if err != nil && line == "" {
 			cmd.Println()
@@ -545,7 +604,7 @@ func runSession(cmd *cobra.Command, client *remote.Client, addr string, input *b
 
 // sessionCommand выполняет строку сессии и возвращает новую роль, если
 // она сменилась.
-func sessionCommand(cmd *cobra.Command, client *remote.Client, input *bufio.Reader, args []string) (string, error) {
+func sessionCommand(cmd *cobra.Command, client *remote.Pool, input *bufio.Reader, args []string) (string, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
@@ -620,10 +679,10 @@ func localPassword(cmd *cobra.Command, args []string, input *bufio.Reader) (stri
 	return "", nil
 }
 
-func execRemote(cmd *cobra.Command, client *remote.Client, args []string, stdin string) (*remote.Result, error) {
+func execRemote(cmd *cobra.Command, client *remote.Pool, args []string, stdin string) (*remote.Result, error) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	result, err := client.Exec(ctx, args, stdin)
+	result, err := client.Exec(ctx, args, stdin, readOnlyCommand(args))
 	if err != nil {
 		return nil, err
 	}
@@ -650,6 +709,7 @@ func init() {
 	for _, c := range []*cobra.Command{connectCmd, remoteCmd} {
 		c.Flags().StringVar(&remoteRole, "role", rbac.Master, "роль на сервере")
 		c.Flags().BoolVar(&remotePlain, "allow-plaintext", false, "разрешить подключение без ssl к другой машине")
+		c.Flags().BoolVar(&remoteBalance, "balance", false, "чтение — по очереди на все узлы пары на связи")
 	}
 	// Флаги после адреса принадлежат команде на сервере, а не remote.
 	remoteCmd.Flags().SetInterspersed(false)

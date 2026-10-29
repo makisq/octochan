@@ -256,7 +256,14 @@ func checkRules(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, ca
 // runArbiter проверяет план по жёстким правилам промпта, печатает итог и
 // возвращает соблюдённые и нарушенные правила.
 func runArbiter(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, calls []lang.Invocation) (passed, failed []string) {
-	if result == nil || len(result.Program.Rules) == 0 {
+	if result == nil {
+		return nil, nil
+	}
+	defer func() {
+		p, f := checkSlots(cmd, result.Program, calls)
+		passed, failed = append(passed, p...), append(failed, f...)
+	}()
+	if len(result.Program.Rules) == 0 {
 		return nil, nil
 	}
 	outcomes := arbiter.Check(result.Program.Rules, effects, calls)
@@ -277,6 +284,46 @@ func runArbiter(cmd *cobra.Command, result *fp.Result, effects []lang.Effect, ca
 			cmd.Printf("             подсказка: %s\n", hint)
 		}
 		failed = append(failed, rule)
+	}
+	return passed, failed
+}
+
+// checkSlots проверяет, что вызовы операций обобщений промпта держатся
+// их слотов: домена, значений ячеек, частных случаев.
+func checkSlots(cmd *cobra.Command, prog *fp.Program, calls []lang.Invocation) (passed, failed []string) {
+	registry, _ := aliases()
+	sig := func(call lang.Invocation) []string {
+		if registry == nil {
+			return nil
+		}
+		decl, err := registry.Lookup(call.Module, call.Name)
+		if err != nil {
+			return nil
+		}
+		return decl.Params
+	}
+	outcomes := arbiter.CheckSlots(prog, calls, sig)
+	if len(outcomes) == 0 {
+		return nil, nil
+	}
+	cmd.Println("\nОбобщения промпта:")
+	for _, o := range outcomes {
+		what := arbiter.DescribeGeneralization(o.Generalization)
+		switch {
+		case o.OK() && o.Calls == 0:
+			cmd.Printf("  не вызвано %s\n", what)
+		case o.OK():
+			cmd.Printf("  соблюдено  %s — вызовов %d\n", what, o.Calls)
+			passed = append(passed, what)
+		default:
+			cmd.Printf("  НАРУШЕНО   %s\n", what)
+			for _, v := range o.Violations {
+				cmd.Printf("             %s\n", v)
+			}
+			cmd.Printf("             подсказка: значения слотов задаёт промпт — домен, ячейки, частные случаи; " +
+				"вне их нужна правка промпта, а не другое значение в сценарии (протокол, «Generalizations»)\n")
+			failed = append(failed, what)
+		}
 	}
 	return passed, failed
 }

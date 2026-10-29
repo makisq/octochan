@@ -8,7 +8,11 @@
 // хватает ли знания и совместны ли жёсткие правила. Всё — «на if и else».
 package fp
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 // Pos — место в тексте промпта.
 type Pos struct {
@@ -73,6 +77,10 @@ type Priority struct {
 	Lower  string
 }
 
+// Unbound — аргумент операции, который обобщение не ограничивает:
+// store(_, target) — первый аргумент любой, второй — слот target.
+const Unbound = "_"
+
 // Generalization — схема со слотами g(x₁:τ₁, …): Result = Op(Args).
 type Generalization struct {
 	Pos    Pos
@@ -83,12 +91,44 @@ type Generalization struct {
 	Args   []Name
 }
 
-// Param — слот обобщения: тип — класс или перечисленный домен значений.
+// Param — слот обобщения: тип — класс, перечисленный домен значений
+// (имена или числа с единицей) или диапазон чисел.
 type Param struct {
 	Pos    Pos
 	Name   string
 	Class  string
 	Domain []string
+	Range  *Range
+}
+
+// Range — диапазон чисел `100..500` или `16..64 MB`, концы включены.
+type Range struct {
+	Lo, Hi float64
+	Unit   string
+	Text   string
+}
+
+// ParseNumber читает число с необязательной единицей: 200, 16 MB, 16MB,
+// 0.5. Не число — ok ложно.
+func ParseNumber(text string) (value float64, unit string, ok bool) {
+	text = strings.TrimSpace(text)
+	end := 0
+	for end < len(text) && (text[end] >= '0' && text[end] <= '9' || text[end] == '.') {
+		end++
+	}
+	if end == 0 {
+		return 0, "", false
+	}
+	v, err := strconv.ParseFloat(text[:end], 64)
+	if err != nil {
+		return 0, "", false
+	}
+	return v, strings.TrimSpace(text[end:]), true
+}
+
+// Contains — число value с единицей unit лежит в диапазоне.
+func (r *Range) Contains(value float64, unit string) bool {
+	return strings.EqualFold(unit, r.Unit) && value >= r.Lo && value <= r.Hi
 }
 
 // Instance — частный случай: подстановка значений в слоты обобщения.

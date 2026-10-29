@@ -27,6 +27,10 @@ const (
 	// RequestFailed — выполнение началось и прервалось ошибкой. Состояние
 	// конечное: заявку не повторяют, а оформляют заново (order.go).
 	RequestFailed RequestState = "failed"
+	// RequestRunning — выполнение началось и ещё не кончилось. Второй
+	// процесс ту же заявку не выполнит; процесс, который пропал, оставляет
+	// исход неизвестным — заявка становится упавшей.
+	RequestRunning RequestState = "running"
 )
 
 func (s RequestState) Russian() string {
@@ -41,6 +45,8 @@ func (s RequestState) Russian() string {
 		return "выполнена"
 	case RequestFailed:
 		return "упала"
+	case RequestRunning:
+		return "выполняется"
 	default:
 		return string(s)
 	}
@@ -93,6 +99,10 @@ type Request struct {
 	// Script непуст, если заявка на выполнение сценария на языке алиасов.
 	Script *ScriptRun `json:"script,omitempty"`
 
+	// Policy — политика, которой заявка согласована без человека (ochan
+	// watch); пусто — согласовал человек.
+	Policy string `json:"policy,omitempty"`
+
 	Decision   string    `json:"decision,omitempty"`
 	DecidedBy  string    `json:"decided_by,omitempty"`
 	DecidedAt  time.Time `json:"decided_at,omitempty"`
@@ -100,6 +110,25 @@ type Request struct {
 	AppliedRef []string  `json:"applied_refs,omitempty"`
 	// Failure — ошибка, на которой выполнение прервалось.
 	Failure string `json:"failure,omitempty"`
+	// Runner — кто выполняет заявку сейчас (RequestRunning) или выполнял.
+	Runner *RunnerMark `json:"runner,omitempty"`
+}
+
+// RunnerMark — где и кем выполняется заявка.
+type RunnerMark struct {
+	Host    string    `json:"host"`
+	PID     int       `json:"pid"`
+	Node    string    `json:"node,omitempty"`  // узел пары серверов
+	Epoch   int64     `json:"epoch,omitempty"` // эпоха узла-primary
+	Started time.Time `json:"started"`
+}
+
+func (m *RunnerMark) String() string {
+	where := fmt.Sprintf("%s, процесс %d", m.Host, m.PID)
+	if m.Node != "" {
+		where = fmt.Sprintf("узел %s (эпоха %d), %s", m.Node, m.Epoch, where)
+	}
+	return where + ", с " + m.Started.Local().Format("2006-01-02 15:04:05")
 }
 
 // ScriptRun — то, что нужно, чтобы выполнить сценарий на языке алиасов
@@ -357,10 +386,83 @@ func (r *Requests) LinkCompensation(original, compensation *Request) error {
 	return r.save(original)
 }
 
+// MarkRunning отмечает начало выполнения. Переход делается под замком и
+// по файлу на диске, а не по копии в памяти: из двух процессов, взявшихся
+// за одну заявку, выполнять будет один.
+func (r *Requests) MarkRunning(request *Request, mark RunnerMark) error {
+	unlock, err := r.lock(request.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	current, err := r.read(request.ID)
+	if err != nil {
+		return err
+	}
+	switch current.State {
+	case RequestApproved:
+	case RequestRunning:
+		return fmt.Errorf("заявка %s уже выполняется: %s", request.ID, current.Runner)
+	default:
+		return fmt.Errorf("заявка %s %s: выполнять нельзя", request.ID, current.State.Russian())
+	}
+	if mark.Started.IsZero() {
+		mark.Started = time.Now().UTC()
+	}
+	request.State, request.Runner = RequestRunning, &mark
+	return r.save(request)
+}
+
+// Unrun возвращает заявку из «выполняется» в «согласована»: выполнение
+// так и не началось (резервный сервер не подтвердил копию).
+func (r *Requests) Unrun(request *Request) error {
+	if request.State != RequestRunning {
+		return nil
+	}
+	request.State, request.Runner = RequestApproved, nil
+	return r.save(request)
+}
+
+// lock — замок заявки на время перехода состояния. Замок старше минуты
+// оставлен пропавшим процессом и снимается.
+func (r *Requests) lock(id string) (func(), error) {
+	path := filepath.Join(r.dir, id+".lock")
+	for i := 0; ; i++ {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, filePerm)
+		if err == nil {
+			f.Close()
+			return func() { os.Remove(path) }, nil
+		}
+		if !os.IsExist(err) {
+			return nil, err
+		}
+		if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > time.Minute {
+			os.Remove(path)
+			continue
+		}
+		if i >= 100 {
+			return nil, fmt.Errorf("заявка %s занята другим процессом", id)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func (r *Requests) read(id string) (*Request, error) {
+	data, err := os.ReadFile(r.path(id))
+	if err != nil {
+		return nil, err
+	}
+	var request Request
+	if err := json.Unmarshal(data, &request); err != nil {
+		return nil, fmt.Errorf("повреждена заявка %s: %w", id, err)
+	}
+	return &request, nil
+}
+
 // MarkFailed отмечает, что выполнение началось и прервалось. refs — что
 // успели сделать до сбоя: оно сделано, и заявка его помнит.
 func (r *Requests) MarkFailed(request *Request, refs []string, failure error) error {
-	if request.State != RequestApproved {
+	if request.State != RequestApproved && request.State != RequestRunning {
 		return fmt.Errorf("заявка %s не согласована (%s): выполнять было нечего",
 			request.ID, request.State.Russian())
 	}
@@ -375,7 +477,7 @@ func (r *Requests) MarkFailed(request *Request, refs []string, failure error) er
 
 // MarkApplied отмечает заявку выполненной.
 func (r *Requests) MarkApplied(request *Request, refs []string) error {
-	if request.State != RequestApproved {
+	if request.State != RequestApproved && request.State != RequestRunning {
 		return fmt.Errorf("заявка %s не согласована (%s): выполнять нечего",
 			request.ID, request.State.Russian())
 	}

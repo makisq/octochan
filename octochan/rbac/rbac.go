@@ -5,10 +5,12 @@
 // планировать и оформлять заявки, но не выполнять и не согласовывать.
 // Остальные роли создаёт master и выдаёт им права.
 //
-// Локально роли — защита от ошибки и граница для нейросети, а не от
-// владельца компьютера: кто может удалить ~/.octochan, тот вернёт роли
-// к исходным. Границей против чужих они станут на общем сервере, где
-// хранилище лежит у сервера, а не у того, кто подключается.
+// Локально хранилище ролей — защита от ошибки и граница для нейросети, а
+// не от владельца компьютера: кто может удалить ~/.octochan, тот вернёт
+// роли к исходным. Роль, которую подтверждает не рабочий каталог, а файл
+// root, — системная политика (system.go). Границей против чужих роли
+// становятся и на общем сервере, где хранилище лежит у сервера, а не у
+// того, кто подключается.
 package rbac
 
 import (
@@ -31,15 +33,20 @@ const All = "all"
 // Groups — группы прав. Право — имя группы или имя команды. Вложенная
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
-	"read": {"aliases", "check", "diff", "else", "find", "fp", "history", "if", "inventory", "lang", "logs",
-		"modules", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
+	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
+		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
 	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
-	"request": {"compensate", "request"},
+	// watch оформляет заявки; выполнить по политике он может, только если у
+	// роли есть и apply — это проверяется как у команды apply.
+	"request": {"compensate", "request", "watch"},
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
-	// больше не построит для него план.
-	"approve": {"approve", "inventory.ack", "reject"},
+	// больше не построит для него план. policy.add — заранее данное
+	// согласование: по политике watch согласует заявки сам.
+	"approve": {"agents.forget", "approve", "inventory.ack", "policy.add", "policy.revoke", "reject"},
+	// agent — машина-агент: сообщать серверу о себе и только.
+	"agent":   {"agents.beat"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
 	"install": {"!install", "inspect"},
 	"auth":    {"auth", "timer"},
@@ -50,15 +57,16 @@ var Groups = map[string][]string{
 	// server — держать общий оркестратор; remote — подключаться к чужому.
 	// Ни то ни другое не входит в потолок llm: нейросеть, подключившись
 	// к серверу, где у master нет пароля, стала бы master.
-	"server": {"serve", "tls.init"},
-	"remote": {"connect", "remote"},
+	// ha.init и ha.promote — пара серверов: настроить узел и переключить.
+	"server": {"ha.init", "ha.promote", "serve", "tls.init"},
+	"remote": {"agent", "connect", "remote"},
 }
 
 // Free — команды, доступные любой роли: без них нельзя узнать, кто ты,
 // и вернуться обратно. Сравнение точное: role здесь не открывает
 // role.create.
 var Free = []string{"back.role", "completion", "completion.bash", "completion.fish", "completion.powershell",
-	"completion.zsh", "help", "role", "role.list", "role.show", "set.role", "shell"}
+	"completion.zsh", "help", "role", "role.list", "role.proof", "role.show", "set.role", "shell"}
 
 // LLMCeiling — потолок роли llm. Нейросеть предлагает, человек решает
 // (П6): выполнять, согласовывать, ставить модули и управлять ролями llm
@@ -87,6 +95,11 @@ type Role struct {
 	// TempPerms и TempDeny — права и запреты со сроком (temporary.go).
 	TempPerms []TempPerm
 	TempDeny  []TempPerm
+
+	// ceiling — потолок системной политики (system.go). Поле не
+	// сохраняется: потолок ставится при каждом запуске из файла, которым
+	// владеет root, а не из хранилища в рабочем каталоге.
+	ceiling *Ceiling
 }
 
 // NeedsAuth сообщает, что для входа в роль нужен логин или пароль.
@@ -107,6 +120,9 @@ func (r *Role) Allows(command string) bool {
 		return true
 	}
 	if r.Denies(command) {
+		return false
+	}
+	if r.ceiling != nil && !r.ceiling.allows(command) {
 		return false
 	}
 	for _, perm := range append(append([]string(nil), r.Perms...), active(r.TempPerms, Now())...) {

@@ -147,8 +147,20 @@ generalization detour(obstacle : Obstacle, side : {left, right}) :
 instance detour_1 = detour(obstacle := o_17, side := right)
 ```
 
-- A slot is typed by a class or by a domain `{…}`. The body is one line:
-  `Class = operation(slots)`. The operation must come from a skill.
+- A slot is typed by a class, by a domain `{…}` of names or numbers with
+  units (`{16 MB, 32 MB}`), or by a number range `100..500` (`16..64 MB`;
+  both ends included). The body is one line: `Class = operation(args)`.
+  The operation must come from a skill.
+- The arguments of the operation are slots in the order the operation
+  takes them; `_` marks an argument the generalization does not bound:
+  `Config = set_param(_, param, value)`.
+- **The plan is checked against generalizations.** Every call of the
+  operation you write in the script must pass slot values inside the
+  domain or range, equal to values the prompt's cells set
+  (`set raise.value = 200`), and, if the prompt has instances of the
+  generalization, equal to one of them. A value outside is not a choice
+  you may make: the plan is rejected. If you need it, the operator must
+  change the prompt.
 - A generalization named after a relation is the schema of that relation:
   its result is the relation's target, and one of its slots is the
   source.

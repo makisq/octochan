@@ -138,7 +138,7 @@ func (g Graph) Downstream(id string) []*Request {
 				continue
 			}
 			seen[r.ID] = true
-			if r.State == RequestPending || r.State == RequestApproved {
+			if r.State == RequestPending || r.State == RequestApproved || r.State == RequestRunning {
 				out = append(out, r)
 			}
 			walk(r.ID)

@@ -162,7 +162,7 @@ var roleShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		role, _, err := activeRole(store)
+		role, forced, err := activeRole(store)
 		if err != nil {
 			return err
 		}
@@ -170,6 +170,11 @@ var roleShowCmd = &cobra.Command{
 			if role = store.Find(args[0]); role == nil {
 				return fmt.Errorf("роли %s нет", args[0])
 			}
+			if sys, err := systemPolicy(); err == nil && sys != nil {
+				role = sys.Ceil(role)
+			}
+		} else if role, err = constrain(cmd, store, role, forced, false); err != nil {
+			return err
 		}
 		auth := []string{}
 		if role.Login != nil {
@@ -181,6 +186,13 @@ var roleShowCmd = &cobra.Command{
 		cmd.Printf("Роль:      %s\n", role.Name)
 		cmd.Printf("Права:     %s\n", noneOr(role.Perms))
 		cmd.Printf("Запреты:   %s\n", noneOr(role.Deny))
+		if c := role.Ceiling(); c != nil {
+			text := noneOr(c.Allow)
+			if len(c.Deny) > 0 {
+				text += "; запрещено: " + strings.Join(c.Deny, ", ")
+			}
+			cmd.Printf("Потолок:   %s (%s)\n", text, c.Source)
+		}
 		cmd.Printf("Область:   %s\n", noneOr(role.Paths))
 		limits := limitTexts(role.Limits)
 		_, fromConfig, err := effectiveLimits(role)
