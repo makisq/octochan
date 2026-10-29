@@ -338,6 +338,9 @@ func showRequest(cmd *cobra.Command, request *workspace.Request, graph workspace
 	if request.Failure != "" {
 		cmd.Printf("Сбой:      %s\n", request.Failure)
 	}
+	if weak := weakPlan(request); len(weak) > 0 {
+		cmd.Printf("Внимание:  поддержка плана ниже порога; самые слабые правила: %s\n", strings.Join(weak, ", "))
+	}
 	if request.Runner != nil && request.State == workspace.RequestRunning {
 		cmd.Printf("Выполняет: %s\n", request.Runner)
 	}
@@ -511,11 +514,18 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 	if request.Role != "" && strings.EqualFold(request.Role, role.Name) && role.Name != rbac.Master {
 		return i18n.Errorf("заявку роли %s согласует другая роль: свою заявку не согласуют", request.Role)
 	}
-	if !strings.EqualFold(request.Role, rbac.LLM) || approveYes {
+	weak := weakPlan(request)
+	if (!strings.EqualFold(request.Role, rbac.LLM) && len(weak) == 0) || approveYes {
 		return nil
 	}
 
-	cmd.Println(i18n.T("Заявку создала нейросеть (роль llm). Согласуйте её, только проверив план:"))
+	if strings.EqualFold(request.Role, rbac.LLM) {
+		cmd.Println(i18n.T("Заявку создала нейросеть (роль llm). Согласуйте её, только проверив план:"))
+	}
+	if len(weak) > 0 {
+		cmd.Println(i18n.Sprintf("Поддержка плана ниже порога: каждый шаг прошёл кольца, но вместе план держится "+
+			"слабее. Самые слабые правила, по порядку: %s. Согласуйте, только проверив план:", strings.Join(weak, ", ")))
+	}
 	if request.Plan != nil {
 		cmd.Print("\n" + request.Plan.Render(60) + "\n")
 	}
@@ -523,7 +533,7 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 		cmd.Printf("%s %s\n\n", i18n.T("Песочница:"), sandboxSummary(request.Script))
 	}
 	if !roleInputIsTTY() {
-		return i18n.Errorf("заявку нейросети согласуют, проверив план выше: повторите с --yes")
+		return i18n.Errorf("такую заявку согласуют, проверив план выше: повторите с --yes")
 	}
 	answer, err := newCredentialReader(cmd).line(i18n.Sprintf("Чтобы согласовать, введите номер заявки (%s): ", request.ID))
 	if err != nil {
@@ -533,6 +543,14 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 		return i18n.Errorf("номер не совпал: заявка %s не согласована", request.ID)
 	}
 	return nil
+}
+
+// weakPlan — самые слабые правила плана, если его поддержка ниже порога.
+func weakPlan(request *workspace.Request) []string {
+	if request.Script == nil || request.Script.Prompt == nil {
+		return nil
+	}
+	return request.Script.Prompt.Weak
 }
 
 // authorLine — автор заявки и роль, в которой он её оформил.

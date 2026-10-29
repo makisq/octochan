@@ -254,3 +254,40 @@ func TestConfigRoleLimits(t *testing.T) {
 	e.must("plan", "tune.ochan")
 	e.must("plan", "tune.ochan")
 }
+
+// Каждый шаг прошёл кольца, а план целиком держится слабее порога: заявка
+// создаётся, но согласует её оператор, проверив план, — слабейшие правила
+// он видит по рангу, без чисел.
+func TestWeakPlanNeedsOperator(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("task.fp"), promptHead)
+	// Правило, вызванное много раз, — один множитель.
+	e.write(e.path("loop.ochan"), "c = config(\"prod.conf\")\nfor i in range(5) {\n    pgconf.verify(c)\n}\npgconf.store(c, \"prod.conf\")\n")
+
+	if out := e.must("plan", "loop.ochan", "--prompt", "task.fp"); strings.Contains(out, "ниже порога") {
+		t.Fatalf("два правила при холодном старте — не слабый план:\n%s", out)
+	}
+	setRings(t, "show_scores", true)
+	if out := e.must("plan", "loop.ochan", "--prompt", "task.fp"); !strings.Contains(out, "по различным правилам, их 2 из 6 утверждений") {
+		t.Fatalf("поддержка плана не по различным правилам:\n%s", out)
+	}
+	setRings(t, "show_scores", false)
+
+	setRings(t, "plan_support.apply", 0.9)
+	created := e.must("request", "loop.ochan", "--prompt", "task.fp")
+	if !strings.Contains(created, "Поддержка плана ниже порога fp.rings.plan_support (0.90)") ||
+		!strings.Contains(created, "Самые слабые правила, по порядку: pgconf.verify, pgconf.store") ||
+		strings.Contains(created, "[0.") {
+		t.Fatalf("слабый план:\n%s", created)
+	}
+	id := requestIDPattern.FindStringSubmatch(created)[1]
+	if card := e.must("requests", id); !strings.Contains(card, "Внимание:  поддержка плана ниже порога") {
+		t.Fatalf("карточка:\n%s", card)
+	}
+	e.fails("повторите с --yes", "approve", id)
+	e.must("approve", id, "--yes")
+	if out := e.must("fp", "journal"); !strings.Contains(out, "Калибровка планов с пометкой «слабый план»") {
+		t.Fatalf("слой калибровки:\n%s", out)
+	}
+}

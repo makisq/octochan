@@ -55,6 +55,30 @@ type Decision struct {
 	// Role — роль, которая построила план: llm — это модель. Нарушение
 	// запрета ложится на неё и на промпт (Blame), а не на правила скиллов.
 	Role string `json:"role,omitempty"`
+	// PlanL и PlanU — поддержка плана целиком, по различным правилам.
+	PlanL float64 `json:"plan_l,omitempty"`
+	PlanU float64 `json:"plan_u,omitempty"`
+	// WeakPlan — поддержка плана ниже порога: оператор видел пометку.
+	WeakPlan bool `json:"weak_plan,omitempty"`
+}
+
+// PlanLower — нижняя граница поддержки плана. У записей до неё — по
+// различным правилам из утверждений.
+func (d *Decision) PlanLower() float64 {
+	if d.PlanL > 0 {
+		return d.PlanL
+	}
+	seen := map[string]bool{}
+	l := 1.0
+	for _, p := range d.Packages {
+		key := strings.Join(p.Rules, "+")
+		if seen[key] || p.Trusted {
+			continue
+		}
+		seen[key] = true
+		l *= p.L
+	}
+	return l
 }
 
 // DecisionPackage — утверждение плана и то, что о нём решили кольца.

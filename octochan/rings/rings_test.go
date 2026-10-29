@@ -245,3 +245,25 @@ func TestCalibrate(t *testing.T) {
 		t.Errorf("интервал 0,1–0,2: %+v", bins[1])
 	}
 }
+
+// Поддержка плана — по различным правилам: правило, вызванное
+// пятьдесят раз, — один множитель, а не пятьдесят.
+func TestPlanSupport(t *testing.T) {
+	strong := Interval{L: 0.97, U: 0.99}
+	weak := Interval{L: 0.6, U: 0.9}
+	var packages []*Package
+	for i := 0; i < 50; i++ {
+		packages = append(packages, &Package{Rules: []string{"pg.tune"}, Support: strong})
+	}
+	packages = append(packages, &Package{Rules: []string{"write"}, Support: weak},
+		&Package{Rules: []string{"pg.verify"}, Support: Interval{L: 0.8, U: 0.95}},
+		&Package{Rules: []string{"pg.restart"}, Support: Interval{L: 0.1, U: 0.5}, Trusted: true})
+
+	got := PlanSupport(packages)
+	if math.Abs(got.L-0.97*0.6*0.8) > 1e-9 || math.Abs(got.U-0.99*0.9*0.95) > 1e-9 {
+		t.Fatalf("поддержка плана: %+v", got)
+	}
+	if w := Weakest(packages, 2); len(w) != 2 || w[0] != "write" || w[1] != "pg.verify" {
+		t.Fatalf("слабейшие: %v", w)
+	}
+}

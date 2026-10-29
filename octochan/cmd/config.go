@@ -107,6 +107,8 @@ func initConfig() error {
 	viper.SetDefault("fp.rings.enabled", true)
 	viper.SetDefault("fp.rings.well_true.plan", 0.5)
 	viper.SetDefault("fp.rings.well_true.apply", 0.6)
+	viper.SetDefault("fp.rings.plan_support.plan", 0.25)
+	viper.SetDefault("fp.rings.plan_support.apply", 0.35)
 	viper.SetDefault("fp.rings.prior", "8/8")
 	viper.SetDefault("fp.rings.show_scores", false)
 	viper.SetDefault("fp.rings.budget.plan", 3)

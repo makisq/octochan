@@ -41,11 +41,14 @@ const (
 
 // ringsConfig — настройки колец, fp.rings в config.yaml.
 type ringsConfig struct {
-	enabled    bool
-	wellTrue   float64
-	prior      lang.Prior
-	showScores bool
-	budget     int
+	enabled  bool
+	wellTrue float64
+	// planSupport — порог нижней границы поддержки плана целиком: шаги
+	// прошли, а план ниже — нужен оператор.
+	planSupport float64
+	prior       lang.Prior
+	showScores  bool
+	budget      int
 }
 
 func loadRingsConfig(purpose ringsPurpose) (ringsConfig, error) {
@@ -63,6 +66,13 @@ func loadRingsConfig(purpose ringsPurpose) (ringsConfig, error) {
 		return c, fmt.Errorf("%s: %w", key, err)
 	}
 	c.wellTrue = threshold
+	supportKey := "fp.rings.plan_support.plan"
+	if purpose == purposeRequest {
+		supportKey = "fp.rings.plan_support.apply"
+	}
+	if c.planSupport, err = fraction(viper.Get(supportKey)); err != nil {
+		return c, fmt.Errorf("%s: %w", supportKey, err)
+	}
 	if c.budget < 0 {
 		return c, fmt.Errorf("fp.rings.budget.plan: %d, бюджет — число отказов подряд, 0 — без предела", c.budget)
 	}
@@ -180,6 +190,10 @@ type judgement struct {
 	rules []string
 	// decision — запись журнала решений; пусто — кольца выключены.
 	decision string
+	// weak — план держится слабее порога fp.rings.plan_support: самые
+	// слабые его правила по рангу. Непусто — согласует оператор, проверив
+	// план, а не по политике и не мимоходом.
+	weak []string
 }
 
 // judgePlan прогоняет план сценария через кольца и арбитра и пишет решение
@@ -271,6 +285,16 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	}
 	_, rejected := rings.Run(packages, cfg.wellTrue, ring3)
 	printRings(cmd, cfg, packages)
+	planSupport := rings.PlanSupport(packages)
+	d.PlanL, d.PlanU = planSupport.L, planSupport.U
+	var weak []string
+	if len(rejected) == 0 && len(packages) > 0 && !rings.Accept(planSupport, cfg.planSupport) {
+		weak = rings.Weakest(packages, 3)
+		d.WeakPlan = true
+		cmd.Printf("\nПоддержка плана ниже порога fp.rings.plan_support (%.2f): каждый шаг прошёл кольца, но "+
+			"вместе план держится слабее — нужен оператор.\n", cfg.planSupport)
+		cmd.Printf("  Самые слабые правила, по порядку: %s\n", strings.Join(weak, ", "))
+	}
 
 	// Арбитр смотрит план целиком и тогда, когда кольца его уже отвергли:
 	// модель получает все причины разом, а не по одной за попытку.
@@ -298,7 +322,7 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 		problems = append(problems, fmt.Sprintf("кольца отвергли утверждений: %d из %d", len(rejected), len(packages)))
 	}
 	if len(problems) == 0 {
-		return judgement{rules: passed, decision: d.ID}, nil
+		return judgement{rules: passed, decision: d.ID, weak: weak}, nil
 	}
 	if n := len(history); n > 0 && history[n-1].Rejected() && history[n-1].Reasons() == d.Reasons() {
 		problems = append(problems, "причина та же, что в прошлый раз: дальше нужен оператор")
@@ -362,9 +386,18 @@ func printRings(cmd *cobra.Command, cfg ringsConfig, packages []*rings.Package) 
 		supports = append(supports, p.Support)
 	}
 	if cfg.showScores {
-		plan := rings.Chain(supports...)
-		cmd.Printf("  поддержка плана [%.2f; %.2f]\n", plan.L, plan.U)
+		plan := rings.PlanSupport(packages)
+		cmd.Printf("  поддержка плана [%.2f; %.2f] — по различным правилам, их %d из %d утверждений\n",
+			plan.L, plan.U, distinctRules(packages), len(supports))
 	}
+}
+
+func distinctRules(packages []*rings.Package) int {
+	seen := map[string]bool{}
+	for _, p := range packages {
+		seen[strings.Join(p.Rules, "+")] = true
+	}
+	return len(seen)
 }
 
 // noteOperator переносит решение оператора по заявке в журнал решений: из
@@ -415,18 +448,25 @@ var fpJournalCmd = &cobra.Command{
 		}
 		decided := workspace.Decided(all)
 		correct := 0
-		scores := make([]float64, len(decided))
-		outcomes := make([]bool, len(decided))
-		for i, d := range decided {
-			outcomes[i], _ = d.Outcome()
-			if outcomes[i] {
+		// Слои калибровки: оператор, который видел пометку «слабый план»,
+		// решал не вслепую к оценке, и его решения считаются отдельно
+		// (раздел 7.3; вопрос 7 манифеста).
+		type stratum struct {
+			scores   []float64
+			outcomes []bool
+		}
+		var blind, flagged stratum
+		for _, d := range decided {
+			ok, _ := d.Outcome()
+			if ok {
 				correct++
 			}
-			plan := rings.Certain
-			for _, p := range d.Packages {
-				plan = rings.Chain(plan, rings.Interval{L: p.L, U: p.U})
+			s := &blind
+			if d.WeakPlan {
+				s = &flagged
 			}
-			scores[i] = plan.L
+			s.scores = append(s.scores, d.PlanLower())
+			s.outcomes = append(s.outcomes, ok)
 		}
 		cmd.Printf("Журнал решений: планов %d, с исходом %d, верных %d\n", len(all), len(decided), correct)
 
@@ -462,9 +502,18 @@ var fpJournalCmd = &cobra.Command{
 			}
 		}
 
-		if len(decided) > 0 {
-			cmd.Println("\nКалибровка — поддержка плана и доля верных:")
-			for _, bin := range rings.Calibrate(scores, outcomes, 10) {
+		for _, layer := range []struct {
+			title string
+			s     stratum
+		}{
+			{"Калибровка — поддержка плана и доля верных", blind},
+			{"Калибровка планов с пометкой «слабый план» — оператор её видел, слой отдельный", flagged},
+		} {
+			if len(layer.s.scores) == 0 {
+				continue
+			}
+			cmd.Printf("\n%s:\n", layer.title)
+			for _, bin := range rings.Calibrate(layer.s.scores, layer.s.outcomes, 10) {
 				if bin.Count > 0 {
 					cmd.Printf("  %.1f–%.1f  планов %d, верных %.0f %%\n", bin.From, bin.To, bin.Count, 100*bin.Observed())
 				}

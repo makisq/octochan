@@ -135,7 +135,8 @@ func (in *scriptInput) stored(j judgement) *workspace.ScriptPrompt {
 	if in.prompt == nil {
 		return nil
 	}
-	p := &workspace.ScriptPrompt{Name: in.prompt.Name, Text: in.prompt.Content, Rules: j.rules, Decision: j.decision}
+	p := &workspace.ScriptPrompt{Name: in.prompt.Name, Text: in.prompt.Content, Rules: j.rules, Decision: j.decision,
+		Weak: j.weak}
 	if in.report != nil {
 		p.ReportName, p.Report = in.report.Name, in.report.Content
 	}
