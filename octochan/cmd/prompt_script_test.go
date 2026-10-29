@@ -371,3 +371,24 @@ print("готово")
 		t.Fatal("откат не удалил файл, созданный печатью")
 	}
 }
+
+// Обобщение промпта ограничивает значения, которые модель подставляет в
+// операцию: вызов за доменом слота — план не проходит.
+func TestPlanChecksGeneralizationSlots(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("task.fp"), promptHead+"generalization store_target(target : {staging, test}) :\n  Config = store(_, target)\n")
+	e.write(e.path("good.ochan"), "c = config(\"prod.conf\")\npgconf.store(c, \"staging\")\n")
+	e.write(e.path("bad.ochan"), "c = config(\"prod.conf\")\npgconf.store(c, \"production\")\n")
+
+	if out := e.must("plan", "good.ochan", "--prompt", "task.fp"); !strings.Contains(out,
+		"соблюдено  generalization store_target(target : {staging, test}) = store — вызовов 1") {
+		t.Fatalf("законный план:\n%s", out)
+	}
+	out, err := e.ochan("plan", "bad.ochan", "--prompt", "task.fp")
+	if err == nil || !strings.Contains(out, "НАРУШЕНО   generalization store_target(target : {staging, test}) = store") ||
+		!strings.Contains(out, "pgconf.store(prod.conf, production): target = production вне домена {staging, test}") {
+		t.Fatalf("вызов за доменом прошёл: %v\n%s", err, out)
+	}
+	e.fails("план нарушает жёсткие правила промпта", "request", "bad.ochan", "--prompt", "task.fp")
+}

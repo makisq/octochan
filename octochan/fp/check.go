@@ -549,13 +549,20 @@ func (c *checker) checkGeneralizations() {
 				}
 				seen[v] = true
 			}
+			if pr.Range != nil && pr.Range.Lo > pr.Range.Hi {
+				c.report(pr.Pos, ErrConflict, "диапазон слота %s пуст: %s", pr.Name, pr.Range.Text)
+			}
 		}
 
 		c.declaredClass(g.Result, g.Op.Pos, "класс результата")
 		used := map[string]bool{}
 		for _, arg := range g.Args {
+			if arg.Text == Unbound {
+				continue
+			}
 			if _, ok := params[arg.Text]; !ok {
-				c.report(arg.Pos, ErrUndef, "аргумент %s — не слот обобщения %s; слоты: %s", arg.Text, g.Name, paramNames(g))
+				c.report(arg.Pos, ErrUndef, "аргумент %s — не слот обобщения %s; слоты: %s (_ — аргумент, который "+
+					"обобщение не ограничивает)", arg.Text, g.Name, paramNames(g))
 				continue
 			}
 			used[arg.Text] = true
@@ -631,6 +638,10 @@ func (c *checker) checkInstances() {
 			case len(param.Domain) > 0:
 				if !contains(param.Domain, b.Value) {
 					c.report(b.Pos, ErrSyn, "значение %s вне домена слота %s: {%s}", b.Value, b.Slot, strings.Join(param.Domain, ", "))
+				}
+			case param.Range != nil:
+				if n, unit, ok := ParseNumber(b.Value); !ok || !param.Range.Contains(n, unit) {
+					c.report(b.Pos, ErrSyn, "значение %s вне диапазона слота %s: %s", b.Value, b.Slot, param.Range.Text)
 				}
 			case param.Class != "":
 				// Имя-значение (o_17, db-main) классом не проверить — оно
