@@ -544,6 +544,9 @@ func openSession(cmd *cobra.Command, addr string, input *bufio.Reader) (*remote.
 		return nil, err
 	}
 	cmd.Printf("Подключено к %s, роль %s\n", client.Primary(), state.Role)
+	if why := client.ReadOnly(); why != "" {
+		cmd.PrintErrf("внимание: %s — подключено к standby: только чтение по копии, запись он отклонит\n", why)
+	}
 	return client, nil
 }
 
