@@ -156,6 +156,9 @@ func (s *scope) set(name string, value Value) {
 
 // Interpreter выполняет разобранный код.
 type Interpreter struct {
+	// lits — наблюдение за литералами сценария (literals.go); nil — нет.
+	lits *literalWatch
+
 	registry *Registry
 	builtins map[string]Builtin
 	out      io.Writer
@@ -579,6 +582,9 @@ func (in *Interpreter) iterate(pos Position, v Value) ([]Value, error) {
 func (in *Interpreter) eval(expr Expr, env *scope) (Value, error) {
 	switch e := expr.(type) {
 	case *Literal:
+		if in.lits != nil && e.Pos.File == in.lits.file {
+			return in.lits.see(e.Value), nil
+		}
 		return e.Value, nil
 
 	case *Ident:

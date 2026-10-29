@@ -66,7 +66,7 @@ func TestFPCheckUsesAliasLibrary(t *testing.T) {
 	resetAliasCache()
 
 	out = e.must("fp", "check", example)
-	for _, want := range []string{"P ∈ ℒ", "K:       connection_limit, memory_budget, prod_limit, set_param, store",
+	for _, want := range []string{"P ∈ ℒ", "K:       connection_limit, memory_budget, set_param, store",
 		"Скилл:   @pgconf 1.2.0"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("в выводе нет %q:\n%s", want, out)

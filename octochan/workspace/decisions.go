@@ -180,21 +180,34 @@ func (d *Decision) requireFailed() bool {
 		return true
 	}
 	for _, reason := range d.ArbiterReasons {
-		if !strings.HasPrefix(reason, "hard forbid ") {
+		if !modelFault(reason) {
 			return true
 		}
 	}
 	return false
 }
 
-// Violated — план нарушил запрет промпта: кольцо 3 нашло противоречие
-// или арбитр отверг план за «никогда».
+// modelFault — причина отказа на счёт модели и промпта, а не правил
+// скиллов: модель нарушила запрет, вышла за слот обобщения или сказала в
+// отчёте не то, что сделала.
+func modelFault(reason string) bool {
+	for _, prefix := range []string{"hard forbid ", "generalization ", "НЕТ В ОТЧЁТЕ ", "РАСХОДИТСЯ "} {
+		if strings.HasPrefix(reason, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// Violated — модель нарушила промпт: кольцо 3 нашло противоречие, или
+// арбитр отверг план за «никогда», за выход из слота обобщения, за отчёт,
+// который расходится с планом.
 func (d *Decision) Violated() bool {
 	if d.contradiction() {
 		return true
 	}
 	for _, reason := range d.ArbiterReasons {
-		if strings.HasPrefix(reason, "hard forbid ") {
+		if modelFault(reason) {
 			return true
 		}
 	}

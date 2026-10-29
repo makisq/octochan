@@ -80,7 +80,7 @@ func setRings(t *testing.T, key string, value any) {
 func TestRingsWellTrueAndJournal(t *testing.T) {
 	e := newScriptEnv(t)
 	e.skill("1.2.0")
-	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n"+promptCell)
 	e.write(e.path("good.ochan"), `c = config("prod.conf")
 put(c, "max_connections", "200")
 pgconf.verify(c)
@@ -155,7 +155,7 @@ pgconf.store(c, "prod.conf")
 func TestRingsContradictionAndBudget(t *testing.T) {
 	e := newScriptEnv(t)
 	e.skill("1.2.0")
-	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n"+promptCell)
 	e.write(e.path("bad.ochan"), `save(config("x = 1\n"), "other.conf")
 `)
 
@@ -171,7 +171,7 @@ func TestRingsContradictionAndBudget(t *testing.T) {
 	e.fails("дважды подряд отвергнут по одной причине", "plan", "bad.ochan", "--prompt", "task.fp")
 
 	// Новый текст промпта — новая задача и новый счёт.
-	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf, other_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf, other_conf})\n"+promptCell)
 	e.must("plan", "bad.ochan", "--prompt", "task.fp")
 
 	// Кольца выключены — остаётся арбитр, журнал не пишется.
@@ -207,7 +207,7 @@ pgconf.store(c, "prod.conf")
 
 	// План оператора со скиллом проходит, как и до серии.
 	t.Setenv(EnvRole, "")
-	e.write(e.path("task.fp"), promptHead+"hard forbid store(except = {prod_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid store(except = {prod_conf})\n"+promptCell)
 	if out := e.must("plan", "good.ochan", "--prompt", "task.fp"); !strings.Contains(out, "well_True     pgconf.store(") {
 		t.Fatalf("скилл отравлен планами модели:\n%s", out)
 	}
@@ -300,11 +300,13 @@ func TestJournalOperatorKinds(t *testing.T) {
 	e := newScriptEnv(t)
 	e.skill("1.2.0")
 	e.write(e.path("task.fp"), promptHead)
+	// Значение выбирает модель и говорит о нём в отчёте.
 	script := func(name, value string) {
 		e.write(e.path(name), "c = config(\"prod.conf\")\nput(c, \"max_connections\", \""+value+"\")\npgconf.verify(c)\npgconf.store(c, \"prod.conf\")\n")
+		e.write(e.path(name+".fp"), "report:\n  q: prod_conf.max_connections\n    choice: "+value+"\n    basis: not_in_prompt\n")
 	}
 	request := func(name string) string {
-		return requestIDPattern.FindStringSubmatch(e.must("request", name, "--prompt", "task.fp"))[1]
+		return requestIDPattern.FindStringSubmatch(e.must("request", name, "--prompt", "task.fp", "--report", name+".fp"))[1]
 	}
 	storeLine := func() string {
 		for _, line := range strings.Split(e.must("fp", "journal"), "\n") {
@@ -343,10 +345,10 @@ func TestJournalOperatorKinds(t *testing.T) {
 	// store, и verify, у которого своих исходов нет, — авторское «8 из 8»
 	// подтянулось к тому, как пакет показал себя.
 	script("c.ochan", "202")
-	e.fails("кольца отвергли утверждений: 2 из 2", "request", "c.ochan", "--prompt", "task.fp")
+	e.fails("кольца отвергли утверждений: 2 из 2", "request", "c.ochan", "--prompt", "task.fp", "--report", "c.ochan.fp")
 
 	// Откат не из-за плана исход не меняет.
-	id = requestIDPattern.FindStringSubmatch(e.must("request", "c.ochan", "--prompt", "task.fp",
+	id = requestIDPattern.FindStringSubmatch(e.must("request", "c.ochan", "--prompt", "task.fp", "--report", "c.ochan.fp",
 		"--trust", "pgconf.verify", "--trust", "pgconf.store"))[1]
 	e.must("approve", id)
 	out := e.must("apply", "--request", id)

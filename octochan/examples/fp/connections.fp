@@ -15,11 +15,11 @@ relations:
 priority:
   Memory < Limit     # бюджет памяти важнее числа соединений
 
-# Слот limit типизирован классом: слово «connections» в нём означает Limit.
-generalization connection_limit(target : Config, limit : Limit) :
-  Config = set_param(target, limit)
-
-instance prod_limit = connection_limit(target := prod_conf, limit := connections)
+# Граница того, что модель подставит в set_param(c, name, value): значение —
+# от 100 до 500. Слот limit типизирован классом: слово «connections» в нём
+# означает Limit.
+generalization connection_limit(target : Config, limit : Limit, value : 100..500) :
+  Config = set_param(target, limit, value)
 
 import @pgconf v1
   provides: Config, set_param, store
@@ -30,7 +30,4 @@ requires: store
 hard forbid store(except = {prod_conf})
 
 cell c1:
-  set prod_limit.value = 200
-
-cell c2:
   set Memory.work_mem = 4 MB

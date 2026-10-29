@@ -185,3 +185,20 @@ func TestOperatorKindsAndAmendments(t *testing.T) {
 		t.Fatalf("пакет: %+v", pooled)
 	}
 }
+
+// Выход из слота обобщения и отчёт, расходящийся с планом, — на счёт
+// модели: правила скиллов они не позорят.
+func TestModelFaultsDoNotBlameRules(t *testing.T) {
+	slot := decision("p", "s1", 1, ArbiterRejected, "", "store")
+	slot.ArbiterReasons = []string{"generalization raise(value : 100..500) = set_param"}
+	report := decision("p", "s2", 2, ArbiterRejected, "", "store")
+	report.ArbiterReasons = []string{"НЕТ В ОТЧЁТЕ prod_conf.max_connections = 300 — литерал сценария"}
+	require := decision("p", "s3", 3, ArbiterRejected, "", "store")
+	require.ArbiterReasons = []string{"hard require verify(scope = {web})"}
+	if c := raw(RuleCounts([]*Decision{slot, report, require})["store"]); c != (Counts{Uses: 1}) {
+		t.Fatalf("store: %+v", c)
+	}
+	if !slot.Violated() || !report.Violated() || require.Violated() {
+		t.Fatal("вина модели")
+	}
+}

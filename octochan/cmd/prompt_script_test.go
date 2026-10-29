@@ -67,7 +67,14 @@ const promptReport = `report:
     choice: high
     alternatives: {low, high}
     basis: not_in_prompt
+  q: prod_conf.max_connections
+    choice: 200
+    basis: not_in_prompt
 `
+
+// promptCell — значение, которое задаёт оператор: тогда это не решение
+// модели, и отчёта о нём не нужно.
+const promptCell = "cell c1:\n  set Config.max_connections = 200\n"
 
 // Жёсткие правила промпта проверяются по плану: план, который их
 // нарушает, отвергается, а соблюдённые правила называются.
@@ -391,4 +398,80 @@ func TestPlanChecksGeneralizationSlots(t *testing.T) {
 		t.Fatalf("вызов за доменом прошёл: %v\n%s", err, out)
 	}
 	e.fails("план нарушает жёсткие правила промпта", "request", "bad.ochan", "--prompt", "task.fp")
+}
+
+// Отчёт модели сверяется с планом: решение модели, о котором отчёт
+// молчит или говорит другое, план не пропускает. Значение из предпосылок —
+// не решение модели, значение ячейки промпта — решение оператора.
+func TestReportBoundToPlan(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("task.fp"), promptHead)
+	e.write(e.path("source.conf"), "max_connections = 450\n")
+	// Здесь отказы — предмет проверки, а не перебор модели.
+	setRings(t, "budget.plan", 0)
+	write := func(value string) {
+		e.write(e.path("s.ochan"), "c = config(\"prod.conf\")\nput(c, \"max_connections\", "+value+")\npgconf.store(c, \"prod.conf\")\n")
+	}
+	report := func(entries ...string) {
+		e.write(e.path("r.fp"), "report:\n"+strings.Join(entries, ""))
+	}
+	entry := func(q, choice string) string {
+		return "  q: " + q + "\n    choice: " + choice + "\n    basis: not_in_prompt\n"
+	}
+	plan := func() (string, error) { return e.ochan("plan", "s.ochan", "--prompt", "task.fp", "--report", "r.fp") }
+	expect := func(want string) {
+		t.Helper()
+		out, err := plan()
+		if err == nil || !strings.Contains(out, want) {
+			t.Fatalf("ожидался отказ с %q: %v\n%s", want, err, out)
+		}
+	}
+	pass := func() string {
+		t.Helper()
+		out, err := plan()
+		if err != nil {
+			t.Fatalf("план не прошёл: %v\n%s", err, out)
+		}
+		return out
+	}
+
+	report(entry("limit", "high"))
+	write(`"300"`)
+	expect("НЕТ В ОТЧЁТЕ prod_conf.max_connections = 300 — литерал сценария")
+	// Спрятать решение в вычисление не выходит.
+	write(`str(100 * 3)`)
+	expect("НЕТ В ОТЧЁТЕ prod_conf.max_connections = 300 — зависит от чисел сценария")
+
+	report(entry("prod_conf.max_connections", "250"))
+	expect("РАСХОДИТСЯ  отчёт: prod_conf.max_connections = 250, а план пишет prod_conf.max_connections = 300")
+
+	report(entry("prod_conf.max_connections", "300"))
+	if out := pass(); !strings.Contains(out, "в отчёте    prod_conf.max_connections = 300 (зависит от чисел сценария)") {
+		t.Fatalf("решение в отчёте:\n%s", out)
+	}
+	report(entry("prod_conf.max_connections", "300"), entry("prod_conf.work_mem", "16 MB"))
+	expect("отчёт говорит о prod_conf.work_mem, а план его не записывает")
+
+	// Значение из предпосылки — не решение модели.
+	report(entry("limit", "high"))
+	write(`get(config("source.conf"), "max_connections")`)
+	pass()
+
+	// Значение задаёт оператор: отчёта не нужно, но и другое значение нельзя.
+	e.write(e.path("task.fp"), promptHead+promptCell)
+	write(`"200"`)
+	pass()
+	write(`"300"`)
+	expect("РАСХОДИТСЯ  prod_conf.max_connections = 300, а промпт задаёт 200")
+
+	// В песочнице — тот же второй план, отдельным процессом. Свой промпт —
+	// свой счёт отказов.
+	e.write(e.path("sandbox.fp"), promptHead+"# в песочнице\n")
+	report(entry("limit", "high"))
+	write(`str(100 * 3)`)
+	if out, err := e.ochan("plan", "s.ochan", "--prompt", "sandbox.fp", "--report", "r.fp", "--sandbox", "--root", e.work); err == nil ||
+		!strings.Contains(out, "НЕТ В ОТЧЁТЕ prod_conf.max_connections = 300 — зависит от чисел сценария") {
+		t.Fatalf("песочница: %v\n%s", err, out)
+	}
 }

@@ -250,7 +250,12 @@ func (c *checker) checkReportNames() {
 		}
 	}
 	for _, entry := range c.prog.Report {
-		check(entry.Question, entry.Pos, "вопрос")
+		// Вопрос через точку — объект плана: цель и параметр — имена
+		// частных объектов, они открыты; его сверяет с планом привязка
+		// отчёта (ochan plan, request).
+		if !strings.Contains(entry.Question, ".") {
+			check(entry.Question, entry.Pos, "вопрос")
+		}
 		if entry.Choice != nil {
 			if isNumber(firstField(entry.Choice.Text)) {
 				c.checkUnit(entry.Choice.Text, entry.Choice.Pos)

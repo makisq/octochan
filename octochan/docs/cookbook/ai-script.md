@@ -95,9 +95,16 @@ K:       set_param, store
        choice: high
        alternatives: {low, high}
        basis: not_in_prompt
+     q: prod_conf.max_connections
+       choice: 200
+       basis: not_in_prompt
    ```
 
-3. видит план и проверку правил:
+   Число 200 модель выбрала сама: промпт его не задаёт. Такое решение
+   обязано быть в отчёте — ochan сверяет отчёт с планом
+   ([«Отчёт модели и план»](../guide/ai.md#отчёт-модели-и-план)).
+
+3. видит план и проверку отчёта и правил:
 
    ```
      /srv/configs/prod.conf
@@ -105,11 +112,27 @@ K:       set_param, store
 
    Отчёт модели:
      limit: high из {low, high} — not_in_prompt
+     prod_conf.max_connections: 200 — not_in_prompt
+
+   Отчёт модели и план:
+     в отчёте    prod_conf.max_connections = 200 (литерал сценария)
 
    Жёсткие правила промпта:
      соблюдено  hard forbid store(except = {prod_conf})
      соблюдено  hard forbid write()
    ```
+
+   Без записи о `prod_conf.max_connections` план не прошёл бы:
+
+   ```
+   Отчёт модели и план:
+     НЕТ В ОТЧЁТЕ prod_conf.max_connections = 200 — литерал сценария: решение модели; в отчёт — q: prod_conf.max_connections choice: 200, или оператор задаёт значение ячейкой промпта
+   ```
+
+   Если число должен решать оператор, оно пишется в промпт ячейкой
+   (`set Config.max_connections = 200`) — или границей:
+   `generalization … value : 100..500` (пример —
+   [examples/fp/connections.fp](../../examples/fp/connections.fp)).
 
 4. вызывает `request_script` — заявка «ждёт решения» с промптом, отчётом и
    соблюдёнными правилами — и возвращает оператору её номер.

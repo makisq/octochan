@@ -911,11 +911,18 @@ func (p *parser) reportBlock(c *cursor) {
 
 		if key.Text == "q" {
 			entry, skipping = nil, true
-			q, ok := b.name("вопрос")
+			// Вопрос — имя или объект плана через точку: цель и параметр
+			// (prod_conf.work_mem). Объект сверяется с планом.
+			pos := Pos{b.ln.no, b.peek().col}
+			if b.peek().kind == tIdent && !isName(b.peek().text) {
+				b.fail(ErrSyn, "вопрос пишется со строчной буквы, получено «%s»", b.peek().text)
+				continue
+			}
+			q, ok := b.ref("вопрос")
 			if !ok || !b.end("после вопроса") {
 				continue
 			}
-			entry, skipping = &ReportEntry{Pos: q.Pos, Question: q.Text}, false
+			entry, skipping = &ReportEntry{Pos: pos, Question: q}, false
 			p.prog.Report = append(p.prog.Report, entry)
 			seen = map[string]bool{}
 			continue

@@ -230,6 +230,9 @@ func firstWord(text string) string {
 // isClassName — классы пишутся с заглавной латинской буквы: так класс
 // отличается от имени отношения, слота или значения без оглядки на
 // контекст.
+// IsClassName — имя класса: с заглавной латинской буквы.
+func IsClassName(s string) bool { return isClassName(s) }
+
 func isClassName(s string) bool {
 	return s != "" && s[0] >= 'A' && s[0] <= 'Z'
 }

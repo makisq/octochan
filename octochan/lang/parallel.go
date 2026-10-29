@@ -224,6 +224,7 @@ func (in *Interpreter) fork(idx int, out, errOut io.Writer) *Interpreter {
 		nextCall:     in.nextCall,
 		stack:        append([]string{}, in.stack...),
 		clock:        in.clock,
+		lits:         in.lits,
 	}
 	worker.SetSeed(in.seed*1_000_003 + int64(idx) + 1)
 	return worker

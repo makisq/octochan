@@ -241,8 +241,11 @@ type judgement struct {
 // judgePlan прогоняет план сценария через кольца и арбитра и пишет решение
 // в журнал. Без промпта нечего проверять: кольца судят ответ модели на
 // формальный промпт.
+//
+// bound — нарушения привязки отчёта к плану (bindReport): для журнала и
+// модели это такие же отказы арбитра, как нарушенные правила.
 func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt *fp.Result, trust []string,
-	registry *lang.Registry, effects []lang.Effect, calls []lang.Invocation) (judgement, error) {
+	registry *lang.Registry, effects []lang.Effect, calls []lang.Invocation, bound []string) (judgement, error) {
 	if prompt == nil {
 		return judgement{}, nil
 	}
@@ -255,6 +258,9 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	}
 	if !cfg.enabled {
 		rules, err := checkRules(cmd, prompt, effects, calls)
+		if err == nil && len(bound) > 0 {
+			err = fmt.Errorf("отчёт модели расходится с планом: %s", strings.Join(bound, "; "))
+		}
 		return judgement{rules: rules}, err
 	}
 
@@ -339,6 +345,7 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	// Арбитр смотрит план целиком и тогда, когда кольца его уже отвергли:
 	// модель получает все причины разом, а не по одной за попытку.
 	passed, failed := runArbiter(cmd, prompt, effects, calls)
+	failed = append(failed, bound...)
 	d.Arbiter = workspace.ArbiterPassed
 	if len(failed) > 0 {
 		d.Arbiter, d.ArbiterReasons = workspace.ArbiterRejected, failed
@@ -355,8 +362,11 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	}
 
 	var problems []string
-	if len(failed) > 0 {
-		problems = append(problems, "план нарушает жёсткие правила промпта: "+strings.Join(failed, "; "))
+	if n := len(failed) - len(bound); n > 0 {
+		problems = append(problems, "план нарушает жёсткие правила промпта: "+strings.Join(failed[:n], "; "))
+	}
+	if len(bound) > 0 {
+		problems = append(problems, "отчёт модели расходится с планом: "+strings.Join(bound, "; "))
 	}
 	if len(rejected) > 0 {
 		problems = append(problems, fmt.Sprintf("кольца отвергли утверждений: %d из %d", len(rejected), len(packages)))

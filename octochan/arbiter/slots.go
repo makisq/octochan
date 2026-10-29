@@ -81,6 +81,42 @@ func CheckSlots(prog *fp.Program, calls []lang.Invocation, sig Signature) []Slot
 	return out
 }
 
+// SlotCall — значение слота обобщения в одном вызове, который написала
+// модель.
+type SlotCall struct {
+	Generalization string
+	Slot           string
+	Value          string
+	CallID         int
+}
+
+// CallSlots — значения слотов во всех вызовах операций обобщений, которые
+// написала модель; слоты, которые не сопоставить, пропускаются — о них
+// говорит CheckSlots.
+func CallSlots(prog *fp.Program, calls []lang.Invocation, sig Signature) []SlotCall {
+	if prog == nil {
+		return nil
+	}
+	var out []SlotCall
+	for _, g := range prog.Generalizations {
+		for _, call := range modelCalls(calls) {
+			if call.Name != g.Op.Text {
+				continue
+			}
+			var params []string
+			if sig != nil {
+				params = sig(call)
+			}
+			for _, slot := range g.Params {
+				if v, ok := slotValue(slot.Name, g, call, params); ok {
+					out = append(out, SlotCall{Generalization: g.Name, Slot: slot.Name, Value: v, CallID: call.ID})
+				}
+			}
+		}
+	}
+	return out
+}
+
 // modelCalls — вызовы, которые написала модель: не изнутри скиллов.
 func modelCalls(calls []lang.Invocation) []lang.Invocation {
 	byID := make(map[int]lang.Invocation, len(calls))
@@ -188,7 +224,11 @@ func cellValues(prog *fp.Program) map[string]string {
 // правил, имена сравниваются без регистра и знаков: файл prod.conf — это
 // prod_conf, 30km/h — 30 km/h. Путь сравнивается и по базовому имени:
 // /srv/prod.conf — тоже prod_conf.
-func sameValue(value, name string) bool {
+func sameValue(value, name string) bool { return SameValue(value, name) }
+
+// SameValue — sameValue для других пакетов: значение плана и имя или
+// значение в промпте и отчёте.
+func SameValue(value, name string) bool {
 	want := squash(name)
 	if want == "" {
 		return value == name
