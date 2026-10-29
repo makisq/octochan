@@ -206,5 +206,12 @@ func (Module) Runners() []pluginhost.RunnerSpec {
 ## Источники
 
 Глубже, чем модуль, — Go-пакет внутри ochan: **источник** регистрирует
-схему (`config.RegisterSourceScheme`) и отдаёт конфиг по ссылке вида
-`схема://…` — так сделан `pgsource`.
+схему и отдаёт данные по ссылке вида `схема://…`.
+
+- Источник конфигов — `config.RegisterSourceScheme`: так сделан
+  `pgsource` (`postgres://…`).
+- Источник инвентаря — `inventory.Register(схема, открыть)`: открытый
+  источник отдаёт хосты с группами и переменными (`Hosts(ctx)`). Так
+  сделан реестр агентов (`agents://`); CMDB подключается так же. В
+  `config.yaml` источник называют по имени: `inventory.sources.cmdb:
+  cmdb://…`.

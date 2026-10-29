@@ -13,26 +13,28 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | aliases, check, diff, else, find, fp, history, if, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, validate |
+| `read` | agents, aliases, check, diff, else, find, fp, ha, history, if, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, validate |
 | `plan` | plan |
 | `request` | compensate, request, watch |
-| `approve` | approve, inventory ack, policy add, policy revoke, reject |
+| `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
 | `install` | !install, inspect |
 | `auth` | auth, timer |
 | `admin` | role create, role delete, role deny, role grant, role limit, role revoke, role scope, role undeny, role update |
 | `audit` | audit, audit verify |
-| `server` | serve, tls init |
-| `remote` | connect, remote |
+| `server` | ha init, ha promote, serve, tls init |
+| `remote` | agent, connect, remote |
+| `agent` | agents beat — машина-агент сообщает серверу о себе, и только |
 
 `help`, `shell`, `role`, `role list`, `role show`, `role proof`, `set role` и `back role`
 доступны любой роли: без них нельзя узнать, кто ты, и вернуться обратно. Право на
 каждую команду — в [справочнике команд](../reference/commands.md).
 
 Вложенная команда со своей группой открывается только ею: право
-`inventory` (чтение) не открывает `inventory ack`, а `policy` — `policy
-add`. `watch` без политики только оформляет заявки; выполнить по политике
-он может, только если у роли есть и `apply`.
+`inventory` (чтение) не открывает `inventory ack`, `policy` — `policy
+add`, `ha` — `ha promote`, `fp` — `fp journal amend`. `watch` без политики
+только оформляет заявки; выполнить по политике он может, только если у
+роли есть и `apply`.
 
 ## Управление ролями
 
@@ -200,7 +202,15 @@ $ OCTOCHAN_ROLE=dan ochan approve 2fb5
 Заявку роли `llm` согласуют, только посмотрев план: `approve` показывает
 его и на терминале просит ввести номер заявки; не на терминале —
 `--yes`. Вредная инструкция, подсунутая модели, рассчитывает как раз на
-то, что человек согласует не глядя.
+то, что человек согласует не глядя. Так же согласуют план по формальному
+промпту, поддержка которого в целом ниже порога
+([«Кольца»](ai.md#кольца-well_true-и-well_false)); `approve` тогда
+называет самые слабые правила.
+
+Заранее данное согласование — политика `ochan watch`: регистрирует и
+отзывает её роль с `approve`, и политику, зарегистрированную той же
+ролью, под которой идёт слежение, ochan не применяет (кроме master)
+([«Слежение»](scenarios.md#слежение-ochan-watch-и-политика)).
 
 ## Журнал аудита
 

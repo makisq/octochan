@@ -137,10 +137,17 @@ go build -ldflags "-X octochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -
   scenarios/      сохранённые сценарии (ochan srs)
   history/        журнал операций — по нему работает rollback
   requests/       заявки на согласование
+  decisions/      журнал решений по формальному промпту — для колец
+  audit.log       журнал аудита с цепочкой хешей
+  inventory.yaml  инвентарь — источник local, если файл есть
+  inventory.seen.json  хосты, которые уже видели (ochan inventory ack, watch)
+  policies/       политики ochan watch; отозванные и заменённые — в old/
   reports/        отчёты команды diff
   snapshots/      снапшоты расхождений
   logs/           журнал работы ochan и его архивы
   tls/            сертификат и ключ серверного режима (ochan tls init)
+  ha.json, ha.token  пара серверов: роль узла, эпоха, общий секрет (ochan ha init)
+  agents.json     реестр агентов на сервере
 ```
 
 Каталоги создаются с правами 0700, файлы с секретами — 0600. Путь до
