@@ -141,6 +141,9 @@ type scriptSetup struct {
 	// только подходящие); inventoryErr — почему инвентаря нет.
 	inventory    []inventory.Host
 	inventoryErr error
+	// watch — запоминать литералы сценария; perturb — сдвигать числа в
+	// них (report_bind.go).
+	watch, perturb bool
 }
 
 // withInventory читает инвентарь для сценария и сужает его --limit.
@@ -182,6 +185,9 @@ func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, ou
 		interp.SetClock(s.clock)
 	}
 	interp.SetInventory(s.inventory, s.inventoryErr)
+	if s.watch {
+		interp.WatchLiterals(s.script.Name, s.perturb)
+	}
 	return interp
 }
 
@@ -227,6 +233,20 @@ func planScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, se
 // разрешённых каталогов, ни до сети. План и выполнение идут одним путём,
 // поэтому их отпечатки сравнимы.
 func execScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, plan bool, out io.Writer) ([]lang.Effect, []lang.Invocation, error) {
+	t, err := traceScript(cmd, registry, file, setup, plan, out)
+	return t.effects, t.calls, err
+}
+
+// scriptTrace — трасса выполнения: действия, вызовы алиасов и литералы
+// сценария, дошедшие до выполнения (если их запоминали).
+type scriptTrace struct {
+	effects  []lang.Effect
+	calls    []lang.Invocation
+	literals []string
+}
+
+// traceScript — execScript с литералами сценария.
+func traceScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, plan bool, out io.Writer) (scriptTrace, error) {
 	if setup.box != nil {
 		spec := isolatedSpec{Mode: "run", Name: setup.script.Name, Content: setup.script.Content,
 			Check: true, Dir: setup.dir, Seed: setup.seed}
@@ -238,11 +258,12 @@ func execScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, se
 			spec.Mode = "plan"
 		}
 		spec.setBox(setup.box)
+		spec.Watch, spec.Perturb = setup.watch, setup.perturb
 		result, err := isolated(cmd, spec, out)
 		if err != nil {
-			return nil, nil, err
+			return scriptTrace{}, err
 		}
-		return result.Effects, result.Invocations, result.err()
+		return scriptTrace{result.Effects, result.Invocations, result.Literals}, result.err()
 	}
 
 	interp := setup.interpreter(cmd, registry, out)
@@ -250,7 +271,7 @@ func execScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, se
 		interp.SetPlanMode()
 	}
 	err := interp.RunFile(file)
-	return interp.Effects(), interp.Invocations(), err
+	return scriptTrace{interp.Effects(), interp.Invocations(), interp.Literals()}, err
 }
 
 // fingerprints — отпечатки действий, по которым план сверяется с выполнением.
@@ -351,7 +372,9 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 	}
 
 	var output strings.Builder
-	effects, calls, err := planScript(cmd, registry, file, setup, &output)
+	setup.watch = prompt != nil
+	trace, err := traceScript(cmd, registry, file, setup, true, &output)
+	effects, calls := trace.effects, trace.calls
 	if output.Len() > 0 {
 		cmd.Print("Вывод сценария в режиме плана:\n" + output.String() + "\n")
 	}
@@ -360,7 +383,8 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 		// заявка на ошибку: согласовывать нечего.
 		return nil, fmt.Errorf("сценарий прервался при построении плана: %w", err)
 	}
-	judged, err := judgePlan(cmd, purposeRequest, input, prompt, popts.trust, registry, effects, calls)
+	bound := bindReport(cmd, registry, file, setup, prompt, trace)
+	judged, err := judgePlan(cmd, purposeRequest, input, prompt, popts.trust, registry, effects, calls, bound)
 	if err != nil {
 		return nil, err
 	}

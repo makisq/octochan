@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"octochan/arbiter"
 	"octochan/fp"
@@ -41,11 +42,17 @@ const (
 
 // ringsConfig — настройки колец, fp.rings в config.yaml.
 type ringsConfig struct {
-	enabled    bool
-	wellTrue   float64
-	prior      lang.Prior
-	showScores bool
-	budget     int
+	enabled  bool
+	wellTrue float64
+	// planSupport — порог нижней границы поддержки плана целиком: шаги
+	// прошли, а план ниже — нужен оператор.
+	planSupport float64
+	prior       lang.Prior
+	showScores  bool
+	budget      int
+	// halfLife — за сколько исход журнала теряет половину веса; 0 — не
+	// теряет.
+	halfLife time.Duration
 }
 
 func loadRingsConfig(purpose ringsPurpose) (ringsConfig, error) {
@@ -63,13 +70,58 @@ func loadRingsConfig(purpose ringsPurpose) (ringsConfig, error) {
 		return c, fmt.Errorf("%s: %w", key, err)
 	}
 	c.wellTrue = threshold
+	supportKey := "fp.rings.plan_support.plan"
+	if purpose == purposeRequest {
+		supportKey = "fp.rings.plan_support.apply"
+	}
+	if c.planSupport, err = fraction(viper.Get(supportKey)); err != nil {
+		return c, fmt.Errorf("%s: %w", supportKey, err)
+	}
 	if c.budget < 0 {
 		return c, fmt.Errorf("fp.rings.budget.plan: %d, бюджет — число отказов подряд, 0 — без предела", c.budget)
 	}
 	if c.prior, err = lang.ParsePrior(viper.GetString("fp.rings.prior")); err != nil {
 		return c, fmt.Errorf("fp.rings.prior: %w", err)
 	}
+	if c.halfLife, err = parseDays(viper.GetString("fp.rings.half_life")); err != nil {
+		return c, fmt.Errorf("fp.rings.half_life: %w", err)
+	}
 	return c, nil
+}
+
+// parseDays — срок: 180d, 72h, 0.
+func parseDays(text string) (time.Duration, error) {
+	text = strings.TrimSpace(text)
+	if text == "" || text == "0" {
+		return 0, nil
+	}
+	if days, ok := strings.CutSuffix(text, "d"); ok {
+		n, err := strconv.ParseFloat(days, 64)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("%q — срок вида 180d", text)
+		}
+		return time.Duration(n * 24 * float64(time.Hour)), nil
+	}
+	d, err := time.ParseDuration(text)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("%q — срок вида 180d или 72h", text)
+	}
+	return d, nil
+}
+
+// ruleReliability — надёжность правила по журналу. Исходы весят по
+// давности. Условный счёт автора подтягивается к тому, как его пакет
+// показал себя на деле: если другие правила пакета подводят, новое
+// правило не получает авторского «8 из 8» на веру (вопрос 6 манифеста).
+func ruleReliability(rule string, counts map[string]workspace.Counts, cfg ringsConfig, registry *lang.Registry) rings.Interval {
+	author := rulePrior(rule, cfg.prior, registry)
+	prior := rings.Prior{Successes: float64(author.Successes), Uses: float64(author.Uses)}
+	if pooled := workspace.PooledExcept(counts, rule); pooled.WUses > 0 && prior.Uses > 0 {
+		mean := (prior.Successes + pooled.WSuccesses) / (prior.Uses + pooled.WUses)
+		prior.Successes = mean * prior.Uses
+	}
+	c := counts[rule]
+	return rings.Reliability(c.WSuccesses, c.WUses, prior)
 }
 
 // fraction — число от 0 до 1 из конфига. Опечатка не должна стать нулём:
@@ -180,13 +232,20 @@ type judgement struct {
 	rules []string
 	// decision — запись журнала решений; пусто — кольца выключены.
 	decision string
+	// weak — план держится слабее порога fp.rings.plan_support: самые
+	// слабые его правила по рангу. Непусто — согласует оператор, проверив
+	// план, а не по политике и не мимоходом.
+	weak []string
 }
 
 // judgePlan прогоняет план сценария через кольца и арбитра и пишет решение
 // в журнал. Без промпта нечего проверять: кольца судят ответ модели на
 // формальный промпт.
+//
+// bound — нарушения привязки отчёта к плану (bindReport): для журнала и
+// модели это такие же отказы арбитра, как нарушенные правила.
 func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt *fp.Result, trust []string,
-	registry *lang.Registry, effects []lang.Effect, calls []lang.Invocation) (judgement, error) {
+	registry *lang.Registry, effects []lang.Effect, calls []lang.Invocation, bound []string) (judgement, error) {
 	if prompt == nil {
 		return judgement{}, nil
 	}
@@ -199,6 +258,9 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	}
 	if !cfg.enabled {
 		rules, err := checkRules(cmd, prompt, effects, calls)
+		if err == nil && len(bound) > 0 {
+			err = fmt.Errorf("отчёт модели расходится с планом: %s", strings.Join(bound, "; "))
+		}
 		return judgement{rules: rules}, err
 	}
 
@@ -234,17 +296,15 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	for _, rule := range trust {
 		trusted[rule] = true
 	}
-	counts := workspace.RuleCounts(all)
+	counts := workspace.RuleCountsAt(all, time.Now(), cfg.halfLife)
 	stmts := statements(effects, calls)
 	packages := make([]*rings.Package, len(stmts))
 	owner := make(map[*rings.Package]*statement, len(stmts))
 	for i, st := range stmts {
-		c := counts[st.rule]
-		prior := rulePrior(st.rule, cfg.prior, registry)
 		packages[i] = &rings.Package{
 			Statement: st.text,
 			Rules:     []string{st.rule},
-			Support:   rings.Reliability(c.Successes, c.Uses, rings.Prior(prior)),
+			Support:   ruleReliability(st.rule, counts, cfg, registry),
 			Trusted:   trusted[st.rule],
 		}
 		owner[packages[i]] = st
@@ -271,10 +331,21 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	}
 	_, rejected := rings.Run(packages, cfg.wellTrue, ring3)
 	printRings(cmd, cfg, packages)
+	planSupport := rings.PlanSupport(packages)
+	d.PlanL, d.PlanU = planSupport.L, planSupport.U
+	var weak []string
+	if len(rejected) == 0 && len(packages) > 0 && !rings.Accept(planSupport, cfg.planSupport) {
+		weak = rings.Weakest(packages, 3)
+		d.WeakPlan = true
+		cmd.Printf("\nПоддержка плана ниже порога fp.rings.plan_support (%.2f): каждый шаг прошёл кольца, но "+
+			"вместе план держится слабее — нужен оператор.\n", cfg.planSupport)
+		cmd.Printf("  Самые слабые правила, по порядку: %s\n", strings.Join(weak, ", "))
+	}
 
 	// Арбитр смотрит план целиком и тогда, когда кольца его уже отвергли:
 	// модель получает все причины разом, а не по одной за попытку.
 	passed, failed := runArbiter(cmd, prompt, effects, calls)
+	failed = append(failed, bound...)
 	d.Arbiter = workspace.ArbiterPassed
 	if len(failed) > 0 {
 		d.Arbiter, d.ArbiterReasons = workspace.ArbiterRejected, failed
@@ -291,14 +362,17 @@ func judgePlan(cmd *cobra.Command, purpose ringsPurpose, in *scriptInput, prompt
 	}
 
 	var problems []string
-	if len(failed) > 0 {
-		problems = append(problems, "план нарушает жёсткие правила промпта: "+strings.Join(failed, "; "))
+	if n := len(failed) - len(bound); n > 0 {
+		problems = append(problems, "план нарушает жёсткие правила промпта: "+strings.Join(failed[:n], "; "))
+	}
+	if len(bound) > 0 {
+		problems = append(problems, "отчёт модели расходится с планом: "+strings.Join(bound, "; "))
 	}
 	if len(rejected) > 0 {
 		problems = append(problems, fmt.Sprintf("кольца отвергли утверждений: %d из %d", len(rejected), len(packages)))
 	}
 	if len(problems) == 0 {
-		return judgement{rules: passed, decision: d.ID}, nil
+		return judgement{rules: passed, decision: d.ID, weak: weak}, nil
 	}
 	if n := len(history); n > 0 && history[n-1].Rejected() && history[n-1].Reasons() == d.Reasons() {
 		problems = append(problems, "причина та же, что в прошлый раз: дальше нужен оператор")
@@ -362,20 +436,35 @@ func printRings(cmd *cobra.Command, cfg ringsConfig, packages []*rings.Package) 
 		supports = append(supports, p.Support)
 	}
 	if cfg.showScores {
-		plan := rings.Chain(supports...)
-		cmd.Printf("  поддержка плана [%.2f; %.2f]\n", plan.L, plan.U)
+		plan := rings.PlanSupport(packages)
+		cmd.Printf("  поддержка плана [%.2f; %.2f] — по различным правилам, их %d из %d утверждений\n",
+			plan.L, plan.U, distinctRules(packages), len(supports))
 	}
+}
+
+func distinctRules(packages []*rings.Package) int {
+	seen := map[string]bool{}
+	for _, p := range packages {
+		seen[strings.Join(p.Rules, "+")] = true
+	}
+	return len(seen)
 }
 
 // noteOperator переносит решение оператора по заявке в журнал решений: из
 // него кольца считают надёжность правил. Сбой записи решения не отменяет.
 func noteOperator(cmd *cobra.Command, request *workspace.Request, verdict string) {
+	noteOperatorKind(cmd, request, verdict, "")
+}
+
+// noteOperatorKind — то же с видом отказа: правилам плана засчитывается
+// только отказ, причина которого в самом плане.
+func noteOperatorKind(cmd *cobra.Command, request *workspace.Request, verdict, kind string) {
 	if request.Script == nil || request.Script.Prompt == nil || request.Script.Prompt.Decision == "" {
 		return
 	}
 	journal, err := decisionStore()
 	if err == nil {
-		err = journal.SetOperator(request.Script.Prompt.Decision, verdict, request.ID)
+		err = journal.SetOperatorKind(request.Script.Prompt.Decision, verdict, kind, request.ID)
 	}
 	if err != nil {
 		cmd.PrintErrf("внимание: решение не попало в журнал решений: %v\n", err)
@@ -415,18 +504,25 @@ var fpJournalCmd = &cobra.Command{
 		}
 		decided := workspace.Decided(all)
 		correct := 0
-		scores := make([]float64, len(decided))
-		outcomes := make([]bool, len(decided))
-		for i, d := range decided {
-			outcomes[i], _ = d.Outcome()
-			if outcomes[i] {
+		// Слои калибровки: оператор, который видел пометку «слабый план»,
+		// решал не вслепую к оценке, и его решения считаются отдельно
+		// (раздел 7.3; вопрос 7 манифеста).
+		type stratum struct {
+			scores   []float64
+			outcomes []bool
+		}
+		var blind, flagged stratum
+		for _, d := range decided {
+			ok, _ := d.Outcome()
+			if ok {
 				correct++
 			}
-			plan := rings.Certain
-			for _, p := range d.Packages {
-				plan = rings.Chain(plan, rings.Interval{L: p.L, U: p.U})
+			s := &blind
+			if d.WeakPlan {
+				s = &flagged
 			}
-			scores[i] = plan.L
+			s.scores = append(s.scores, d.PlanLower())
+			s.outcomes = append(s.outcomes, ok)
 		}
 		cmd.Printf("Журнал решений: планов %d, с исходом %d, верных %d\n", len(all), len(decided), correct)
 
@@ -440,11 +536,11 @@ var fpJournalCmd = &cobra.Command{
 		}
 		registry, errs := aliases()
 		reportAliasErrors(cmd, errs)
-		counts := workspace.RuleCounts(all)
+		counts := workspace.RuleCountsAt(all, time.Now(), cfg.halfLife)
 		cmd.Println("\nПравило                      верных/исходов  надёжность")
 		for _, rule := range sortedPaths(seen) {
 			c := counts[rule]
-			r := rings.Reliability(c.Successes, c.Uses, rings.Prior(rulePrior(rule, cfg.prior, registry)))
+			r := ruleReliability(rule, counts, cfg, registry)
 			cmd.Printf("  %-26s %7d/%-7d [%.2f; %.2f]\n", rule, c.Successes, c.Uses, r.L, r.U)
 		}
 
@@ -462,9 +558,18 @@ var fpJournalCmd = &cobra.Command{
 			}
 		}
 
-		if len(decided) > 0 {
-			cmd.Println("\nКалибровка — поддержка плана и доля верных:")
-			for _, bin := range rings.Calibrate(scores, outcomes, 10) {
+		for _, layer := range []struct {
+			title string
+			s     stratum
+		}{
+			{"Калибровка — поддержка плана и доля верных", blind},
+			{"Калибровка планов с пометкой «слабый план» — оператор её видел, слой отдельный", flagged},
+		} {
+			if len(layer.s.scores) == 0 {
+				continue
+			}
+			cmd.Printf("\n%s:\n", layer.title)
+			for _, bin := range rings.Calibrate(layer.s.scores, layer.s.outcomes, 10) {
 				if bin.Count > 0 {
 					cmd.Printf("  %.1f–%.1f  планов %d, верных %.0f %%\n", bin.From, bin.To, bin.Count, 100*bin.Observed())
 				}
@@ -474,6 +579,62 @@ var fpJournalCmd = &cobra.Command{
 	},
 }
 
+var (
+	amendWrong  bool
+	amendRight  bool
+	amendReason string
+)
+
+var fpJournalAmendCmd = &cobra.Command{
+	Use:   "amend <запись|заявка> (--wrong | --right) --reason <причина>",
+	Short: "Поздняя поправка исхода плана: инцидент после согласования, ошибочный отказ",
+	Long: "Согласованный план привёл к инциденту — его правила не должны считаться\n" +
+		"надёжнее: --wrong. Отказ оказался ошибкой оператора — --right. Запись\n" +
+		"журнала не переписывается: поправка ложится сверху, с тем, кто и почему\n" +
+		"её сделал, и действует последняя. Право — approve: это решение оператора.\n\n" +
+		"Аргумент — номер записи журнала решений или номер заявки на план.",
+	Args:    cobra.ExactArgs(1),
+	Example: "ochan fp journal amend 7a8f --wrong --reason \"INC-123: соединения кончились через час\"",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if amendWrong == amendRight {
+			return errors.New("укажите исход: --wrong или --right")
+		}
+		if strings.TrimSpace(amendReason) == "" {
+			return errors.New("укажите причину: --reason — поправка без причины в журнале ничего не объясняет")
+		}
+		journal, err := decisionStore()
+		if err != nil {
+			return err
+		}
+		id := args[0]
+		if _, err := journal.Get(id); err != nil {
+			store, serr := requestStore()
+			if serr != nil {
+				return err
+			}
+			request, rerr := store.Get(id)
+			if rerr != nil || request.Script == nil || request.Script.Prompt == nil || request.Script.Prompt.Decision == "" {
+				return fmt.Errorf("%s — не запись журнала решений и не заявка на план по формальному промпту", id)
+			}
+			id = request.Script.Prompt.Decision
+		}
+		d, err := journal.Amend(id, amendRight, whoAmI(), amendReason)
+		if err != nil {
+			return err
+		}
+		outcome := "неверный"
+		if amendRight {
+			outcome = "верный"
+		}
+		cmd.Printf("Запись %s: план %s, поправок %d — действует последняя (%s)\n", d.ID, outcome, len(d.Amendments), amendReason)
+		return nil
+	},
+}
+
 func init() {
+	fpJournalAmendCmd.Flags().BoolVar(&amendWrong, "wrong", false, "план был неверен")
+	fpJournalAmendCmd.Flags().BoolVar(&amendRight, "right", false, "план был верен")
+	fpJournalAmendCmd.Flags().StringVar(&amendReason, "reason", "", "почему: инцидент, ошибка оператора")
+	fpJournalCmd.AddCommand(fpJournalAmendCmd)
 	fpCmd.AddCommand(fpJournalCmd)
 }

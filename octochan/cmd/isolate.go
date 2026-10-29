@@ -69,6 +69,11 @@ type isolatedSpec struct {
 	ModulesDir  string `json:"modules_dir"`
 	MaxParallel int    `json:"max_parallel"`
 	Lang        string `json:"lang,omitempty"`
+
+	// Watch — запоминать литералы сценария; Perturb — сдвигать числа в
+	// них: проверка, какие значения плана зависят от решений модели.
+	Watch   bool `json:"watch,omitempty"`
+	Perturb bool `json:"perturb,omitempty"`
 }
 
 // isolatedResult — итог процесса песочницы.
@@ -79,6 +84,8 @@ type isolatedResult struct {
 	Value    string `json:"value,omitempty"`
 	HasValue bool   `json:"has_value,omitempty"`
 	Error    string `json:"error,omitempty"`
+	// Literals — литералы сценария, дошедшие до выполнения (Watch).
+	Literals []string `json:"literals,omitempty"`
 
 	// report — какая изоляция действовала; заполняет родитель.
 	report sandbox.Report
@@ -408,6 +415,9 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 		if spec.Mode == "plan" {
 			interp.SetPlanMode()
 		}
+		if spec.Watch {
+			interp.WatchLiterals(spec.Name, spec.Perturb)
+		}
 		if err := interp.RunFile(file); err != nil {
 			result.Error = err.Error()
 		}
@@ -416,5 +426,6 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 	}
 	result.Effects = interp.Effects()
 	result.Invocations = interp.Invocations()
+	result.Literals = interp.Literals()
 	return result
 }

@@ -99,7 +99,9 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	effects, calls, runErr := planScript(cmd, registry, file, setup, cmd.OutOrStdout())
+	setup.watch = prompt != nil
+	trace, runErr := traceScript(cmd, registry, file, setup, true, cmd.OutOrStdout())
+	effects, calls := trace.effects, trace.calls
 
 	plan := lang.BuildPlan(file.Name, effects)
 	if runErr != nil {
@@ -115,7 +117,8 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 		}
 		return runErr
 	}
-	_, err = judgePlan(cmd, purposePlan, input, prompt, planPrompt.trust, registry, effects, calls)
+	bound := bindReport(cmd, registry, file, setup, prompt, trace)
+	_, err = judgePlan(cmd, purposePlan, input, prompt, planPrompt.trust, registry, effects, calls, bound)
 	return err
 }
 

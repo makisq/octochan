@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"octochan/config"
@@ -24,6 +25,7 @@ var (
 	requestComment string
 	approveYes     bool
 	rejectReason   string
+	rejectKind     string
 	applyRequestID string
 	notifyMail     bool
 	requestScript  bool
@@ -338,6 +340,9 @@ func showRequest(cmd *cobra.Command, request *workspace.Request, graph workspace
 	if request.Failure != "" {
 		cmd.Printf("Сбой:      %s\n", request.Failure)
 	}
+	if weak := weakPlan(request); len(weak) > 0 {
+		cmd.Printf("Внимание:  поддержка плана ниже порога; самые слабые правила: %s\n", strings.Join(weak, ", "))
+	}
 	if request.Runner != nil && request.State == workspace.RequestRunning {
 		cmd.Printf("Выполняет: %s\n", request.Runner)
 	}
@@ -437,6 +442,9 @@ var rejectCmd = &cobra.Command{
 	Short: "Отклонить заявку",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !slices.Contains(workspace.ReasonKinds, rejectKind) {
+			return fmt.Errorf("--reason-kind %q: %s", rejectKind, strings.Join(workspace.ReasonKinds, ", "))
+		}
 		if rejectReason == "" {
 			return fmt.Errorf("укажите причину отказа: --reason")
 		}
@@ -480,7 +488,15 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	if state == workspace.RequestApproved {
 		noteOperator(cmd, request, workspace.OperatorApproved)
 	} else {
-		noteOperator(cmd, request, workspace.OperatorRejected)
+		noteOperatorKind(cmd, request, workspace.OperatorRejected, rejectKind)
+		if request.Script != nil && request.Script.Prompt != nil && request.Script.Prompt.Decision != "" {
+			if rejectKind == workspace.KindPlan {
+				cmd.Println("Отказ засчитан правилам плана как их ошибка. Если причина не в плане — " +
+					"--reason-kind timing, scope или other.")
+			} else {
+				cmd.Printf("Отказ не по плану (%s): правилам плана он не засчитан.\n", rejectKind)
+			}
+		}
 	}
 
 	cmd.Printf("Заявка %s: %s (%s)\n", request.ID, request.State.Russian(), request.DecidedBy)
@@ -511,11 +527,18 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 	if request.Role != "" && strings.EqualFold(request.Role, role.Name) && role.Name != rbac.Master {
 		return i18n.Errorf("заявку роли %s согласует другая роль: свою заявку не согласуют", request.Role)
 	}
-	if !strings.EqualFold(request.Role, rbac.LLM) || approveYes {
+	weak := weakPlan(request)
+	if (!strings.EqualFold(request.Role, rbac.LLM) && len(weak) == 0) || approveYes {
 		return nil
 	}
 
-	cmd.Println(i18n.T("Заявку создала нейросеть (роль llm). Согласуйте её, только проверив план:"))
+	if strings.EqualFold(request.Role, rbac.LLM) {
+		cmd.Println(i18n.T("Заявку создала нейросеть (роль llm). Согласуйте её, только проверив план:"))
+	}
+	if len(weak) > 0 {
+		cmd.Println(i18n.Sprintf("Поддержка плана ниже порога: каждый шаг прошёл кольца, но вместе план держится "+
+			"слабее. Самые слабые правила, по порядку: %s. Согласуйте, только проверив план:", strings.Join(weak, ", ")))
+	}
 	if request.Plan != nil {
 		cmd.Print("\n" + request.Plan.Render(60) + "\n")
 	}
@@ -523,7 +546,7 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 		cmd.Printf("%s %s\n\n", i18n.T("Песочница:"), sandboxSummary(request.Script))
 	}
 	if !roleInputIsTTY() {
-		return i18n.Errorf("заявку нейросети согласуют, проверив план выше: повторите с --yes")
+		return i18n.Errorf("такую заявку согласуют, проверив план выше: повторите с --yes")
 	}
 	answer, err := newCredentialReader(cmd).line(i18n.Sprintf("Чтобы согласовать, введите номер заявки (%s): ", request.ID))
 	if err != nil {
@@ -533,6 +556,14 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 		return i18n.Errorf("номер не совпал: заявка %s не согласована", request.ID)
 	}
 	return nil
+}
+
+// weakPlan — самые слабые правила плана, если его поддержка ниже порога.
+func weakPlan(request *workspace.Request) []string {
+	if request.Script == nil || request.Script.Prompt == nil {
+		return nil
+	}
+	return request.Script.Prompt.Weak
 }
 
 // authorLine — автор заявки и роль, в которой он её оформил.
@@ -632,6 +663,8 @@ func init() {
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
 	approveCmd.Flags().BoolVar(&approveYes, "yes", false, "план заявки нейросети проверен: согласовать без вопроса")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")
+	rejectCmd.Flags().StringVar(&rejectKind, "reason-kind", workspace.KindPlan,
+		"в чём причина: plan — план неверен; timing, scope, other — не в плане, правилам не засчитывается")
 	applyCmd.Flags().StringVar(&applyRequestID, "request", "", "выполнить согласованную заявку")
 	requestCmd.Flags().BoolVar(&requestScript, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")
 	requestOpts.register(requestCmd)

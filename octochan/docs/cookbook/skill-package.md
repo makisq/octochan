@@ -82,7 +82,7 @@ import @pgconf v1
 $ ochan fp check examples/fp/connections.fp
 examples/fp/connections.fp: P ∈ ℒ, слова однозначны, Req(P) ⊆ K, жёсткие правила совместны
 Цель γ:  State
-K:       connection_limit, memory_budget, prod_limit, set_param, store
+K:       connection_limit, memory_budget, set_param, store
 Req(P):  set_param, store
 Скилл:   @pgconf 1.2.0
 ```

@@ -263,6 +263,37 @@ report:
 - The report is written in the same language, so the operator can move
   your decision into the prompt as a new cell.
 
+**The report is checked against the plan.** A value the plan writes into
+a configuration is your decision if it depends on what you wrote in the
+script: it equals a literal of the script, or it changes when the system
+re-plans the script with every number in it shifted by one. Computing
+the value (`100 * 3`) does not hide the decision. A value that comes from
+premises — a file, a live source, the inventory — is not your decision. A
+value a cell of the prompt sets (`set Config.max_connections = 200`) is
+the operator's: the plan must write exactly it.
+
+- Every decision must have a report entry. The question is the target
+  and the parameter through a dot, the choice is the value:
+
+  ```
+  report:
+    q: prod_conf.max_connections
+      choice: 300
+      basis: not_in_prompt
+  ```
+
+  A question without the target (`max_connections`) covers that parameter
+  in every target where the plan writes the same value.
+- A decision without an entry, an entry whose choice differs from the
+  plan, and an entry about a target and parameter the plan does not write
+  are refusals: the plan does not pass.
+- If the report names a slot of a generalization, its choice must equal
+  the value the plan passes.
+- Do not write scripts that break when their numbers shift (a literal
+  list index, a loop bound the script depends on): if the shifted plan
+  fails, the system cannot tell your decisions from premises, and every
+  value the plan writes must then be in the report.
+
 ## 3. Refusals
 
 | Code | Meaning | What to do |

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -79,7 +80,7 @@ func setRings(t *testing.T, key string, value any) {
 func TestRingsWellTrueAndJournal(t *testing.T) {
 	e := newScriptEnv(t)
 	e.skill("1.2.0")
-	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n"+promptCell)
 	e.write(e.path("good.ochan"), `c = config("prod.conf")
 put(c, "max_connections", "200")
 pgconf.verify(c)
@@ -154,7 +155,7 @@ pgconf.store(c, "prod.conf")
 func TestRingsContradictionAndBudget(t *testing.T) {
 	e := newScriptEnv(t)
 	e.skill("1.2.0")
-	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf})\n"+promptCell)
 	e.write(e.path("bad.ochan"), `save(config("x = 1\n"), "other.conf")
 `)
 
@@ -170,7 +171,7 @@ func TestRingsContradictionAndBudget(t *testing.T) {
 	e.fails("дважды подряд отвергнут по одной причине", "plan", "bad.ochan", "--prompt", "task.fp")
 
 	// Новый текст промпта — новая задача и новый счёт.
-	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf, other_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid save(except = {prod_conf, other_conf})\n"+promptCell)
 	e.must("plan", "bad.ochan", "--prompt", "task.fp")
 
 	// Кольца выключены — остаётся арбитр, журнал не пишется.
@@ -206,7 +207,7 @@ pgconf.store(c, "prod.conf")
 
 	// План оператора со скиллом проходит, как и до серии.
 	t.Setenv(EnvRole, "")
-	e.write(e.path("task.fp"), promptHead+"hard forbid store(except = {prod_conf})\n")
+	e.write(e.path("task.fp"), promptHead+"hard forbid store(except = {prod_conf})\n"+promptCell)
 	if out := e.must("plan", "good.ochan", "--prompt", "task.fp"); !strings.Contains(out, "well_True     pgconf.store(") {
 		t.Fatalf("скилл отравлен планами модели:\n%s", out)
 	}
@@ -253,4 +254,112 @@ func TestConfigRoleLimits(t *testing.T) {
 	setting(t, "roles.master.limits", []string{"plan=1/1h"})
 	e.must("plan", "tune.ochan")
 	e.must("plan", "tune.ochan")
+}
+
+// Каждый шаг прошёл кольца, а план целиком держится слабее порога: заявка
+// создаётся, но согласует её оператор, проверив план, — слабейшие правила
+// он видит по рангу, без чисел.
+func TestWeakPlanNeedsOperator(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("task.fp"), promptHead)
+	// Правило, вызванное много раз, — один множитель.
+	e.write(e.path("loop.ochan"), "c = config(\"prod.conf\")\nfor i in range(5) {\n    pgconf.verify(c)\n}\npgconf.store(c, \"prod.conf\")\n")
+
+	if out := e.must("plan", "loop.ochan", "--prompt", "task.fp"); strings.Contains(out, "ниже порога") {
+		t.Fatalf("два правила при холодном старте — не слабый план:\n%s", out)
+	}
+	setRings(t, "show_scores", true)
+	if out := e.must("plan", "loop.ochan", "--prompt", "task.fp"); !strings.Contains(out, "по различным правилам, их 2 из 6 утверждений") {
+		t.Fatalf("поддержка плана не по различным правилам:\n%s", out)
+	}
+	setRings(t, "show_scores", false)
+
+	setRings(t, "plan_support.apply", 0.9)
+	created := e.must("request", "loop.ochan", "--prompt", "task.fp")
+	if !strings.Contains(created, "Поддержка плана ниже порога fp.rings.plan_support (0.90)") ||
+		!strings.Contains(created, "Самые слабые правила, по порядку: pgconf.verify, pgconf.store") ||
+		strings.Contains(created, "[0.") {
+		t.Fatalf("слабый план:\n%s", created)
+	}
+	id := requestIDPattern.FindStringSubmatch(created)[1]
+	if card := e.must("requests", id); !strings.Contains(card, "Внимание:  поддержка плана ниже порога") {
+		t.Fatalf("карточка:\n%s", card)
+	}
+	e.fails("повторите с --yes", "approve", id)
+	e.must("approve", id, "--yes")
+	if out := e.must("fp", "journal"); !strings.Contains(out, "Калибровка планов с пометкой «слабый план»") {
+		t.Fatalf("слой калибровки:\n%s", out)
+	}
+}
+
+// Журнал учится только на том, что говорит о плане: отказ не по плану и
+// откат не из-за плана правилам не засчитываются, а инцидент после
+// согласования исправляется поздней поправкой.
+func TestJournalOperatorKinds(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("task.fp"), promptHead)
+	// Значение выбирает модель и говорит о нём в отчёте.
+	script := func(name, value string) {
+		e.write(e.path(name), "c = config(\"prod.conf\")\nput(c, \"max_connections\", \""+value+"\")\npgconf.verify(c)\npgconf.store(c, \"prod.conf\")\n")
+		e.write(e.path(name+".fp"), "report:\n  q: prod_conf.max_connections\n    choice: "+value+"\n    basis: not_in_prompt\n")
+	}
+	request := func(name string) string {
+		return requestIDPattern.FindStringSubmatch(e.must("request", name, "--prompt", "task.fp", "--report", name+".fp"))[1]
+	}
+	storeLine := func() string {
+		for _, line := range strings.Split(e.must("fp", "journal"), "\n") {
+			if strings.Contains(line, "pgconf.store") {
+				return strings.Join(strings.Fields(line), " ")
+			}
+		}
+		return ""
+	}
+
+	script("a.ochan", "200")
+	id := request("a.ochan")
+	e.fails("--reason-kind \"later\"", "reject", id, "--reason", "x", "--reason-kind", "later")
+	if out := e.must("reject", id, "--reason", "нет окна", "--reason-kind", "timing"); !strings.Contains(out, "правилам плана он не засчитан") {
+		t.Fatalf("reject timing:\n%s", out)
+	}
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 0/0") {
+		t.Fatalf("отказ не по плану засчитан: %q", line)
+	}
+
+	script("b.ochan", "201")
+	id = request("b.ochan")
+	e.must("approve", id)
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 1/1") {
+		t.Fatalf("после согласования: %q", line)
+	}
+	e.fails("укажите исход", "fp", "journal", "amend", id, "--reason", "INC-1")
+	if out := e.must("fp", "journal", "amend", id, "--wrong", "--reason", "INC-1"); !strings.Contains(out, "план неверный") {
+		t.Fatalf("amend:\n%s", out)
+	}
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 0/1") {
+		t.Fatalf("после поправки: %q", line)
+	}
+
+	// После инцидента правила пакета опустились ниже порога заявки: и
+	// store, и verify, у которого своих исходов нет, — авторское «8 из 8»
+	// подтянулось к тому, как пакет показал себя.
+	script("c.ochan", "202")
+	e.fails("кольца отвергли утверждений: 2 из 2", "request", "c.ochan", "--prompt", "task.fp", "--report", "c.ochan.fp")
+
+	// Откат не из-за плана исход не меняет.
+	id = requestIDPattern.FindStringSubmatch(e.must("request", "c.ochan", "--prompt", "task.fp", "--report", "c.ochan.fp",
+		"--trust", "pgconf.verify", "--trust", "pgconf.store"))[1]
+	e.must("approve", id)
+	out := e.must("apply", "--request", id)
+	entry := regexp.MustCompile(`ochan rollback ([0-9a-f]+)`).FindStringSubmatch(out)
+	if entry == nil {
+		t.Fatalf("нет записи для отката:\n%s", out)
+	}
+	if out := e.must("rollback", entry[1], "--not-plan"); !strings.Contains(out, "правилам плана он не засчитан") {
+		t.Fatalf("rollback --not-plan:\n%s", out)
+	}
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 1/2") {
+		t.Fatalf("после отката не по плану: %q", line)
+	}
 }

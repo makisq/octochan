@@ -21,7 +21,11 @@
 // диске, ни про octochan. Числа ему передают снаружи.
 package rings
 
-import "math"
+import (
+	"math"
+	"sort"
+	"strings"
+)
 
 // Mode — режим, в котором работали кольца. Гарантии в режимах разные, и
 // отчёт обязан это сказать (раздел 6.4).
@@ -88,6 +92,54 @@ func Chain(steps ...Interval) Interval {
 	for _, s := range steps {
 		out.L *= s.L
 		out.U *= s.U
+	}
+	return out
+}
+
+// PlanSupport — поддержка плана целиком (вопрос 1 манифеста): произведение
+// поддержек по различным правилам, а не по вызовам. Правило, применённое
+// к пятидесяти хостам, либо верно для этой задачи, либо нет: его отказы
+// между вызовами не независимы, и умножать его поддержку на себя
+// пятьдесят раз — считать, что план держится в 0,97⁵⁰ раз слабее, чем
+// на деле. Правило, которое оператор принял сам (Trusted), в произведение
+// не входит: за него отвечает оператор.
+func PlanSupport(packages []*Package) Interval {
+	seen := map[string]bool{}
+	out := Certain
+	for _, p := range packages {
+		key := strings.Join(p.Rules, "+")
+		if seen[key] || p.Trusted {
+			continue
+		}
+		seen[key] = true
+		out.L *= p.Support.L
+		out.U *= p.Support.U
+	}
+	return out
+}
+
+// Weakest — до n различных правил плана, от самого слабого по нижней
+// границе поддержки. Порядок, а не числа: его можно показать оператору,
+// не нарушая слепоты калибровки (раздел 7.3).
+func Weakest(packages []*Package, n int) []string {
+	type rule struct {
+		name string
+		l    float64
+	}
+	seen := map[string]bool{}
+	var rules []rule
+	for _, p := range packages {
+		key := strings.Join(p.Rules, "+")
+		if seen[key] || p.Trusted {
+			continue
+		}
+		seen[key] = true
+		rules = append(rules, rule{key, p.Support.L})
+	}
+	sort.SliceStable(rules, func(i, j int) bool { return rules[i].l < rules[j].l })
+	var out []string
+	for i := 0; i < len(rules) && i < n; i++ {
+		out = append(out, rules[i].name)
 	}
 	return out
 }

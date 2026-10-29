@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -59,7 +60,7 @@ func TestRuleCountsOncePerPlan(t *testing.T) {
 		decision("q", "s3", 5, ArbiterPassed, "", "b"),
 	}
 	counts := RuleCounts(all)
-	if counts["a"] != (Counts{Uses: 2, Successes: 1}) || counts["b"] != (Counts{Uses: 1, Successes: 1}) {
+	if raw(counts["a"]) != (Counts{Uses: 2, Successes: 1}) || raw(counts["b"]) != (Counts{Uses: 1, Successes: 1}) {
 		t.Fatalf("счёт правил: %+v", counts)
 	}
 	if got := Decided(all); len(got) != 2 || got[0].ScriptSum != "s1" || got[1].ScriptSum != "s2" {
@@ -88,7 +89,7 @@ func TestFailureAttribution(t *testing.T) {
 	counts := RuleCounts([]*Decision{contradiction, forbidden, missing, unknown, rolledBack})
 	want := map[string]Counts{"write": {}, "set_param": {Uses: 1}, "store": {Uses: 1}, "reload": {Uses: 2}}
 	for rule, c := range want {
-		if counts[rule] != c {
+		if raw(counts[rule]) != c {
 			t.Errorf("%s: %+v, ожидалось %+v", rule, counts[rule], c)
 		}
 	}
@@ -150,5 +151,54 @@ func TestDecisionsStore(t *testing.T) {
 	}
 	if err := j.SetOperator("nope", OperatorApproved, ""); err == nil {
 		t.Fatal("решение по несуществующей записи принято")
+	}
+}
+
+// raw — счётчики без весов давности.
+func raw(c Counts) Counts { return Counts{Uses: c.Uses, Successes: c.Successes} }
+
+// Отказ не по плану и поздняя поправка: правилам засчитывается только то,
+// что говорит о плане.
+func TestOperatorKindsAndAmendments(t *testing.T) {
+	timing := decision("p", "s1", 1, ArbiterPassed, OperatorRejected, "store")
+	timing.OperatorKind = KindTiming
+	wrongPlan := decision("p", "s2", 2, ArbiterPassed, OperatorRejected, "store")
+	wrongPlan.OperatorKind = KindPlan
+	incident := decision("p", "s3", 3, ArbiterPassed, OperatorApproved, "store")
+	incident.Amendments = []Amendment{{Correct: false, Reason: "INC-1"}}
+	counts := RuleCounts([]*Decision{timing, wrongPlan, incident})
+	if raw(counts["store"]) != (Counts{Uses: 2, Successes: 0}) {
+		t.Fatalf("store: %+v", counts["store"])
+	}
+
+	// Затухание: исход возраста half-life весит вдвое меньше.
+	old := decision("q", "o1", 0, ArbiterPassed, OperatorApproved, "reload")
+	now := old.Time.Add(90 * 24 * time.Hour)
+	c := RuleCountsAt([]*Decision{old}, now, 90*24*time.Hour)["reload"]
+	if c.Uses != 1 || math.Abs(c.WUses-0.5) > 1e-9 || math.Abs(c.WSuccesses-0.5) > 1e-9 {
+		t.Fatalf("затухание: %+v", c)
+	}
+
+	pooled := PooledExcept(map[string]Counts{"pg.a": {Uses: 3, Successes: 1}, "pg.b": {Uses: 2, Successes: 2},
+		"other.c": {Uses: 9, Successes: 9}}, "pg.b")
+	if pooled.Uses != 3 || pooled.Successes != 1 {
+		t.Fatalf("пакет: %+v", pooled)
+	}
+}
+
+// Выход из слота обобщения и отчёт, расходящийся с планом, — на счёт
+// модели: правила скиллов они не позорят.
+func TestModelFaultsDoNotBlameRules(t *testing.T) {
+	slot := decision("p", "s1", 1, ArbiterRejected, "", "store")
+	slot.ArbiterReasons = []string{"generalization raise(value : 100..500) = set_param"}
+	report := decision("p", "s2", 2, ArbiterRejected, "", "store")
+	report.ArbiterReasons = []string{"НЕТ В ОТЧЁТЕ prod_conf.max_connections = 300 — литерал сценария"}
+	require := decision("p", "s3", 3, ArbiterRejected, "", "store")
+	require.ArbiterReasons = []string{"hard require verify(scope = {web})"}
+	if c := raw(RuleCounts([]*Decision{slot, report, require})["store"]); c != (Counts{Uses: 1}) {
+		t.Fatalf("store: %+v", c)
+	}
+	if !slot.Violated() || !report.Violated() || require.Violated() {
+		t.Fatal("вина модели")
 	}
 }
