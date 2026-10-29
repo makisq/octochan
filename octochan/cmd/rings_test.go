@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -289,5 +290,74 @@ func TestWeakPlanNeedsOperator(t *testing.T) {
 	e.must("approve", id, "--yes")
 	if out := e.must("fp", "journal"); !strings.Contains(out, "Калибровка планов с пометкой «слабый план»") {
 		t.Fatalf("слой калибровки:\n%s", out)
+	}
+}
+
+// Журнал учится только на том, что говорит о плане: отказ не по плану и
+// откат не из-за плана правилам не засчитываются, а инцидент после
+// согласования исправляется поздней поправкой.
+func TestJournalOperatorKinds(t *testing.T) {
+	e := newScriptEnv(t)
+	e.skill("1.2.0")
+	e.write(e.path("task.fp"), promptHead)
+	script := func(name, value string) {
+		e.write(e.path(name), "c = config(\"prod.conf\")\nput(c, \"max_connections\", \""+value+"\")\npgconf.verify(c)\npgconf.store(c, \"prod.conf\")\n")
+	}
+	request := func(name string) string {
+		return requestIDPattern.FindStringSubmatch(e.must("request", name, "--prompt", "task.fp"))[1]
+	}
+	storeLine := func() string {
+		for _, line := range strings.Split(e.must("fp", "journal"), "\n") {
+			if strings.Contains(line, "pgconf.store") {
+				return strings.Join(strings.Fields(line), " ")
+			}
+		}
+		return ""
+	}
+
+	script("a.ochan", "200")
+	id := request("a.ochan")
+	e.fails("--reason-kind \"later\"", "reject", id, "--reason", "x", "--reason-kind", "later")
+	if out := e.must("reject", id, "--reason", "нет окна", "--reason-kind", "timing"); !strings.Contains(out, "правилам плана он не засчитан") {
+		t.Fatalf("reject timing:\n%s", out)
+	}
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 0/0") {
+		t.Fatalf("отказ не по плану засчитан: %q", line)
+	}
+
+	script("b.ochan", "201")
+	id = request("b.ochan")
+	e.must("approve", id)
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 1/1") {
+		t.Fatalf("после согласования: %q", line)
+	}
+	e.fails("укажите исход", "fp", "journal", "amend", id, "--reason", "INC-1")
+	if out := e.must("fp", "journal", "amend", id, "--wrong", "--reason", "INC-1"); !strings.Contains(out, "план неверный") {
+		t.Fatalf("amend:\n%s", out)
+	}
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 0/1") {
+		t.Fatalf("после поправки: %q", line)
+	}
+
+	// После инцидента правила пакета опустились ниже порога заявки: и
+	// store, и verify, у которого своих исходов нет, — авторское «8 из 8»
+	// подтянулось к тому, как пакет показал себя.
+	script("c.ochan", "202")
+	e.fails("кольца отвергли утверждений: 2 из 2", "request", "c.ochan", "--prompt", "task.fp")
+
+	// Откат не из-за плана исход не меняет.
+	id = requestIDPattern.FindStringSubmatch(e.must("request", "c.ochan", "--prompt", "task.fp",
+		"--trust", "pgconf.verify", "--trust", "pgconf.store"))[1]
+	e.must("approve", id)
+	out := e.must("apply", "--request", id)
+	entry := regexp.MustCompile(`ochan rollback ([0-9a-f]+)`).FindStringSubmatch(out)
+	if entry == nil {
+		t.Fatalf("нет записи для отката:\n%s", out)
+	}
+	if out := e.must("rollback", entry[1], "--not-plan"); !strings.Contains(out, "правилам плана он не засчитан") {
+		t.Fatalf("rollback --not-plan:\n%s", out)
+	}
+	if line := storeLine(); !strings.HasPrefix(line, "pgconf.store 1/2") {
+		t.Fatalf("после отката не по плану: %q", line)
 	}
 }

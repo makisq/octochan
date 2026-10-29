@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"octochan/config"
@@ -24,6 +25,7 @@ var (
 	requestComment string
 	approveYes     bool
 	rejectReason   string
+	rejectKind     string
 	applyRequestID string
 	notifyMail     bool
 	requestScript  bool
@@ -440,6 +442,9 @@ var rejectCmd = &cobra.Command{
 	Short: "Отклонить заявку",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !slices.Contains(workspace.ReasonKinds, rejectKind) {
+			return fmt.Errorf("--reason-kind %q: %s", rejectKind, strings.Join(workspace.ReasonKinds, ", "))
+		}
 		if rejectReason == "" {
 			return fmt.Errorf("укажите причину отказа: --reason")
 		}
@@ -483,7 +488,15 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	if state == workspace.RequestApproved {
 		noteOperator(cmd, request, workspace.OperatorApproved)
 	} else {
-		noteOperator(cmd, request, workspace.OperatorRejected)
+		noteOperatorKind(cmd, request, workspace.OperatorRejected, rejectKind)
+		if request.Script != nil && request.Script.Prompt != nil && request.Script.Prompt.Decision != "" {
+			if rejectKind == workspace.KindPlan {
+				cmd.Println("Отказ засчитан правилам плана как их ошибка. Если причина не в плане — " +
+					"--reason-kind timing, scope или other.")
+			} else {
+				cmd.Printf("Отказ не по плану (%s): правилам плана он не засчитан.\n", rejectKind)
+			}
+		}
 	}
 
 	cmd.Printf("Заявка %s: %s (%s)\n", request.ID, request.State.Russian(), request.DecidedBy)
@@ -650,6 +663,8 @@ func init() {
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
 	approveCmd.Flags().BoolVar(&approveYes, "yes", false, "план заявки нейросети проверен: согласовать без вопроса")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")
+	rejectCmd.Flags().StringVar(&rejectKind, "reason-kind", workspace.KindPlan,
+		"в чём причина: plan — план неверен; timing, scope, other — не в плане, правилам не засчитывается")
 	applyCmd.Flags().StringVar(&applyRequestID, "request", "", "выполнить согласованную заявку")
 	requestCmd.Flags().BoolVar(&requestScript, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")
 	requestOpts.register(requestCmd)

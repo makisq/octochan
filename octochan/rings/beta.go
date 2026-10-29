@@ -18,8 +18,8 @@ var Certain = Interval{L: 1, U: 1}
 // раз и Successes из них прошли» (раздел 7.5). Пустой — без условного
 // счёта, то есть a = b = 1.
 type Prior struct {
-	Successes int
-	Uses      int
+	Successes float64
+	Uses      float64
 }
 
 // Reliability — надёжность правила: 95-процентный интервал
@@ -30,9 +30,12 @@ type Prior struct {
 //
 // Для 270 успехов из 300 это [0,86; 0,93], для 3 из 3 — [0,40; 0,99], для
 // условных «8 из 8» без журнала — [0,66; 1,00].
-func Reliability(successes, uses int, prior Prior) Interval {
-	a := float64(1 + successes + prior.Successes)
-	b := float64(1 + (uses - successes) + (prior.Uses - prior.Successes))
+//
+// Счёт дробный: исходы журнала весят по давности, а условный счёт
+// подтягивается к тому, как пакет показал себя на деле.
+func Reliability(successes, uses float64, prior Prior) Interval {
+	a := 1 + successes + prior.Successes
+	b := 1 + (uses - successes) + (prior.Uses - prior.Successes)
 	return Interval{L: BetaQuantile(0.025, a, b), U: BetaQuantile(0.975, a, b)}
 }
 

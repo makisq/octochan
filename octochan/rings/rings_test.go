@@ -13,7 +13,7 @@ func TestReliabilityMatchesManifesto(t *testing.T) {
 	// Числа приложения А.7.
 	cases := []struct {
 		name            string
-		successes, uses int
+		successes, uses float64
 		prior           Prior
 		wantL, wantU    float64
 	}{

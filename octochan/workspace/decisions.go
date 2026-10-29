@@ -3,6 +3,7 @@ package workspace
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,6 +61,51 @@ type Decision struct {
 	PlanU float64 `json:"plan_u,omitempty"`
 	// WeakPlan — поддержка плана ниже порога: оператор видел пометку.
 	WeakPlan bool `json:"weak_plan,omitempty"`
+	// OperatorKind — почему оператор отказал: plan — план неверен, timing,
+	// scope, other — причина не в плане, и правилам это не исход.
+	OperatorKind string `json:"operator_kind,omitempty"`
+	// Amendments — поздние поправки исхода: согласованный план привёл к
+	// инциденту, или отказ оказался ошибкой. Запись не переписывается,
+	// поправка ложится сверху; действует последняя.
+	Amendments []Amendment `json:"amendments,omitempty"`
+}
+
+// Amendment — поздняя поправка исхода плана.
+type Amendment struct {
+	Time    time.Time `json:"time"`
+	By      string    `json:"by"`
+	Correct bool      `json:"correct"`
+	Reason  string    `json:"reason"`
+}
+
+// Виды отказа оператора: только plan — исход для правил.
+const (
+	KindPlan   = "plan"
+	KindTiming = "timing"
+	KindScope  = "scope"
+	KindOther  = "other"
+)
+
+// ReasonKinds — допустимые виды отказа.
+var ReasonKinds = []string{KindPlan, KindTiming, KindScope, KindOther}
+
+// operatorOutcome — что сказал о плане человек: последняя поздняя
+// поправка, иначе решение по заявке. Отказ не по плану исходом не
+// считается: «нет окна обслуживания» не говорит о правилах ничего.
+func (d *Decision) operatorOutcome() (correct, decided bool) {
+	if n := len(d.Amendments); n > 0 {
+		return d.Amendments[n-1].Correct, true
+	}
+	switch d.Operator {
+	case OperatorRejected, OperatorRolledBack:
+		if d.OperatorKind != "" && d.OperatorKind != KindPlan {
+			return false, false
+		}
+		return false, true
+	case OperatorApproved:
+		return true, true
+	}
+	return false, false
 }
 
 // PlanLower — нижняя граница поддержки плана. У записей до неё — по
@@ -109,15 +155,10 @@ type DecisionPackage struct {
 // Успех засчитывает только оператор: план, который никто не согласовывал,
 // верным не назван, и модель не накрутит надёжность, показывая планы.
 func (d *Decision) Outcome() (correct, decided bool) {
-	switch {
-	case d.Arbiter == ArbiterRejected, d.contradiction():
+	if d.Arbiter == ArbiterRejected || d.contradiction() {
 		return false, true
-	case d.Operator == OperatorRejected, d.Operator == OperatorRolledBack:
-		return false, true
-	case d.Operator == OperatorApproved:
-		return true, true
 	}
-	return false, false
+	return d.operatorOutcome()
 }
 
 func (d *Decision) contradiction() bool {
@@ -232,10 +273,13 @@ func (d *Decision) Reasons() string {
 }
 
 // Counts — сколько планов с правилом получили вердикт и сколько из них
-// оказались верными.
+// оказались верными. WUses и WSuccesses — то же с весом по давности
+// (RuleCountsAt): по ним считается надёжность.
 type Counts struct {
-	Uses      int
-	Successes int
+	Uses       int
+	Successes  int
+	WUses      float64
+	WSuccesses float64
 }
 
 // Decided — планы с исходом, каждый по последнему вердикту, от старых к
@@ -284,21 +328,26 @@ func (d *Decision) PackageOutcome(i int) (correct, decided bool) {
 	case d.Arbiter == ArbiterRejected:
 		return false, true
 	}
-	switch d.Operator {
-	case OperatorRejected, OperatorRolledBack:
-		return false, true
-	case OperatorApproved:
-		return true, true
-	}
-	return false, false
+	return d.operatorOutcome()
 }
 
 // RuleCounts считает надёжность правил по журналу: по планам из Decided.
 // Правило в плане — одно применение: неверное, если неверно хоть одно его
 // утверждение, верное, если верны все, у которых есть исход.
 func RuleCounts(decisions []*Decision) map[string]Counts {
+	return RuleCountsAt(decisions, time.Time{}, 0)
+}
+
+// RuleCountsAt — то же с затуханием: исход возраста halfLife весит вдвое
+// меньше свежего. Старые успехи не держат правило вечно, а старые ошибки
+// оператора — вечно не тянут его вниз. halfLife 0 — без затухания.
+func RuleCountsAt(decisions []*Decision, now time.Time, halfLife time.Duration) map[string]Counts {
 	counts := map[string]Counts{}
 	for _, d := range Decided(decisions) {
+		weight := 1.0
+		if halfLife > 0 && now.After(d.Time) {
+			weight = math.Pow(0.5, float64(now.Sub(d.Time))/float64(halfLife))
+		}
 		outcome := map[string]bool{}
 		for i, p := range d.Packages {
 			correct, decided := d.PackageOutcome(i)
@@ -314,13 +363,41 @@ func RuleCounts(decisions []*Decision) map[string]Counts {
 		for rule, correct := range outcome {
 			c := counts[rule]
 			c.Uses++
+			c.WUses += weight
 			if correct {
 				c.Successes++
+				c.WSuccesses += weight
 			}
 			counts[rule] = c
 		}
 	}
 	return counts
+}
+
+// PackageOf — пакет правила: pgconf для pgconf.store; встроенные write,
+// save, exec — пустой пакет.
+func PackageOf(rule string) string {
+	if i := strings.LastIndex(rule, "."); i > 0 {
+		return rule[:i]
+	}
+	return ""
+}
+
+// PooledExcept — исходы всех правил пакета, кроме самого правила: по ним
+// видно, насколько автор пакета вообще заслуживает доверия.
+func PooledExcept(counts map[string]Counts, rule string) Counts {
+	pkg := PackageOf(rule)
+	var out Counts
+	for r, c := range counts {
+		if r == rule || PackageOf(r) != pkg {
+			continue
+		}
+		out.Uses += c.Uses
+		out.Successes += c.Successes
+		out.WUses += c.WUses
+		out.WSuccesses += c.WSuccesses
+	}
+	return out
 }
 
 // Decisions — журнал решений на диске: запись — файл.
@@ -379,15 +456,36 @@ func (j *Decisions) Get(id string) (*Decision, error) {
 
 // SetOperator записывает решение оператора по заявке на план.
 func (j *Decisions) SetOperator(id, verdict, request string) error {
+	return j.SetOperatorKind(id, verdict, "", request)
+}
+
+// SetOperatorKind — то же с видом отказа: plan, timing, scope, other.
+func (j *Decisions) SetOperatorKind(id, verdict, kind, request string) error {
 	d, err := j.Get(id)
 	if err != nil {
 		return err
 	}
-	d.Operator = verdict
+	d.Operator, d.OperatorKind = verdict, kind
 	if request != "" {
 		d.Request = request
 	}
 	return j.save(d)
+}
+
+// Amend кладёт позднюю поправку исхода поверх записи.
+func (j *Decisions) Amend(id string, correct bool, by, reason string) (*Decision, error) {
+	d, err := j.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if d.Arbiter == ArbiterRejected || d.contradiction() {
+		return nil, fmt.Errorf("план %s отверг арбитр или кольцо 3: он не выполнялся, и поправлять в нём нечего", id)
+	}
+	if by == "" {
+		by = currentUser()
+	}
+	d.Amendments = append(d.Amendments, Amendment{Time: time.Now().UTC(), By: by, Correct: correct, Reason: reason})
+	return d, j.save(d)
 }
 
 // All возвращает все записи от старых к новым.

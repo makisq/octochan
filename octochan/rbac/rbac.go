@@ -44,7 +44,8 @@ var Groups = map[string][]string{
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
 	// больше не построит для него план. policy.add — заранее данное
 	// согласование: по политике watch согласует заявки сам.
-	"approve": {"agents.forget", "approve", "inventory.ack", "policy.add", "policy.revoke", "reject"},
+	// fp.journal.amend — поздняя поправка исхода плана: тоже решение.
+	"approve": {"agents.forget", "approve", "fp.journal.amend", "inventory.ack", "policy.add", "policy.revoke", "reject"},
 	// agent — машина-агент: сообщать серверу о себе и только.
 	"agent":   {"agents.beat"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},

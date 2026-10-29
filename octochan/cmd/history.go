@@ -129,7 +129,10 @@ func showHistoryEntry(cmd *cobra.Command, store *workspace.History, id string) e
 	return nil
 }
 
-var rollbackForce bool
+var (
+	rollbackForce   bool
+	rollbackNotPlan bool
+)
 
 var rollbackCmd = &cobra.Command{
 	Use:   "rollback <id>",
@@ -279,7 +282,12 @@ func rollbackFiles(cmd *cobra.Command, store *workspace.History, entry *workspac
 	if id, ok := strings.CutPrefix(entry.Command, "apply --request "); ok {
 		if requests, err := requestStore(); err == nil {
 			if request, err := requests.Get(id); err == nil {
-				noteOperator(cmd, request, workspace.OperatorRolledBack)
+				if rollbackNotPlan {
+					// Откат не из-за плана — исход плана прежний.
+					cmd.Println("Откат не по плану (--not-plan): правилам плана он не засчитан.")
+				} else {
+					noteOperator(cmd, request, workspace.OperatorRolledBack)
+				}
 			}
 		}
 	}
@@ -309,4 +317,6 @@ func init() {
 	historyCmd.Flags().IntVar(&historyLimit, "limit", 20, "сколько записей показать (0 — все)")
 	rollbackCmd.Flags().BoolVar(&rollbackForce, "force", false,
 		"откатить повторно или поверх файлов, изменившихся после операции")
+	rollbackCmd.Flags().BoolVar(&rollbackNotPlan, "not-plan", false,
+		"откат не из-за плана: правилам плана по формальному промпту не засчитывать")
 }
