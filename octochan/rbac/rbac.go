@@ -34,7 +34,9 @@ const All = "all"
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
 	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
-		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "trigger", "validate"},
+		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "trigger", "validate",
+		// !!search только читает реестры из настроек.
+		"!!search"},
 	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
@@ -52,7 +54,7 @@ var Groups = map[string][]string{
 	// только. Какую роль открывает окно, решает config.yaml, а не он.
 	"trigger": {"trigger.end", "trigger.fire"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
-	"install": {"!!install", "inspect"},
+	"install": {"!!install", "!!registry", "!!rin", "inspect"},
 	"auth":    {"auth", "timer"},
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
 		"role.scope", "role.undeny", "role.update", "trigger.secret"},

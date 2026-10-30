@@ -15,6 +15,12 @@
 ## Оглавление
 
 - [`ochan !!install`](#ochan-install) — Установить модуль или пакет алиасов
+- [`ochan !!registry`](#ochan-registry) — Реестры пакетов: источники, ключи подписи, публикация, отзыв
+- [`ochan !!registry keygen`](#ochan-registry-keygen) — Создать ключ подписи реестра ed25519
+- [`ochan !!registry publish`](#ochan-registry-publish) — Опубликовать пакет в реестр-каталог
+- [`ochan !!registry revoke`](#ochan-registry-revoke) — Отозвать версию пакета в реестре-каталоге
+- [`ochan !!rin`](#ochan-rin) — Поставить пакет алиасов из реестра — с планом и согласованием
+- [`ochan !!search`](#ochan-search) — Найти пакет алиасов в реестрах
 - [`ochan agent`](#ochan-agent) — Машина-агент: сообщать серверу о себе
 - [`ochan agent run`](#ochan-agent-run) — Сообщать серверу о себе раз в --every
 - [`ochan agents`](#ochan-agents) — Реестр агентов: машины, которые сами сообщают серверу о себе
@@ -141,6 +147,124 @@ ochan '!!install' --remove pgconf
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--remove` | bool | — | удалить модуль или пакет алиасов |
+
+## ochan !!registry
+
+Реестры пакетов: источники, ключи подписи, публикация, отзыв.
+
+```
+ochan !!registry
+```
+
+Без подкоманды — источники registry.sources по приоритету и ключи
+registry.keys. Свой реестр — каталог: keygen создаёт ключ подписи, publish
+кладёт пакет и подписывает индекс, revoke отзывает версию. Каталог
+отдают по HTTP или коммитят в git.
+
+Право: `install`.
+
+Примеры:
+
+```
+ochan '!!registry'
+ochan '!!registry' keygen corp-release
+ochan '!!registry' publish ./pgconf --registry /srv/registry --key corp-release.key
+ochan '!!registry' revoke @pgconf v1.3.0 --registry /srv/registry --key corp-release.key --reason "CVE-2026-1234"
+```
+
+Подкоманды: [`keygen`](#ochan-registry-keygen), [`publish`](#ochan-registry-publish), [`revoke`](#ochan-registry-revoke).
+
+## ochan !!registry keygen
+
+Создать ключ подписи реестра ed25519.
+
+```
+ochan !!registry keygen <имя>
+```
+
+Право: `install`.
+
+## ochan !!registry publish
+
+Опубликовать пакет в реестр-каталог.
+
+```
+ochan !!registry publish <каталог пакета> --registry <каталог реестра>
+```
+
+Право: `install`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--key` | string | — | закрытый ключ подписи индекса (keygen) |
+| `--registry` | string | — | каталог реестра |
+
+## ochan !!registry revoke
+
+Отозвать версию пакета в реестре-каталоге.
+
+```
+ochan !!registry revoke <@пакет> <версия> --registry <каталог реестра> --reason <почему>
+```
+
+Право: `install`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--key` | string | — | закрытый ключ подписи индекса (keygen) |
+| `--reason` | string | — | причина отзыва: её увидят все |
+| `--registry` | string | — | каталог реестра |
+
+## ochan !!rin
+
+Поставить пакет алиасов из реестра — с планом и согласованием.
+
+```
+ochan !!rin <@пакет> [версия]
+```
+
+Ищет пакет в registry.sources по приоритету, строит план установки —
+источник, что и куда разместит, режимы, зависимости, подпись индекса,
+sha256 архива — и оформляет заявку. После ochan approve <id> пакет
+ставит ochan apply --request <id>: ровно тот архив, сумму которого
+согласовали. Отозванная автором версия не ставится.
+
+--plan — только показать план; --approve — поставить сразу, если роль
+может согласовывать.
+
+Право: `install`.
+
+Примеры:
+
+```
+ochan '!!rin' @pgconf --plan
+ochan '!!rin' @pgconf v1.4.0
+ochan '!!rin' @pgconf --approve
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--approve` | bool | — | поставить сразу, без заявки: роли нужно право approve |
+| `--plan` | bool | — | только показать план установки |
+
+## ochan !!search
+
+Найти пакет алиасов в реестрах.
+
+```
+ochan !!search <слово>
+```
+
+Ищет по имени и описанию пакета во всех источниках registry.sources —
+и только в них. Источники одного приоритета — одним блоком.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan '!!search' pgconf
+```
 
 ## ochan agent
 

@@ -102,6 +102,10 @@ type Request struct {
 	// Policy — политика, которой заявка согласована без человека (ochan
 	// watch); пусто — согласовал человек.
 	Policy string `json:"policy,omitempty"`
+	// Packages — пакеты реестра, которые ставит заявка (ochan !!rin):
+	// сначала зависимости, последним — сам пакет. Сумма архива — та, на
+	// которую сказали «да»: другой архив не поставится.
+	Packages []PackageInstall `json:"packages,omitempty"`
 	// Trigger — окна триггеров, в которых заявку оформили (release#1234):
 	// ochan requests --after release#1234 перечисляет такие заявки.
 	Trigger string `json:"trigger,omitempty"`
@@ -427,6 +431,16 @@ func (r *Requests) Unrun(request *Request) error {
 	}
 	request.State, request.Runner = RequestApproved, nil
 	return r.save(request)
+}
+
+// PackageInstall — пакет реестра в заявке.
+type PackageInstall struct {
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Source   string `json:"source"`
+	URL      string `json:"url"`
+	SHA256   string `json:"sha256"`
+	SignedBy string `json:"signed_by,omitempty"`
 }
 
 // lock — замок заявки на время перехода состояния. Замок старше минуты

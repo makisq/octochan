@@ -157,6 +157,9 @@ func applyApprovedRequest(cmd *cobra.Command, id string) error {
 	if request.Script != nil {
 		return applyScriptRequest(cmd, store, request)
 	}
+	if len(request.Packages) > 0 {
+		return applyPackageRequest(cmd, store, request)
+	}
 	if request.Service == "" {
 		return applyConfigRequest(cmd, store, request)
 	}
