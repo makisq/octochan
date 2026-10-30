@@ -13,26 +13,29 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | agents, aliases, check, diff, else, find, fp, ha, history, if, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, validate |
+| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, trigger, validate |
 | `plan` | plan |
-| `request` | compensate, request, watch |
+| `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident resolve, request, watch |
 | `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
-| `install` | !install, inspect |
+| `install` | !!install, !!registry, !!rin, inspect |
 | `auth` | auth, timer |
-| `admin` | role create, role delete, role deny, role grant, role limit, role revoke, role scope, role undeny, role update |
+| `admin` | agents free, ha contour, incident secret, role create, role delete, role deny, role grant, role limit, role revoke, role scope, role undeny, role update, trigger secret |
 | `audit` | audit, audit verify |
 | `server` | ha init, ha promote, serve, tls init |
 | `remote` | agent, connect, remote |
 | `agent` | agents beat — машина-агент сообщает серверу о себе, и только |
+| `trigger` | trigger end, trigger fire — источник событий (CI) открывает и закрывает окно триггера, и только |
 
-`help`, `shell`, `role`, `role list`, `role show`, `role proof`, `set role` и `back role`
+`help`, `ping`, `shell`, `role`, `role list`, `role show`, `role proof`, `set role` и `back role`
 доступны любой роли: без них нельзя узнать, кто ты, и вернуться обратно. Право на
 каждую команду — в [справочнике команд](../reference/commands.md).
 
 Вложенная команда со своей группой открывается только ею: право
 `inventory` (чтение) не открывает `inventory ack`, `policy` — `policy
-add`, `ha` — `ha promote`, `fp` — `fp journal amend`. `watch` без политики
+add`, `ha` — `ha promote`, `fp` — `fp journal amend`, `incident` —
+`incident open`, `trigger` — `trigger fire`. `agents free` и `ha contour`
+команды ещё и проверяют сами, что роль — master. `watch` без политики
 только оформляет заявки; выполнить по политике он может, только если у
 роли есть и `apply`.
 
@@ -185,6 +188,68 @@ $ ochan role
 правом `admin`. В [журнале аудита](#журнал-аудита) видны и выдача со
 сроком (`role grant --for=2h dan apply`), и возврат роли
 (`role: role expire master`).
+
+## По событию: триггеры
+
+Роль, которая нужна только на время события — релиза из CI, — открывает
+**триггер**. Вне окна события такая роль не может ничего, кроме того, что
+доступно любой роли; в окне — свои права, но цели только под областью
+триггера. Окно закрывается событием конца или само, по `max_window`:
+завис релиз — роль гаснет без человека и без CI.
+
+```yaml
+triggers:
+  release:
+    event: ci/release          # что шлёт CI; по умолчанию — имя триггера
+    grant:
+      role: deployer
+      scope: [group=prod]      # цели в окне — только под этим
+      max_window: 2h           # обязательно
+```
+
+```
+$ ochan role create deployer --allow read,plan,request,apply
+$ ochan role create ci --allow trigger           # CI только открывает и закрывает окна
+$ OCTOCHAN_ROLE=deployer ochan plan deploy.yaml
+ошибка: роль deployer действует только в окне триггера (release): не активна — ждёт события
+
+$ OCTOCHAN_ROLE=ci ochan trigger fire release --id 1234
+Окно release#1234: роль deployer активна до 12:03, цели — group=prod
+Закрыть раньше: ochan trigger end release --id 1234
+
+$ OCTOCHAN_ROLE=deployer ochan plan deploy.yaml
+ошибка: цель app9 вне области окна release#1234 (group=prod): роль в окне триггера работает только над ней
+$ OCTOCHAN_ROLE=deployer ochan apply deploy.yaml --limit group=prod
+…
+Создано:
+  - demo-CI101: version = 2.4.1
+  - demo-CI102: version = 2.4.1
+
+$ ochan role show deployer
+…
+Триггеры:  release (событие ci/release, окно до 2h)
+Сейчас:    активна (release#1234, с 10:03, до 12:03)
+
+$ OCTOCHAN_ROLE=ci ochan trigger end release --id 1234 --reason "релиз 2.4.1 выкачен"
+Окно release#1234 закрыто: роль deployer снята
+```
+
+- **Событие** — `ochan trigger fire|end <триггер> --id <номер>` (право
+  `trigger`) или вебхук сервера `POST /v1/events/<триггер>` с секретом
+  триггера (`ochan trigger secret release`) и телом `{"id": "1234",
+  "state": "start"}` или `"end"`: CI обходится без клиента ochan. То же
+  событие второй раз окна не открывает и не продлевает.
+- **Что было в окне** — `ochan requests --after release#1234`: заявки,
+  оформленные в нём. `ochan trigger` — триггеры и последние окна.
+- **Журнал аудита** — выдача, закрытие и истечение:
+
+  ```
+  + 2026-10-30 10:03:04  deployer   root   trigger: release#1234 → роль deployer выдана: group=prod, до 12:03
+  + 2026-10-30 10:03:12  deployer   root   trigger: release#1234 закрыто — роль deployer снята: релиз 2.4.1 выкачен
+  ```
+
+- Триггер не открывает `master` и `llm`; без `max_window` триггера нет.
+  Окна и секреты копируются на standby.
 
 ## Согласование
 

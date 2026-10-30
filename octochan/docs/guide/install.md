@@ -13,7 +13,7 @@ ochan --version
 ```
 
 ```
-ochan 0.2.0-alpha
+ochan 0.3.0-alpha
 ```
 
 `make install` собирает `ochan` и сервер MCP `ochan-mcp` и кладёт их в
@@ -61,12 +61,12 @@ GOOS=linux   GOARCH=arm64 go build -o ochan-arm64 .
 ```
 
 Версию печатают `ochan --version` и `ochan-mcp --version`; в исходниках
-записана `0.2.0-alpha`, другая задаётся при сборке:
+записана `0.3.0-alpha`, другая задаётся при сборке:
 
 ```bash
-go build -ldflags "-X octochan/cmd.Version=0.2.0-alpha" -o ochan .
-(cd mcp && go build -ldflags "-X main.serverVersion=0.2.0-alpha" -o ../ochan-mcp .)
-make build VERSION=0.2.0-alpha+site     # то же через make
+go build -ldflags "-X octochan/cmd.Version=0.3.0-alpha" -o ochan .
+(cd mcp && go build -ldflags "-X main.serverVersion=0.3.0-alpha" -o ../ochan-mcp .)
+make build VERSION=0.3.0-alpha+site     # то же через make
 ```
 
 Путь системной политики ролей тоже задаётся при сборке, а не окружением
@@ -146,8 +146,12 @@ go build -ldflags "-X octochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -
   snapshots/      снапшоты расхождений
   logs/           журнал работы ochan и его архивы
   tls/            сертификат и ключ серверного режима (ochan tls init)
-  ha.json, ha.token  пара серверов: роль узла, эпоха, общий секрет (ochan ha init)
+  ha.json, ha.token  пара серверов: роль узла, эпоха, контур, общий секрет (ochan ha init)
   agents.json     реестр агентов на сервере
+  free.json       выдачи free модели на узле HA-AI (ochan agents free)
+  incidents/      инциденты HA-AI; incidents.secret — секрет вебхука мониторинга
+  triggers.json   окна триггеров; triggers/ — секреты их вебхуков
+  registry/cache/ клоны git-реестров пакетов
 ```
 
 Каталоги создаются с правами 0700, файлы с секретами — 0600. Путь до
@@ -221,12 +225,12 @@ ochan print prod.conf | ochan diff - test.conf
 
 ```
 ochan[master]> diff prod.conf test.conf
-ochan[master]> !history
+ochan[master]> !!history
 ochan[master]> exit
 ```
 
 В приглашении видна текущая роль. История команд переживает перезапуск
-(стрелка вверх, `!history`); пароли в ссылках записываются как `***`, а
+(стрелка вверх, `!!history`); пароли в ссылках записываются как `***`, а
 строка, начатая с пробела, не запоминается вовсе. Модули, изменившиеся на
 диске, оболочка перезагружает сама.
 

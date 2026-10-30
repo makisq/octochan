@@ -63,7 +63,7 @@ func commandPath(t tool) string {
 // инцидента: его открытие, шаги, решение и эскалацию инженерам. Записи
 // инцидента ничего в системе не меняют.
 var writeCommands = map[string]bool{
-	"request": true,
+	"request":       true,
 	"incident open": true, "incident note": true, "incident attach": true,
 	"incident resolve": true, "incident escalate": true,
 }

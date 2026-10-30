@@ -51,7 +51,7 @@ expires: 2026-12-31          # срок обязателен
 это право `approve`:
 
 ```
-$ ochan '!install' demo-runner.hcplugin
+$ ochan '!!install' demo-runner.hcplugin
 $ ochan inventory ack
   db1 (cmdb)
   db2 (cmdb)

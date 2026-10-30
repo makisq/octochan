@@ -140,9 +140,51 @@ roles:
 | `ha.replicate_every` | `10s` | как часто standby забирает копию и узлы сверяют эпохи |
 | `ha.require_standby` | `false` | `true` — без подтверждения резерва выполнение заявки не начинается |
 | `remote.balance_reads` | `false` | клиент: чтение по очереди на все узлы пары (как `--balance`) |
+| `remote.address` | `""` | клиент: адрес сервера по умолчанию — `ochan remote ping` без адреса |
 
 Подробнее — [«Серверный режим»](../guide/server.md) и
 [«Пара серверов»](../guide/server.md#пара-серверов-primary-и-standby).
+
+## triggers — роль по событию
+
+```yaml
+triggers:
+  release:                       # имя: латинские строчные, цифры, _ и -
+    event: ci/release            # что шлёт CI; по умолчанию — имя триггера
+    grant:
+      role: deployer             # какую роль открывает окно; не master и не llm
+      scope: [group=prod]        # селекторы инвентаря: цели в окне; пусто — все
+      max_window: 2h             # обязательно: 30m, 2h, 1d
+```
+
+Роль, названная в триггере, вне окна не может ничего, кроме общедоступного.
+Секрет вебхука — `~/.octochan/triggers/<триггер>.secret` (`ochan trigger
+secret`). Подробнее — [«Роли»](../guide/roles.md#по-событию-триггеры).
+
+## registry — реестры пакетов
+
+| Ключ | По умолчанию | |
+|---|---|---|
+| `registry.default` | `""` | источник, который спрашивают первым |
+| `registry.sources.<имя>.url` | — | `file://…` или путь — каталог; `…/scm/…`, `….git` — git; остальное — HTTP |
+| `registry.sources.<имя>.type` | по адресу | `file`, `http` или `git` явно |
+| `registry.sources.<имя>.signed_by` | `""` | имя ключа из `registry.keys`: индекс без его подписи — отказ |
+| `registry.sources.<имя>.priority` | `0` | меньше — раньше; одного приоритета — одним блоком в `!!search` |
+| `registry.keys.<имя>` | — | открытый ключ ed25519 в base64 или путь к `.pub` (`!!registry keygen`) |
+
+Подробнее — [«Реестр пакетов»](../guide/modules.md#реестр-пакетов).
+
+## incidents — инциденты HA-AI
+
+| Ключ | По умолчанию | |
+|---|---|---|
+| `incidents.levels` | `low: 4h`, `medium: 1h`, `high: 30m`, `critical: 15m` | уровень критичности — сколько модель чинит сама |
+| `incidents.engineers` | `defaults.smtp_to` | инженерная группа: кому эскалация |
+| `incidents.notify.<уровень>` | `incidents.engineers` | свои адреса уровня |
+
+Почта — `defaults.smtp_*`. Секрет вебхука мониторинга —
+`~/.octochan/incidents.secret` (`ochan incident secret`). Подробнее —
+[«HA-AI, free и инциденты»](../guide/ha-ai.md#инциденты).
 
 ## sandbox — песочница ОС
 
@@ -163,6 +205,9 @@ roles:
 | `OCTOCHAN_ROLE` | роль для этого запуска — только роль без логина и пароля |
 | `OCTOCHAN_REMOTE_LOGIN`, `OCTOCHAN_REMOTE_PASSWORD` | вход на сервер без вопросов (`connect`, `remote`) |
 | `PGPASSWORD`, `~/.pgpass` | пароль живого PostgreSQL — не в строке подключения |
+
+`OCTOCHAN_AGENT` — агент, от выдачи free которого работает модель (его
+ставит `ochan-mcp --agent`).
 
 Служебные, их задаёт сам ochan: `OCTOCHAN_ROLE_GRANT` — допуск сервера
 для дочернего процесса; `OCTOCHAN_REMOTE_ADDR` — адрес клиента сервера или

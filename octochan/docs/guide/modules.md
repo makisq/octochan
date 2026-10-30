@@ -16,10 +16,10 @@ ochan расширяется двумя видами модулей:
 Всё ставится одной командой — в `~/.octochan/modules`:
 
 ```
-ochan '!install' ssh-runner.hcplugin   # модуль: команды, языки, исполнители
-ochan '!install' ./pgconf              # пакет алиасов; .hcplugin из каталога — вместе с ним
-ochan '!install' util.ochan            # однофайловый пакет
-ochan '!install' --remove pgconf       # удалить пакет (или модуль — по имени файла)
+ochan '!!install' ssh-runner.hcplugin   # модуль: команды, языки, исполнители
+ochan '!!install' ./pgconf              # пакет алиасов; .hcplugin из каталога — вместе с ним
+ochan '!!install' util.ochan            # однофайловый пакет
+ochan '!!install' --remove pgconf       # удалить пакет (или модуль — по имени файла)
 ochan modules                          # что установлено и что каждый модуль принёс
 ```
 
@@ -67,6 +67,8 @@ alias store(c: config, path: string) {
 name: pgconf          # необязательно; если указано — совпадает с каталогом
 version: 1.2.0        # 1, 1.2 или 1.2.3
 description: правка параметров конфигурации PostgreSQL
+modes: postgresql.conf, pgbouncer.ini   # необязательно: с чем работает (реестр, план установки)
+requires: @pgbase >=1.2                  # необязательно: без каких пакетов не работает
 ```
 
 ```
@@ -93,6 +95,138 @@ $ ochan aliases pgconf
   `ochan fp words --skill pgconf`.
 
 Готовый пример — [examples/fp/pgconf](../../examples/fp/pgconf).
+
+## Реестр пакетов
+
+Пакеты алиасов ставятся и из **реестров** — каталога, HTTP-сервера или
+git-репозитория с индексом `index.yaml` и архивами пакетов. ochan
+спрашивает только источники из настроек: пакета нет в них — отказ, а не
+поиск где-то ещё. Закрытый контур не узнает, что ochan куда-то стучался.
+
+```yaml
+registry:
+  default: corp                 # его спрашивают первым
+  sources:
+    corp:
+      url: https://stash.example/scm/~ops/octochan-registry   # git: /scm/ и .git
+      signed_by: corp-release   # индекс подписан этим ключом
+    local:
+      url: file:///opt/octochan/registry
+      priority: 10              # больше — позже
+  keys:
+    corp-release: iv9ZPR/pj7WTx2QNmN/bS+rqPwAuqvrkSgbIRDQohPM=
+```
+
+```
+$ ochan '!!registry'
+* corp         git   https://stash.example/scm/~ops/octochan-registry
+                     подпись corp-release, приоритет default
+  local        file  file:///opt/octochan/registry
+                     без подписи, приоритет 10
+
+* — registry.default: его спрашивают первым
+
+$ ochan '!!search' pg
+Из corp:
+  @pgconf v1.4.0   правила для postgresql.conf, словарь fp           (corp)
+  @pgconf v1.3.0   отозван: CVE-2026-1234: store пишет мимо --root   (corp)
+  @pgconf v1.2.1   то же, старее                                     (corp)
+Из local:
+  @pgtune v0.9.0   тюнинг памяти, неофициальные правила   (local)
+```
+
+Источники одного приоритета — одним блоком. Вид источника — по адресу:
+`file://` и путь — каталог, `.git` и `/scm/` — git (клон в
+`~/.octochan/registry/cache`, нужна программа `git`), остальное — HTTP; или
+явно `type: file | http | git`.
+
+### Установка — с планом и согласованием
+
+```
+$ ochan '!!rin' @pgtune --plan
+План установки:
+  @pgconf v1.4.0
+    источник:    corp (https://stash.example/scm/~ops/octochan-registry)
+    разместит:   /home/ops/.octochan/modules/pgconf/, файлов: 3
+    режимы:      postgresql.conf, pgbouncer.ini
+    зависимости: ничего
+    подпись:     corp-release ✓ (индекс)
+    sha256:      1c72…e3bd (сверяется при установке)
+    протокол:    v1 (поддерживается)
+  @pgtune v0.9.0
+    источник:    local (file:///opt/octochan/registry)
+    разместит:   /home/ops/.octochan/modules/pgtune/, файлов: 2
+    режимы:      не названы
+    зависимости: @pgconf >=1.4
+    подпись:     нет — у источника нет signed_by
+    sha256:      7877…a684 (сверяется при установке)
+    протокол:    v1 (поддерживается)
+  требует одобрения: да (--approve или ochan approve <id> после заявки)
+
+$ ochan '!!rin' @pgtune
+…
+Заявка edb352b7b8 создана (ждёт решения): установка @pgconf v1.4.0, @pgtune v0.9.0
+Согласовать: ochan approve edb352b7b8; поставить: ochan apply --request edb352b7b8
+$ ochan approve edb3 && ochan apply --request edb3
+Установлен @pgconf v1.4.0 из corp: sha256 1c72…e3bd ✓, файлов 3
+Пакет алиасов pgconf v1.4.0 установлен: алиасов 2 — ochan aliases pgconf
+Словарь пакета: слов 1 — ochan fp words --skill pgconf
+Алиасы: set_param, store
+Установлен @pgtune v0.9.0 из local: sha256 7877…a684 ✓, файлов 2
+…
+Заявка edb352b7b8 выполнена: установка @pgconf v1.4.0, @pgtune v0.9.0
+```
+
+- **Ставится ровно согласованное.** Заявка хранит источник, версию и сумму
+  архива. `apply --request` скачивает и проверяет все архивы до того, как
+  что-то поставлено: другая сумма, отозванная после согласования версия
+  или индекс без прежней подписи — отказ, и выполнение не начинается.
+- **Подпись.** Источнику с `signed_by` ochan верит, только если индекс
+  подписан этим ключом ed25519 (`registry.keys`); сумма архива в
+  подписанном индексе — подпись и архива. Правка индекса без ключа,
+  подмена архива — отказ.
+- **Отзыв.** Отозванная автором версия не ставится:
+
+  ```
+  $ ochan '!!rin' @pgconf v1.3.0
+  ошибка: @pgconf v1.3.0 отозван автором (CVE-2026-1234: store пишет мимо --root) — не ставится; доступна v1.4.0
+  $ ochan '!!rin' @pgconf v2.0.0
+  ошибка: пакет @pgconf v2.0.0 не найден в настроенных источниках (corp, local); других ochan не спрашивает — сеть вне них не использовалась
+  ```
+
+- **Зависимости** — `requires` в `package.yaml` (`@pgconf >=1.4`):
+  недостающие ставятся первыми, установленная подходящая версия —
+  пропускается.
+- `--approve` — поставить сразу, без заявки, если роль может согласовывать.
+  Права: `!!search` — чтение, `!!rin` и `!!registry` — `install`.
+
+### Свой реестр
+
+Реестр — каталог: его отдают по HTTP как есть или коммитят в git.
+
+```
+$ ochan '!!registry' keygen corp-release
+Закрытый ключ: corp-release.key (права 0600) — им подписывают индекс, из реестра его не выкладывают
+Открытый ключ: corp-release.pub
+В config.yaml тех, кто ставит:
+  registry:
+    keys:
+      corp-release: iv9ZPR/pj7WTx2QNmN/bS+rqPwAuqvrkSgbIRDQohPM=
+
+$ ochan '!!registry' publish ./pgconf --registry /srv/registry --key corp-release.key
+Опубликован @pgconf v1.4.0: /srv/registry/pgconf-1.4.0.tar.gz, файлов 3, sha256 1c72…e3bd
+Индекс подписан заново
+
+$ ochan '!!registry' revoke @pgconf v1.3.0 --registry /srv/registry --key corp-release.key \
+    --reason "CVE-2026-1234: store пишет мимо --root"
+@pgconf v1.3.0 отозван: CVE-2026-1234: store пишет мимо --root
+```
+
+Пакет перед публикацией проверяется так же, как перед установкой; версия
+— из `package.yaml`, описание, `modes` и `requires` — оттуда же. Архив
+воспроизводим: тот же пакет — та же сумма. Опубликованную версию с другим
+содержимым заменить нельзя — только поднять `version` или отозвать.
+Архив плоский: `*.ochan`, `*.yaml`, `*.hcplugin`, `*.md`.
 
 ## Модуль команд
 
@@ -122,7 +256,7 @@ func main() { pluginhost.ServeCommandModule(Module{}) }
 
 ```
 go build -o hello.hcplugin ./hello
-ochan '!install' hello.hcplugin
+ochan '!!install' hello.hcplugin
 ochan modules
 ochan hello
 ```
@@ -136,7 +270,7 @@ ochan hello
 - Ошибка команды модуля — ненулевой код возврата ochan.
 - Предел времени команды модуля — `defaults.module_command_timeout` (10m).
 - Оболочка перезагружает изменившиеся модули сама; после пересборки модуль
-  нужно переустановить (`!install`), чтобы обновить контрольную сумму.
+  нужно переустановить (`!!install`), чтобы обновить контрольную сумму.
 - `ochan inspect модуль.hcplugin` поднимает модуль отдельно и показывает
   его имя, версию и команды, не меняя набор команд текущей сессии. Это
   тоже запуск исполняемого файла, поэтому и здесь нужна контрольная сумма

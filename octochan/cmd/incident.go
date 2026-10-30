@@ -135,7 +135,7 @@ func auditIncident(i *workspace.Incident, what string, decision error) {
 	if currentRole != nil {
 		role = currentRole.Name
 	}
-	_ = journal.Append(audit.Record{Event: audit.EventIncident, Role: role, Command: "incident " + i.ID,
+	_ = journal.Append(audit.Record{Event: audit.EventIncident, Role: role, Command: i.ID,
 		Args: []string{what}, Remote: os.Getenv(EnvRemoteAddr), User: workspace.CurrentUser()},
 		func(audit.Recent) error { return decision })
 }
@@ -404,7 +404,10 @@ func auditSince(from time.Time) []string {
 			mark = "-"
 		}
 		what := strings.TrimSpace(strings.ReplaceAll(r.Command, ".", " ") + " " + strings.Join(r.Args, " "))
-		out = append(out, fmt.Sprintf("%s %s %-10s %s %s", mark, r.Time.Local().Format("15:04:05"), r.Role, r.Event, what))
+		if r.Event != audit.EventCommand {
+			what = r.Event + ": " + what
+		}
+		out = append(out, fmt.Sprintf("%s %s %-10s %s", mark, r.Time.Local().Format("15:04:05"), r.Role, what))
 	}
 	return out
 }

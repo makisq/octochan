@@ -11,7 +11,7 @@
 # Версия — VERSION; её печатают ochan --version и ochan-mcp --version.
 # SYSTEM_ROLES — системная политика ролей (docs/guide/security.md): путь
 # зашивается в программу, окружением его не поменять.
-VERSION      ?= 0.2.0-alpha
+VERSION      ?= 0.3.0-alpha
 PREFIX       ?= $(HOME)/.local
 OUT          ?= bin
 SYSTEM_ROLES ?= /etc/octochan/roles.yaml

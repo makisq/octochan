@@ -205,8 +205,8 @@ hard require verify_config(scope = web_group)
 - `??n_` and `hard forbid` mean "never, except for the listed".
   `??a_` and `hard require` mean "always, on the declared scope". The
   marker is written together with the action: `??n_action`.
-- The `!` marker is not used: ochan commands use it (`!install`), and in
-  C-like languages it reads as negation.
+- The `!` marker is not used: in ochan `!` is negation and `!!` marks
+  built-in commands (`!!install`).
 - The only parameters are `except` and `scope`. A value is a name or a set
   of names, never free text (H2).
 - The rule's action must be known to a skill or a relation, or be one of
