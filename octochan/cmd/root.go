@@ -147,6 +147,14 @@ func Execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if out, ok := reply(os.Args[1:]); ok {
+		fmt.Print(out)
+		return 0
+	}
+	if err := singleBang(os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, i18n.T("ошибка: %v\n"), err)
+		return 1
+	}
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			fmt.Fprintln(os.Stderr, i18n.T("\nПрервано пользователем"))

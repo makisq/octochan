@@ -323,7 +323,7 @@ func (l *Lexer) lexOperator(pos Position) (Token, error) {
 			l.advance()
 			return simple(TokenNE)
 		}
-		return Token{}, l.errorf(pos, "неожиданный символ !, отрицание пишется как not")
+		return simple(TokenBang)
 	case '<':
 		if l.peek() == '=' {
 			l.advance()

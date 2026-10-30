@@ -14,7 +14,7 @@
 
 ## Оглавление
 
-- [`ochan !install`](#ochan-install) — Установить модуль или пакет алиасов
+- [`ochan !!install`](#ochan-install) — Установить модуль или пакет алиасов
 - [`ochan agent`](#ochan-agent) — Машина-агент: сообщать серверу о себе
 - [`ochan agent run`](#ochan-agent-run) — Сообщать серверу о себе раз в --every
 - [`ochan agents`](#ochan-agents) — Реестр агентов: машины, которые сами сообщают серверу о себе
@@ -58,6 +58,7 @@
 - [`ochan logs rank`](#ochan-logs-rank) — Ранжировать строки журнала по уровням важности
 - [`ochan modules`](#ochan-modules) — Показать установленные модули и пакеты алиасов
 - [`ochan patch`](#ochan-patch) — Применить изменения к основному конфигу
+- [`ochan ping`](#ochan-ping) — Проверить, что ochan отвечает: pong
 - [`ochan plan`](#ochan-plan) — Показать, что произойдёт, ничего не делая
 - [`ochan policy`](#ochan-policy) — Политики автоматического выполнения: что ochan watch выполняет без человека
 - [`ochan policy add`](#ochan-policy-add) — Зарегистрировать политику: заранее данное согласование
@@ -96,15 +97,19 @@
 - [`ochan timer`](#ochan-timer) — Управление напоминанием об истечении токена
 - [`ochan tls`](#ochan-tls) — Сертификат сервера: tls init
 - [`ochan tls init`](#ochan-tls-init) — Создать самоподписанный сертификат сервера
+- [`ochan trigger`](#ochan-trigger) — Триггеры: роль, которую открывает событие CI, на окно
+- [`ochan trigger end`](#ochan-trigger-end) — Закрыть окно триггера: событие кончилось
+- [`ochan trigger fire`](#ochan-trigger-fire) — Открыть окно триггера: событие началось
+- [`ochan trigger secret`](#ochan-trigger-secret) — Создать секрет вебхука триггера
 - [`ochan validate`](#ochan-validate) — Проверить конфиг на ошибки
 - [`ochan watch`](#ochan-watch) — Следить за инвентарём: новый хост — план, заявка, а по политике — выполнение
 
-## ochan !install
+## ochan !!install
 
 Установить модуль или пакет алиасов.
 
 ```
-ochan !install <модуль.hcplugin | пакет | файл.ochan>
+ochan !!install <модуль.hcplugin | пакет | файл.ochan>
 ```
 
 Одна команда ставит всё, чем расширяется ochan, в ~/.octochan/modules:
@@ -128,9 +133,9 @@ ochan !install <модуль.hcplugin | пакет | файл.ochan>
 Примеры:
 
 ```
-ochan '!install' ssh-runner.hcplugin
-ochan '!install' ./pgconf
-ochan '!install' --remove pgconf
+ochan '!!install' ssh-runner.hcplugin
+ochan '!!install' ./pgconf
+ochan '!!install' --remove pgconf
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
@@ -935,7 +940,7 @@ ochan lang
 ```
 
 Язык выбирается в config.yaml: lang: ru или lang: eng (en). Другие языки
-приносят модули: модуль ставится через !install, после чего его язык
+приносят модули: модуль ставится через !!install, после чего его язык
 указывается в lang и действует со следующего запуска ochan.
 
 Чего нет в переводе, берётся из английского, а чего нет и там — остаётся
@@ -1057,6 +1062,28 @@ ochan patch prod.conf changes.conf -o patched.conf
 |---|---|---|---|
 | `--force` | bool | — | перезаписать существующий файл |
 | `-o`, `--output` | string | — | куда записать результат (по умолчанию patched.conf) |
+
+## ochan ping
+
+Проверить, что ochan отвечает: pong.
+
+```
+ochan ping
+```
+
+Отвечает pong. Через ochan remote <адрес> ping — проверка, что сервер
+жив, принимает вход и выполняет команды. Так же отвечают SELECT 1 — как
+psql — и приветствие Ohayō, senpai!
+
+Право: `свободная — доступна любой роли`.
+
+Примеры:
+
+```
+ochan ping
+ochan remote orchestrator.example:7443 ping
+ochan remote orchestrator.example:7443 'SELECT 1'
+```
 
 ## ochan plan
 
@@ -1218,12 +1245,14 @@ ochan reject <id>
 Выполнить одну команду на общем оркестраторе.
 
 ```
-ochan remote <host:port[,host:port]> <команда>...
+ochan remote [host:port[,host:port]] <команда>...
 ```
 
 Входит в роль --role, выполняет команду на сервере и выходит. Аргумент «-»
 передаёт серверу stdin. Флаги remote пишутся до адреса: всё после него —
-команда для сервера.
+команда для сервера. Без адреса — remote.address из config.yaml.
+
+ping — проверить, что сервер жив и принимает вход: он ответит pong.
 
 Право: `remote`.
 
@@ -1232,6 +1261,7 @@ ochan remote <host:port[,host:port]> <команда>...
 ```
 ochan remote orchestrator.example:7443 diff prod.conf test.conf
 cat новый.conf | ochan remote --role Dan orchestrator.example:7443 validate -
+ochan remote ping
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
@@ -1312,6 +1342,7 @@ ochan requests [id]
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--after` | string | — | что было после: заявки, которые ждут эту, или оформленные в окне триггера (release#1234) |
 | `--doc` | string | — | выгрузить заявку в файл .docx |
 | `--ready` | bool | — | только согласованные, которые можно выполнять сейчас |
 
@@ -1327,7 +1358,7 @@ ochan role
 
 После установки есть две роли: master — первая и высшая, ей доступно всё;
 llm — для нейросетей: читать, планировать, оформлять заявки. Права — группы
-(admin, agent, apply, approve, audit, auth, install, plan, read, remote, request, server), all или имя команды.
+(admin, agent, apply, approve, audit, auth, install, plan, read, remote, request, server, trigger), all или имя команды.
 
 Право: `свободная — доступна любой роли`.
 
@@ -1754,6 +1785,7 @@ ochan shell
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--logo` | bool | — | показать логотип при входе, даже если shell.logo: false |
 | `--no-logo` | bool | — | не показывать логотип при входе |
 
 ## ochan srs
@@ -1862,6 +1894,80 @@ ochan tls init --host orchestrator.example --host 10.0.0.5
 | `--days` | int | `365` | срок действия сертификата в днях |
 | `--force` | bool | — | перезаписать существующие сертификат и ключ |
 | `--host` | stringArray | — | имя или адрес сервера в сертификате; можно указать несколько раз |
+
+## ochan trigger
+
+Триггеры: роль, которую открывает событие CI, на окно.
+
+```
+ochan trigger
+```
+
+Триггер в config.yaml называет событие, роль, которую оно открывает, её
+область целей и max_window. Роль под триггером вне окна не может ничего,
+кроме того, что доступно любой роли; в окне — свои права, но цели только
+под scope. Окно открывает событие (ochan trigger fire или вебхук сервера
+POST /v1/events/<триггер>), закрывает событие конца или max_window — сама.
+
+Без аргументов — триггеры и их окна.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan trigger
+ochan trigger fire release --id 1234
+ochan trigger end release --id 1234 --reason "релиз выкачен"
+ochan trigger secret release
+```
+
+Подкоманды: [`end`](#ochan-trigger-end), [`fire`](#ochan-trigger-fire), [`secret`](#ochan-trigger-secret).
+
+## ochan trigger end
+
+Закрыть окно триггера: событие кончилось.
+
+```
+ochan trigger end <триггер> --id <номер события>
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--id` | string | — | номер события у источника: номер сборки CI |
+| `--reason` | string | — | почему окно закрыто |
+
+## ochan trigger fire
+
+Открыть окно триггера: событие началось.
+
+```
+ochan trigger fire <триггер> --id <номер события>
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--id` | string | — | номер события у источника: номер сборки CI |
+
+## ochan trigger secret
+
+Создать секрет вебхука триггера.
+
+```
+ochan trigger secret <триггер>
+```
+
+Секрет — 256 случайных бит в ~/.octochan/triggers/<триггер>.secret (права
+0600). CI шлёт его заголовком Authorization: Bearer <секрет> на
+POST https://<сервер>/v1/events/<триггер> с телом {"id": "1234",
+"state": "start"} и {"id": "1234", "state": "end"}. Новый секрет
+заменяет прежний.
+
+Право: `admin`.
 
 ## ochan validate
 

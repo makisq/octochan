@@ -214,9 +214,7 @@ func watchHost(cmd *cobra.Command, store *workspace.Requests, h inventory.Host, 
 		Limit:   []string{"host=" + h.Name},
 		Author:  "ochan watch (" + workspace.CurrentUser() + ")",
 	}
-	if currentRole != nil {
-		request.Role = currentRole.Name
-	}
+	stampRequest(request)
 	if err := store.Create(request); err != nil {
 		return "", err
 	}

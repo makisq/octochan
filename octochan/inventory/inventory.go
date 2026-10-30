@@ -259,13 +259,17 @@ func groupList(values ...any) ([]string, error) {
 
 // Selector — условия через запятую, все сразу: group=db_new,host=db*.
 // Значение — шаблон (*, ?, [...]); group — членство в группе, остальное —
-// поле. Слово без «=» — имя хоста: db1, db*.
+// поле. Слово без «=» — имя хоста: db1, db*. «!» перед условием или «!=»
+// вместо «=» — отрицание: !group=db_new, group!=db_new, !db3.
 type Selector struct {
 	text  string
 	terms []term
 }
 
-type term struct{ key, pattern string }
+type term struct {
+	key, pattern string
+	not          bool
+}
 
 // ParseSelector разбирает селектор.
 func ParseSelector(text string) (Selector, error) {
@@ -275,9 +279,21 @@ func ParseSelector(text string) (Selector, error) {
 	}
 	for _, part := range strings.Split(sel.text, ",") {
 		part = strings.TrimSpace(part)
-		key, pattern, found := strings.Cut(part, "=")
+		cond := part
+		not := strings.HasPrefix(cond, "!")
+		if not {
+			cond = strings.TrimSpace(cond[1:])
+		}
+		key, pattern, found := strings.Cut(cond, "=")
+		if found && strings.HasSuffix(key, "!") {
+			if not {
+				return sel, fmt.Errorf("селектор %q: условие %q — двойное отрицание; пишите %s",
+					text, part, strings.TrimSuffix(key, "!")+"="+pattern)
+			}
+			key, not = strings.TrimSuffix(key, "!"), true
+		}
 		if !found {
-			key, pattern = "host", part
+			key, pattern = "host", cond
 		}
 		key, pattern = strings.TrimSpace(key), strings.TrimSpace(pattern)
 		if key == "" || pattern == "" {
@@ -286,7 +302,7 @@ func ParseSelector(text string) (Selector, error) {
 		if _, err := path.Match(pattern, ""); err != nil {
 			return sel, fmt.Errorf("селектор %q: шаблон %q: %v", text, pattern, err)
 		}
-		sel.terms = append(sel.terms, term{key: key, pattern: pattern})
+		sel.terms = append(sel.terms, term{key: key, pattern: pattern, not: not})
 	}
 	return sel, nil
 }
@@ -310,21 +326,25 @@ func (s Selector) String() string { return s.text }
 // Match — все условия селектора выполнены.
 func (s Selector) Match(l Labels) bool {
 	for _, t := range s.terms {
-		if t.key == "group" || t.key == "groups" {
-			if !anyMatch(t.pattern, l.Groups) {
-				return false
-			}
-			continue
-		}
-		value, ok := l.Fields[t.key]
-		if !ok {
-			return false
-		}
-		if matched, _ := path.Match(t.pattern, value); !matched {
+		if t.holds(l) == t.not {
 			return false
 		}
 	}
 	return true
+}
+
+// holds — условие без отрицания выполнено. Поля нет — не выполнено, и
+// !поле=… тогда выполнено: у хоста без поля значение не то.
+func (t term) holds(l Labels) bool {
+	if t.key == "group" || t.key == "groups" {
+		return anyMatch(t.pattern, l.Groups)
+	}
+	value, ok := l.Fields[t.key]
+	if !ok {
+		return false
+	}
+	matched, _ := path.Match(t.pattern, value)
+	return matched
 }
 
 func anyMatch(pattern string, values []string) bool {

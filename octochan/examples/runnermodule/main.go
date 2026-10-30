@@ -10,7 +10,7 @@
 // Сборка и установка:
 //
 //	go build -o demo-runner.hcplugin ./examples/runnermodule
-//	ochan '!install' demo-runner.hcplugin
+//	ochan '!!install' demo-runner.hcplugin
 //
 // Сценарий для него:
 //

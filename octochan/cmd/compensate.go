@@ -36,9 +36,7 @@ var compensateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if currentRole != nil {
-			request.Role = currentRole.Name
-		}
+		stampRequest(request)
 		if err := store.Create(request); err != nil {
 			return err
 		}

@@ -29,7 +29,7 @@ func TestDefaultRoles(t *testing.T) {
 	}
 
 	master, llm := s.Find(Master), s.Find(LLM)
-	for _, command := range []string{"apply", "role.create", "!install", "какой-нибудь-модуль"} {
+	for _, command := range []string{"apply", "role.create", "!!install", "какой-нибудь-модуль"} {
 		if !master.Allows(command) {
 			t.Errorf("master не может %s", command)
 		}
@@ -39,7 +39,7 @@ func TestDefaultRoles(t *testing.T) {
 			t.Errorf("llm не может %s", command)
 		}
 	}
-	for _, command := range []string{"apply", "approve", "run", "eval", "patch", "rollback", "!install", "auth", "role.create"} {
+	for _, command := range []string{"apply", "approve", "run", "eval", "patch", "rollback", "!!install", "auth", "role.create"} {
 		if llm.Allows(command) {
 			t.Errorf("llm может %s, а не должна", command)
 		}

@@ -102,6 +102,9 @@ type Request struct {
 	// Policy — политика, которой заявка согласована без человека (ochan
 	// watch); пусто — согласовал человек.
 	Policy string `json:"policy,omitempty"`
+	// Trigger — окна триггеров, в которых заявку оформили (release#1234):
+	// ochan requests --after release#1234 перечисляет такие заявки.
+	Trigger string `json:"trigger,omitempty"`
 
 	Decision   string    `json:"decision,omitempty"`
 	DecidedBy  string    `json:"decided_by,omitempty"`

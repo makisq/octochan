@@ -129,6 +129,9 @@ type Server struct {
 	HA           *HA
 	ReadOnly     func(args []string) bool
 	StandbyAudit *audit.Journal
+	// Routes — свои обработчики сервера: шаблон ServeMux — обработчик.
+	// Вход и сессии они проверяют сами.
+	Routes map[string]http.Handler
 
 	// SessionTimeout — сколько живёт сессия без запросов.
 	SessionTimeout time.Duration
@@ -220,6 +223,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/logout", s.authed(s.logout))
 	if s.HA != nil {
 		s.HA.register(mux)
+	}
+	for pattern, h := range s.Routes {
+		mux.Handle(pattern, h)
 	}
 	return mux
 }
@@ -611,6 +617,9 @@ func tokenKey(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
+// ClientIP — адрес клиента запроса без порта.
+func ClientIP(r *http.Request) string { return clientIP(r) }
 
 func clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

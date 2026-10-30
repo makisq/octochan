@@ -97,6 +97,9 @@ func initConfig() error {
 	viper.SetDefault("shell.history_size", 1000)
 	viper.SetDefault("shell.logo", true)
 
+	// Адрес общего оркестратора по умолчанию: ochan remote ping без адреса.
+	viper.SetDefault("remote.address", "")
+
 	// Как оператор ставит задачу модели: formal — только формальным
 	// промптом, natural — на естественном языке.
 	viper.SetDefault("fp.mode", "formal")

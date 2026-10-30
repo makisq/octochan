@@ -312,3 +312,34 @@ func TestServerConfinesRemoteRoles(t *testing.T) {
 	}
 	s.must("audit", "verify")
 }
+
+// ping отвечает сам сервер — в любой роли, без процесса; SELECT 1 — как
+// psql, приветствие — Konbanwa.
+func TestServePing(t *testing.T) {
+	s := startServer(t)
+	slave := s.client("slave", "", "")
+	for args, want := range map[string]string{
+		"ping":           "pong\n",
+		"SELECT 1;":      selectOneReply,
+		"Ohayō, senpai!": "Konbanwa\n",
+		"ohayou  senpai": "Konbanwa\n",
+	} {
+		if result := s.exec(slave, strings.Fields(args)...); result.Stdout != want || result.Code != 0 {
+			t.Errorf("%s: %+v", args, result)
+		}
+	}
+	if !readOnlyCommand([]string{"ping"}) {
+		t.Error("ping не чтение: standby на него не ответил бы")
+	}
+}
+
+func TestReplies(t *testing.T) {
+	for args, ok := range map[string]bool{
+		"ping": true, "PING": true, "select 1": true, "Select   1 ;": true,
+		"おはよう、先輩": true, "ping x": false, "select 2": false, "ohayo": false,
+	} {
+		if _, got := reply(strings.Fields(args)); got != ok {
+			t.Errorf("%q: %v", args, got)
+		}
+	}
+}

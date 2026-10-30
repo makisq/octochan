@@ -294,7 +294,7 @@ func TestTableOnlyReadsOrRequests(t *testing.T) {
 	// не должна быть доступна модели — ни сейчас, ни после правки таблицы.
 	forbidden := []string{
 		"apply", "approve", "reject", "rollback", "patch", "tee", "auth", "timer",
-		"!install", "inspect", "srs", "run", "eval", "shell", "if", "else", "logs", "logs files",
+		"!!install", "inspect", "srs", "run", "eval", "shell", "if", "else", "logs", "logs files",
 	}
 
 	// Журнал самого ochan модели не показывается: разрешена только

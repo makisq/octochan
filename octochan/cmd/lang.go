@@ -158,7 +158,7 @@ func applyLanguage() {
 			// причине сказано и по-русски, и по-английски.
 			fmt.Fprintf(os.Stderr, "внимание: lang: %v\n", err)
 			fmt.Fprintf(os.Stderr, "warning: lang: language %q is not available (%s); "+
-				"install its module with ochan !install <module>\n",
+				"install its module with ochan !!install <module>\n",
 				code, strings.Join(languageCodes(), ", "))
 		}
 	}
@@ -188,7 +188,7 @@ var langCmd = &cobra.Command{
 	Use:   "lang",
 	Short: "Показать языки: текущий, встроенные и из модулей",
 	Long: "Язык выбирается в config.yaml: lang: ru или lang: eng (en). Другие языки\n" +
-		"приносят модули: модуль ставится через !install, после чего его язык\n" +
+		"приносят модули: модуль ставится через !!install, после чего его язык\n" +
 		"указывается в lang и действует со следующего запуска ochan.\n\n" +
 		"Чего нет в переводе, берётся из английского, а чего нет и там — остаётся\n" +
 		"по-русски. Шаблон для перевода — lang template.",

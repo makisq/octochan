@@ -7,7 +7,7 @@
 // Сборка и установка — make rlm или:
 //
 //	go build -o rlm.hcplugin ./plugins/rlm
-//	ochan '!install' rlm.hcplugin
+//	ochan '!!install' rlm.hcplugin
 //
 // Настройки — в config.yaml ochan; адрес можно оставить и прежним,
 // defaults.api_url:

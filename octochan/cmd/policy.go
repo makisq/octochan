@@ -125,6 +125,9 @@ func refuse(cmd *cobra.Command, err error) error {
 
 // checkCommand — права, запреты и пути команды.
 func checkCommand(cmd *cobra.Command, role *rbac.Role, key string, args []string) error {
+	if err := triggerGate(role, key); err != nil {
+		return err
+	}
 	if role.Denies(key) {
 		return i18n.Errorf("команда %s роли %s запрещена", strings.ReplaceAll(key, ".", " "), role.Name)
 	}

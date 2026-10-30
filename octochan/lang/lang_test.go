@@ -643,13 +643,13 @@ func TestDuplicateAliasInSameSpace(t *testing.T) {
 
 func TestParseErrorsAreLocated(t *testing.T) {
 	cases := map[string]string{
-		"незакрытый блок":      "alias a() {",
-		"число с единицами":    `x = 8GB`,
-		"двойной амперсанд":    `x = 1 && 2`,
-		"восклицательный знак": `x = !1`,
-		"лишнее после команды": "print(1) print(2)",
-		"незакрытая строка":    `x = "abc`,
-		"алиас внутри блока":   "if true { alias a() { return 1 } }",
+		"незакрытый блок":        "alias a() {",
+		"число с единицами":      `x = 8GB`,
+		"двойной амперсанд":      `x = 1 && 2`,
+		"отрицание без операнда": `x = !`,
+		"лишнее после команды":   "print(1) print(2)",
+		"незакрытая строка":      `x = "abc`,
+		"алиас внутри блока":     "if true { alias a() { return 1 } }",
 	}
 
 	for name, src := range cases {
@@ -806,6 +806,27 @@ func TestPackageManifest(t *testing.T) {
 		err := NewRegistry().LoadDir("pgconf", dir)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("манифест %q: ожидалась ошибка с %q, получено %v", content, want, err)
+		}
+	}
+}
+
+// «!» — отрицание, как not, но связывает теснее: !a == b — это (!a) == b.
+func TestBangIsNot(t *testing.T) {
+	for src, want := range map[string]string{
+		`print(!true)`:                      "false",
+		`print(!false and true)`:            "true",
+		`print(!(1 == 2))`:                  "true",
+		`print(!1 == false)`:                "true",
+		`print(not 1 == 2)`:                 "true",
+		`print(!!true, 1 != 2)`:             "true true",
+		`if !contains([1], 2) { print(1) }`: "1",
+	} {
+		out, err := run(t, src)
+		if err != nil {
+			t.Fatalf("%s: %v", src, err)
+		}
+		if got := strings.TrimSpace(out); got != want {
+			t.Fatalf("%s: %q, ожидалось %q", src, got, want)
 		}
 	}
 }

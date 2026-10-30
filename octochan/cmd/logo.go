@@ -167,8 +167,9 @@ func abs(v int) int {
 	return v
 }
 
-// shellNoLogo — флаг ochan shell --no-logo.
-var shellNoLogo bool
+// shellNoLogo и shellLogo — флаги ochan shell --no-logo и --logo: без
+// рисунка и с ним, что бы ни стояло в shell.logo.
+var shellNoLogo, shellLogo bool
 
 // printShellLogo выводит логотип при входе в оболочку, если терминал это
 // позволяет. Ничего не выводит в остальных случаях — и никогда не мешает
@@ -180,7 +181,16 @@ func printShellLogo(out *os.File) {
 	if w, _, err := term.GetSize(fd); err == nil {
 		columns = w
 	}
-	if !shouldShowLogo(viper.GetBool("shell.logo") && !shellNoLogo, isTerminal, columns) {
+	enabled := viper.GetBool("shell.logo")
+	switch {
+	case shellNoLogo:
+		enabled = false
+	case shellLogo:
+		// Попросили явно: показать и не на терминале, но по ширине —
+		// перенесённые строки разваливают рисунок и там.
+		enabled, isTerminal = true, true
+	}
+	if !shouldShowLogo(enabled, isTerminal, columns) {
 		return
 	}
 

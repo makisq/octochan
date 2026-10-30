@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"octochan/lang"
 	"octochan/rbac"
+	"octochan/workspace"
 
 	"github.com/spf13/cobra"
 )
@@ -211,8 +213,40 @@ var roleShowCmd = &cobra.Command{
 			cmd.Printf("Запреты на время: %s\n", strings.Join(tempTexts(temp, now), "; "))
 		}
 		cmd.Printf("Вход:      %s\n", noneOr(auth))
+		showRoleTriggers(cmd, role.Name)
 		return nil
 	},
+}
+
+// showRoleTriggers — триггеры, которые держат роль, и её «сейчас».
+func showRoleTriggers(cmd *cobra.Command, role string) {
+	confs, err := triggerConfs()
+	if err != nil {
+		cmd.Printf("Триггеры: %v\n", err)
+		return
+	}
+	var names []string
+	for _, c := range confs {
+		if strings.EqualFold(c.Role, role) {
+			names = append(names, fmt.Sprintf("%s (событие %s, окно до %s)", c.Name, c.Event, c.Window))
+		}
+	}
+	if len(names) == 0 {
+		return
+	}
+	cmd.Printf("Триггеры:  %s\n", strings.Join(names, ", "))
+	store, err := triggerStore()
+	if err != nil {
+		return
+	}
+	settleTriggers(store)
+	windows, err := store.Windows()
+	if err != nil {
+		cmd.Printf("Сейчас:    %v\n", err)
+		return
+	}
+	open, last := workspace.ForRole(windows, role, time.Now())
+	cmd.Printf("Сейчас:    %s\n", roleWindowState(open, last))
 }
 
 func limitTexts(limits []rbac.Limit) []string {

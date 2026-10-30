@@ -172,7 +172,7 @@ func TestOperatorLexicon(t *testing.T) {
 	e.fails("config.yaml fp.lexicons", "fp", "check", "rock.fp")
 }
 
-// Пакет приносит словарь своей области: !install его проверяет и
+// Пакет приносит словарь своей области: !!install его проверяет и
 // копирует, import подключает к промпту.
 func TestPackageLexicon(t *testing.T) {
 	e := newScriptEnv(t)
@@ -183,10 +183,10 @@ func TestPackageLexicon(t *testing.T) {
 	e.write(filepath.Join(src, "lib.ochan"), "alias around(c: config) {\n    return c\n}\n")
 	e.write(filepath.Join(src, "package.yaml"), "version: 1.0.0\n")
 	e.write(filepath.Join(src, fp.LexiconName), "words:\n  rock: {senses: [Obstacle], nl: 9\n")
-	e.fails("пакет roads не установлен", "!install", src)
+	e.fails("пакет roads не установлен", "!!install", src)
 
 	e.write(filepath.Join(src, fp.LexiconName), "words:\n  rock: {senses: [Obstacle], nl: 9}\n")
-	if out := e.must("!install", src); !strings.Contains(out, "Словарь пакета: слов 1 — ochan fp words --skill roads") {
+	if out := e.must("!!install", src); !strings.Contains(out, "Словарь пакета: слов 1 — ochan fp words --skill roads") {
 		t.Fatalf("установка словаря:\n%s", out)
 	}
 	if out := e.must("fp", "words", "--skill", "roads"); !strings.Contains(out, "rock") || !strings.Contains(out, "@roads") {

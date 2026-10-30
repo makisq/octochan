@@ -31,7 +31,7 @@ import (
 // копируются настройки узла (config.yaml, tls/, ha.json, ha.token),
 // токены исполнителей и модули — их ставят на каждый узел.
 var replicatedPaths = []string{"requests", "history", "decisions", "policies", "aliases", "scenarios",
-	"audit.log", rbac.FileName, "inventory.yaml", "inventory.seen.json", agentsFile}
+	"audit.log", rbac.FileName, "inventory.yaml", "inventory.seen.json", agentsFile, triggersFile, triggerSecrets}
 
 var (
 	haInitNode string
@@ -124,6 +124,9 @@ func serveBarrier(ctx context.Context, ha *remote.HA) (string, error) {
 // readOnlyCommand — команда только читает: её выполняет и standby, и
 // клиент может отправить её на любой узел пары.
 func readOnlyCommand(args []string) bool {
+	if _, ok := reply(args); ok {
+		return true
+	}
 	findMu.Lock()
 	found, _, err := rootCmd.Find(args)
 	key := ""

@@ -39,6 +39,8 @@ const (
 	EventCommand = "command"
 	EventLogin   = "login"
 	EventRole    = "role"
+	// EventTrigger — окно триггера открылось, закрылось или истекло.
+	EventTrigger = "trigger"
 )
 
 // Record — запись журнала.

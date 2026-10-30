@@ -618,7 +618,7 @@ func (m *ModuleManager) LoadModule(path string) error {
 	commands := module.GetCommands()
 
 	// Языки спрашиваются при загрузке, как и команды: модуль языка — такой
-	// же модуль, и после !install он работает со следующего запуска.
+	// же модуль, и после !!install он работает со следующего запуска.
 	var languages []Language
 	if translator, ok := module.(interface{ Translations() ([]Language, error) }); ok {
 		languages, err = translator.Translations()
@@ -685,7 +685,7 @@ func (m *ModuleManager) secureConfigFor(absPath string) (*plugin.SecureConfig, e
 			return nil, nil
 		}
 		return nil, fmt.Errorf(
-			"%w: выполните '!install %s', чтобы зафиксировать его как доверенный, "+
+			"%w: выполните '!!install %s', чтобы зафиксировать его как доверенный, "+
 				"или включите defaults.allow_unverified_modules",
 			ErrChecksumMissing, absPath)
 	default:

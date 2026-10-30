@@ -66,6 +66,12 @@ func TestSelectors(t *testing.T) {
 		"max_connections=3*": "db2",
 		"tier=data":          "db1,db2",
 		"group=nothing":      "",
+		// «!» — отрицание условия, «!=» — то же.
+		"group=db,!group=db_new": "db1",
+		"group=db,group!=db_new": "db1",
+		"!db*":                   "web1",
+		"!ip=*.0.1":              "db2,web1",
+		"!group=nothing":         "db1,db2,web1",
 	}
 	for sel, want := range cases {
 		if got := names(sel); got != want {
@@ -76,7 +82,7 @@ func TestSelectors(t *testing.T) {
 	if got := names("group=db_new", "host=web1"); got != "db2,web1" {
 		t.Errorf("или: %q", got)
 	}
-	for _, bad := range []string{"", "group=", "=db", "host=[", "a,=b"} {
+	for _, bad := range []string{"", "group=", "=db", "host=[", "a,=b", "!", "!group!=db", "!=db"} {
 		if _, err := ParseSelector(bad); err == nil {
 			t.Errorf("%q разобран", bad)
 		}

@@ -29,7 +29,7 @@ func TestInstallAliasPackage(t *testing.T) {
 	e.write(filepath.Join(src, lang.ManifestName), "version: 1.0.0\nprior.raise: 8/8\n")
 	e.write(filepath.Join(src, "notes.txt"), "не часть пакета")
 
-	out := e.must("!install", src)
+	out := e.must("!!install", src)
 	if !strings.Contains(out, "Пакет алиасов pgtune v1.0.0 установлен: алиасов 1") {
 		t.Fatalf("установка пакета:\n%s", out)
 	}
@@ -47,7 +47,7 @@ func TestInstallAliasPackage(t *testing.T) {
 
 	// Сломанный пакет не ставится и установленный не портит.
 	e.write(filepath.Join(src, "lib.ochan"), "alias raise(c: config) {\n")
-	e.fails("пакет pgtune не установлен", "!install", src)
+	e.fails("пакет pgtune не установлен", "!!install", src)
 	if data, _ := os.ReadFile(filepath.Join(installed, "lib.ochan")); !strings.Contains(string(data), "300") {
 		t.Fatal("сломанный пакет перезаписал установленный")
 	}
@@ -57,17 +57,17 @@ func TestInstallAliasPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.write(filepath.Join(bad, "a.ochan"), "alias f() { return 1 }\n")
-	e.fails("допустимы буквы, цифры и «_»", "!install", bad)
-	e.fails("нет ни алиасов", "!install", t.TempDir())
-	e.fails("ставятся модули", "!install", e.path("prod.conf"))
+	e.fails("допустимы буквы, цифры и «_»", "!!install", bad)
+	e.fails("нет ни алиасов", "!!install", t.TempDir())
+	e.fails("ставятся модули", "!!install", e.path("prod.conf"))
 
-	e.must("!install", "--remove", "pgtune")
-	e.fails("pgtune не установлен", "!install", "--remove", "pgtune")
-	e.fails("укажите имя модуля или пакета", "!install", "--remove", "../x")
+	e.must("!!install", "--remove", "pgtune")
+	e.fails("pgtune не установлен", "!!install", "--remove", "pgtune")
+	e.fails("укажите имя модуля или пакета", "!!install", "--remove", "../x")
 	e.fails(`пакет алиасов "pgtune" не подключён`, "plan", "use.ochan")
 }
 
-// Модуль-исполнитель ставится !install и сразу выполняет сценарии своего
+// Модуль-исполнитель ставится !!install и сразу выполняет сценарии своего
 // сервиса; токен ему выдаёт auth --executor.
 func TestInstallRunnerModule(t *testing.T) {
 	module := buildModule(t, "octochan/examples/runnermodule", "demo-runner")
@@ -77,7 +77,7 @@ func TestInstallRunnerModule(t *testing.T) {
 		syncRunners()
 	})
 
-	out := e.must("!install", module)
+	out := e.must("!!install", module)
 	for _, want := range []string{"Модуль demo-runner.hcplugin установлен", "исполнитель Demo: сервисы demo",
 		"ochan auth --executor demo"} {
 		if !strings.Contains(out, want) {
@@ -103,7 +103,7 @@ func TestInstallRunnerModule(t *testing.T) {
 	}
 	e.fails("допустимы буквы, цифры", "auth", "--executor", "../x", "t")
 
-	e.must("!install", "--remove", "demo-runner"+pluginhost.ModuleExtension)
+	e.must("!!install", "--remove", "demo-runner"+pluginhost.ModuleExtension)
 	if _, err := scenario.Resolve("demo"); err == nil {
 		t.Fatal("сервис удалённого модуля остался")
 	}
@@ -162,7 +162,7 @@ func TestRLMModule(t *testing.T) {
 	e.fails("теперь приносит модуль rlm", "plan", "restart.yaml")
 	e.fails("исполнителей нет", "auth", "секрет")
 
-	e.must("!install", module)
+	e.must("!!install", module)
 	setting(t, "defaults.api_url", api.URL+"/api/tasks.json")
 	if out := e.must("auth", "секрет"); !strings.Contains(out, "Токен исполнителя rlm сохранён") {
 		t.Fatalf("auth без --executor при одном исполнителе:\n%s", out)

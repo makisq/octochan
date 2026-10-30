@@ -8,7 +8,7 @@
 // Сборка и установка:
 //
 //	go build -o lang-de.hcplugin ./examples/langmodule
-//	ochan '!install' lang-de.hcplugin
+//	ochan '!!install' lang-de.hcplugin
 //
 // Затем в config.yaml — lang: de, и со следующего запуска ochan говорит
 // по-немецки. Чего нет в словаре, остаётся по-русски.

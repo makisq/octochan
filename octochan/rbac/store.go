@@ -316,7 +316,7 @@ func (s *Store) forget(name string, keepCurrent bool) {
 func dedupe(perms []string) []string {
 	var out []string
 	for _, perm := range perms {
-		if perm = strings.TrimSpace(perm); perm != "" && !contains(out, perm) {
+		if perm = Canonical(strings.TrimSpace(perm)); perm != "" && !contains(out, perm) {
 			out = append(out, perm)
 		}
 	}
@@ -430,5 +430,33 @@ func decode(data []byte) (*Store, error) {
 	if len(store.History) == 0 {
 		store.History = []string{store.Current}
 	}
+	for _, role := range store.Roles {
+		renamePerms(role.Perms)
+		renamePerms(role.Deny)
+		for i := range role.TempPerms {
+			role.TempPerms[i].Perm = Canonical(role.TempPerms[i].Perm)
+		}
+		for i := range role.TempDeny {
+			role.TempDeny[i].Perm = Canonical(role.TempDeny[i].Perm)
+		}
+	}
 	return &store, nil
+}
+
+// renamed — прежние имена команд: право, выданное под старым именем,
+// действует и после переименования.
+var renamed = map[string]string{"!install": "!!install"}
+
+// Canonical — нынешнее имя права.
+func Canonical(perm string) string {
+	if now, ok := renamed[perm]; ok {
+		return now
+	}
+	return perm
+}
+
+func renamePerms(perms []string) {
+	for i, perm := range perms {
+		perms[i] = Canonical(perm)
+	}
 }
