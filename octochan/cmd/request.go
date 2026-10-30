@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"octochan/config"
 	"octochan/i18n"
@@ -21,18 +22,20 @@ import (
 )
 
 var (
-	requestDoc     string
-	requestComment string
-	approveYes     bool
-	rejectReason   string
-	rejectKind     string
-	applyRequestID string
-	notifyMail     bool
-	requestScript  bool
-	requestAfter   []string
-	requestsReady  bool
-	requestOpts    scriptOptions
-	requestPrompt  promptOptions
+	requestDoc      string
+	requestComment  string
+	approveYes      bool
+	rejectReason    string
+	rejectKind      string
+	applyRequestID  string
+	notifyMail      bool
+	requestScript   bool
+	requestAfter    []string
+	requestsReady   bool
+	requestIncident string
+	requestsAfter   string
+	requestOpts     scriptOptions
+	requestPrompt   promptOptions
 )
 
 // requestStore открывает хранилище заявок.
@@ -79,12 +82,14 @@ var requestCmd = &cobra.Command{
 			return err
 		}
 		request.After = after
-		if currentRole != nil {
-			request.Role = currentRole.Name
+		if request.Incident, err = linkIncident(requestIncident); err != nil {
+			return err
 		}
+		stampRequest(request)
 		if err := store.Create(request); err != nil {
 			return err
 		}
+		noteRequestStep(request, "request", request.Summary)
 
 		cmd.Printf("Заявка %s создана (%s)\n", request.ID, request.State.Russian())
 		if len(after) > 0 {
@@ -104,6 +109,10 @@ var requestCmd = &cobra.Command{
 			cmd.Printf("Документ: %s\n", requestDoc)
 		}
 
+		if freeEligible(request) {
+			freeRequest(cmd, store, request)
+			return nil
+		}
 		cmd.Printf("Согласовать: ochan approve %s\n", request.ID)
 		return nil
 	},
@@ -305,6 +314,9 @@ var requestsCmd = &cobra.Command{
 				cmd.Println(graph.DescribeIn(request))
 			}
 			return nil
+		}
+		if requestsAfter != "" {
+			return listAfter(cmd, store, all, graph, requestsAfter)
 		}
 		if len(all) == 0 {
 			cmd.Printf("Заявок нет. Хранилище: %s\n", store.Dir())
@@ -558,6 +570,47 @@ func checkApprover(cmd *cobra.Command, request *workspace.Request) error {
 	return nil
 }
 
+// listAfter — что было после: заявки в окне триггера или заявки, которые
+// ждут названную (--after при оформлении).
+func listAfter(cmd *cobra.Command, store *workspace.Requests, all []*workspace.Request, graph workspace.Graph, id string) error {
+	var found []*workspace.Request
+	if strings.Contains(id, "#") {
+		found = requestsUnder(all, id)
+		triggers, err := triggerStore()
+		if err == nil {
+			settleTriggers(triggers)
+			windows, _ := triggers.Windows()
+			for _, w := range windows {
+				if w.ID() == id {
+					state := w.Outcome
+					if w.Open(time.Now()) {
+						state = "действует до " + w.Until.Local().Format("15:04")
+					}
+					cmd.Printf("Окно %s: роль %s, с %s, %s\n", id, w.Role, w.Start.Local().Format("2006-01-02 15:04"), state)
+				}
+			}
+		}
+		if len(found) == 0 {
+			cmd.Printf("В окне %s заявок не оформляли\n", id)
+			return nil
+		}
+	} else {
+		request, err := store.Get(id)
+		if err != nil {
+			return err
+		}
+		found = graph.Dependents(request.ID)
+		if len(found) == 0 {
+			cmd.Printf("После заявки %s ничего не ждёт\n", request.ID)
+			return nil
+		}
+	}
+	for _, request := range found {
+		cmd.Println(graph.DescribeIn(request))
+	}
+	return nil
+}
+
 // weakPlan — самые слабые правила плана, если его поддержка ниже порога.
 func weakPlan(request *workspace.Request) []string {
 	if request.Script == nil || request.Script.Prompt == nil {
@@ -659,7 +712,10 @@ func init() {
 	requestCmd.Flags().StringVar(&requestDoc, "doc", "", "выгрузить заявку в файл .docx")
 	requestsCmd.Flags().StringVar(&requestDoc, "doc", "", "выгрузить заявку в файл .docx")
 	requestsCmd.Flags().BoolVar(&requestsReady, "ready", false, "только согласованные, которые можно выполнять сейчас")
+	requestsCmd.Flags().StringVar(&requestsAfter, "after", "",
+		"что было после: заявки, которые ждут эту, или оформленные в окне триггера (release#1234)")
 	requestCmd.Flags().StringSliceVar(&requestAfter, "after", nil, "выполнять только после этих заявок")
+	requestCmd.Flags().StringVar(&requestIncident, "incident", "", "инцидент, ради которого заявка: она станет его шагом")
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
 	approveCmd.Flags().BoolVar(&approveYes, "yes", false, "план заявки нейросети проверен: согласовать без вопроса")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")

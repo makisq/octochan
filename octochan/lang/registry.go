@@ -53,6 +53,11 @@ type Package struct {
 	Name        string
 	Version     string
 	Description string
+	// Modes — с чем пакет работает (postgresql.conf, pgbouncer.ini);
+	// Requires — пакеты, без которых он не работает (@pgbase >=1.2). Их
+	// читает реестр: план установки называет и то и другое.
+	Modes    []string
+	Requires []string
 	// Priors — условный счёт автора для алиасов пакета: ключи манифеста
 	// prior.<алиас>.
 	Priors map[string]Prior
@@ -100,10 +105,14 @@ func LoadManifest(name, dir string) (*Package, error) {
 				pkg.Version = m[1]
 			case "description":
 				pkg.Description = value
+			case "modes":
+				pkg.Modes = splitList(value)
+			case "requires":
+				pkg.Requires = splitList(value)
 			default:
 				alias, ok := strings.CutPrefix(key, "prior.")
 				if !ok || alias == "" {
-					return nil, fmt.Errorf("%s: неизвестное поле %q; допустимы name, version, description и prior.<алиас>",
+					return nil, fmt.Errorf("%s: неизвестное поле %q; допустимы name, version, description, modes, requires и prior.<алиас>",
 						path, key)
 				}
 				prior, err := ParsePrior(value)
@@ -121,6 +130,17 @@ func LoadManifest(name, dir string) (*Package, error) {
 		return nil, fmt.Errorf("%s: не указана version", path)
 	}
 	return pkg, nil
+}
+
+// splitList — «a, b» из манифеста.
+func splitList(value string) []string {
+	var out []string
+	for _, part := range strings.Split(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 // Registry хранит алиасы, разложенные по пространствам имён.

@@ -32,6 +32,8 @@ type Pool struct {
 	role    string
 	creds   map[string][2]string
 	next    int
+	// readOnly — primary не найден, и пул подключён к standby: почему.
+	readOnly string
 }
 
 // DialPool готовит пул и находит primary. Один адрес без пары — просто
@@ -49,12 +51,26 @@ func DialPool(ctx context.Context, addrs []string, settings Settings, allowPlain
 		}
 		p.clients[addr] = c
 	}
-	primary, err := p.findPrimary(ctx, "")
+	primary, standbys, err := p.survey(ctx, "")
 	if err != nil {
-		return nil, err
+		if len(standbys) == 0 {
+			return nil, err
+		}
+		// Primary нет, а резерв на связи: он отвечает на чтение по копии,
+		// а на запись — отказом. Читать, пока человек решает, кого
+		// повысить, можно и так.
+		primary, p.readOnly = standbys[0], err.Error()
 	}
 	p.primary = primary
 	return p, nil
+}
+
+// ReadOnly — почему пул подключён к standby, а не к primary; пусто —
+// primary найден.
+func (p *Pool) ReadOnly() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.readOnly
 }
 
 // Primary — адрес primary.
@@ -70,10 +86,17 @@ func (p *Pool) Plain() bool { return !p.settings.SSL }
 // findPrimary опрашивает узлы. Узел без пары — сервер сам по себе: годится,
 // если он один. Из узлов пары — primary без конфликта с наибольшей эпохой.
 func (p *Pool) findPrimary(ctx context.Context, skip string) (string, error) {
+	primary, _, err := p.survey(ctx, skip)
+	return primary, err
+}
+
+// survey — findPrimary, а заодно standby на связи.
+func (p *Pool) survey(ctx context.Context, skip string) (string, []string, error) {
 	var (
 		best      string
 		bestEpoch int64 = -1
 		single    []string
+		standbys  []string
 		reasons   []string
 	)
 	for _, addr := range p.addrs {
@@ -91,18 +114,19 @@ func (p *Pool) findPrimary(ctx context.Context, skip string) (string, error) {
 		case st.Role == RolePrimary && st.Epoch > bestEpoch:
 			best, bestEpoch = addr, st.Epoch
 		case st.Role != RolePrimary:
+			standbys = append(standbys, addr)
 			reasons = append(reasons, fmt.Sprintf("%s: standby (эпоха %d)", addr, st.Epoch))
 		}
 	}
 	switch {
 	case best != "":
-		return best, nil
+		return best, standbys, nil
 	case len(single) == 1 && len(p.addrs) == 1:
-		return single[0], nil
+		return single[0], nil, nil
 	case len(single) > 0:
-		return "", fmt.Errorf("%s — серверы не в паре: разные серверы одним списком не подключаются", strings.Join(single, ", "))
+		return "", nil, fmt.Errorf("%s — серверы не в паре: разные серверы одним списком не подключаются", strings.Join(single, ", "))
 	}
-	return "", fmt.Errorf("primary не найден: %s", strings.Join(reasons, "; "))
+	return "", standbys, fmt.Errorf("primary не найден: %s", strings.Join(reasons, "; "))
 }
 
 // Login входит в роль на primary. Логин и пароль пул помнит, пока жив: ими
@@ -175,11 +199,16 @@ func (p *Pool) Exec(ctx context.Context, args []string, stdin string, readOnly b
 	}
 	primary, ferr := p.findPrimary(ctx, addr)
 	if ferr != nil {
+		var notPrimary *NotPrimary
+		if p.ReadOnly() != "" && errors.As(err, &notPrimary) {
+			// Пул и так на standby: его отказ говорит всё сам.
+			return nil, err
+		}
 		return nil, fmt.Errorf("%s: %s; другой primary не найден: %w", addr, why, ferr)
 	}
 	p.mu.Lock()
 	old := p.primary
-	p.primary = primary
+	p.primary, p.readOnly = primary, ""
 	p.mu.Unlock()
 	if p.OnSwitch != nil && old != primary {
 		p.OnSwitch(old, primary)

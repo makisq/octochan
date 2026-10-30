@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 
+	"octochan/workspace"
+
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 )
@@ -167,8 +169,39 @@ func abs(v int) int {
 	return v
 }
 
-// shellNoLogo — флаг ochan shell --no-logo.
-var shellNoLogo bool
+// shellNoLogo и shellLogo — флаги ochan shell --no-logo и --logo: без
+// рисунка и с ним, что бы ни стояло в shell.logo. Выбор запоминается в
+// state.json и действует в следующих сессиях, пока его не сменят.
+var shellNoLogo, shellLogo bool
+
+// logoEnabled — показывать ли логотип: флаг этого запуска, затем выбор,
+// запомненный прежним флагом, затем shell.logo.
+func logoEnabled() bool {
+	switch {
+	case shellNoLogo:
+		return false
+	case shellLogo:
+		return true
+	}
+	if fm, err := mustFileManager(); err == nil {
+		if state, err := workspace.LoadState(fm.StatePath()); err == nil && state.Logo != nil {
+			return *state.Logo
+		}
+	}
+	return viper.GetBool("shell.logo")
+}
+
+// rememberLogo запоминает выбор флага для следующих сессий.
+func rememberLogo() error {
+	if !shellLogo && !shellNoLogo {
+		return nil
+	}
+	fm, err := mustFileManager()
+	if err != nil {
+		return err
+	}
+	return workspace.SetLogo(fm.StatePath(), shellLogo)
+}
 
 // printShellLogo выводит логотип при входе в оболочку, если терминал это
 // позволяет. Ничего не выводит в остальных случаях — и никогда не мешает
@@ -180,7 +213,13 @@ func printShellLogo(out *os.File) {
 	if w, _, err := term.GetSize(fd); err == nil {
 		columns = w
 	}
-	if !shouldShowLogo(viper.GetBool("shell.logo") && !shellNoLogo, isTerminal, columns) {
+	enabled := logoEnabled()
+	if shellLogo {
+		// Попросили явно: показать и не на терминале, но по ширине —
+		// перенесённые строки разваливают рисунок и там.
+		isTerminal = true
+	}
+	if !shouldShowLogo(enabled, isTerminal, columns) {
 		return
 	}
 

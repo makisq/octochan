@@ -300,11 +300,11 @@ func Resolve(service string) (Runner, error) {
 	}
 	if wasBuiltin {
 		return nil, fmt.Errorf("сервис %q не зарегистрирован: его выполнял встроенный исполнитель, а теперь приносит "+
-			"модуль %s — соберите его (plugins/%s) и установите: ochan '!install' %s.hcplugin; доступны: %s",
+			"модуль %s — соберите его (plugins/%s) и установите: ochan '!!install' %s.hcplugin; доступны: %s",
 			service, module, module, module, available)
 	}
 	return nil, fmt.Errorf("сервис %q не зарегистрирован; доступны: %s. Исполнители приходят модулями: "+
-		"ochan '!install' <модуль>.hcplugin, установленные — ochan modules", service, available)
+		"ochan '!!install' <модуль>.hcplugin, установленные — ochan modules", service, available)
 }
 
 // Services перечисляет зарегистрированные сервисы.

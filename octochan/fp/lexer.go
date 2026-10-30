@@ -192,8 +192,8 @@ func tokenize(text string, indent int) ([]token, string, *Diagnostic) {
 			i = j
 
 		case r == '!' && i == 0 && (strings.HasPrefix(string(runes[1:]), "n_") || strings.HasPrefix(string(runes[1:]), "a_")):
-			return fail(i, "маркер «!» не используется: он занят командами ochan (!install), а в C-подобных "+
-				"языках читается как отрицание; пишите ??n_действие(...) или hard forbid действие(...)")
+			return fail(i, "маркер «!» не используется: в ochan «!» — отрицание, а «!!» — встроенные команды "+
+				"(!!install); пишите ??n_действие(...) или hard forbid действие(...)")
 
 		case r == '!':
 			return fail(i, "восклицание — не высказывание языка: модель здесь слой, а не собеседник (П1)")

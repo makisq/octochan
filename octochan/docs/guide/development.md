@@ -24,6 +24,14 @@ gofmt -l .
 | `cmd`: `TestReference` | справочник команд и функций совпадает с кодом |
 | `mcp`: `TestTableOnlyReadsOrRequests`, `TestToolDescriptionsAreEnglish` | модели недоступно выполнение; описания инструментов — по-английски |
 | `pluginhost`: `TestLanguageModuleOverGRPC` | модуль языка собирается, ставится и отдаёт словарь по gRPC |
+| `cmd`: `TestApplyRequestUsesApprovedPlan`, `rlm`: `TestExecuteScenarioIsBoundToPlan` | исполнитель применяет ровно согласованный план; запрос сверх плана — отказ до первой отправки |
+| `workspace`: `TestGraph` | порядок между заявками: «ожидает», «не выполнится», без циклов |
+| `cmd`: `TestWatchPolicy` | без человека выполняется только то, что укладывается в политику; отзыв действует со следующего прохода |
+| `cmd`: `TestSystemRolePolicy`, `rbac`: `TestSystemFileCheck` | хранилище ролей сужает права, но не поднимает выше потолка; политике, которую может править не root, не верят |
+| `sandbox`: `TestKernelEnforcesPolicy`, `TestExecOnlyAllowedPrograms` | ядро держит файлы, системные вызовы и запуск программ, а не только язык |
+| `cmd`: `TestServerPair`, `remote`: `TestHAReplicationAndFailover` | два процесса `serve`: копия, отказ записи на standby, переключение, заявка не выполняется дважды, бывший primary отступает |
+| `cmd`: `TestPlanChecksGeneralizationSlots`, `TestReportBoundToPlan` | значения модели — из слотов обобщений; отчёт модели совпадает с планом |
+| `rings`: `TestPlanSupport`, `cmd`: `TestWeakPlanNeedsOperator`, `workspace`: `TestFailureAttribution` | поддержка плана по различным правилам; слабый план — только с оператором; ошибки модели не снижают надёжность скиллов |
 
 ## Справочник
 
@@ -64,16 +72,17 @@ protoc -I.. --go_out=.. --go_opt=paths=source_relative \
 ## Сборка релиза
 
 ```bash
-VERSION=0.2.0-alpha
-for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
-  os=${target%/*}; arch=${target#*/}; ext=""; [ "$os" = windows ] && ext=.exe
-  GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X octochan/cmd.Version=$VERSION" \
-    -o dist/ochan-$VERSION-$os-$arch$ext .
-  (cd mcp && GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.serverVersion=$VERSION" \
-    -o ../dist/ochan-mcp-$VERSION-$os-$arch$ext .)
-done
-(cd dist && sha256sum * > SHA256SUMS)
+make dist                                        # dist/: ochan и ochan-mcp под все платформы и SHA256SUMS
+make dist VERSION=0.2.1-alpha                    # своя версия
+make dist SYSTEM_ROLES=/opt/octochan/roles.yaml  # свой путь системной политики ролей
 ```
+
+Платформы — linux/amd64, linux/arm64, darwin/amd64, darwin/arm64,
+windows/amd64. Версия и путь системной политики зашиваются флагами
+компоновщика (`-X octochan/cmd.Version`, `-X octochan/rbac.SystemPolicyPath`);
+собирая руками через `go build`, их передают так же — иначе путь политики
+будет по умолчанию, `/etc/octochan/roles.yaml`
+([«Установка»](install.md#go-build--без-make)).
 
 Что вошло в версию — [CHANGELOG](../../CHANGELOG.md).
 

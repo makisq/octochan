@@ -113,7 +113,7 @@ func Use(code string) error {
 	defer mu.Unlock()
 	lang, ok := languages[code]
 	if !ok {
-		return fmt.Errorf("язык %q не найден; доступны: %s. Другой язык ставится модулем: ochan !install <модуль>",
+		return fmt.Errorf("язык %q не найден; доступны: %s. Другой язык ставится модулем: ochan !!install <модуль>",
 			code, strings.Join(codesLocked(), ", "))
 	}
 	current = lang

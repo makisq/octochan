@@ -116,7 +116,7 @@ const executorFlagAnnotation = "executor"
 
 // addExecutorFlags даёт status флаг --<исполнитель> для каждого, кто умеет
 // показывать статус. Вызывается, когда меняется набор исполнителей: при
-// загрузке модулей и после !install.
+// загрузке модулей и после !!install.
 func addExecutorFlags() {
 	for name := range statusReporters() {
 		if name == "" || statusCmd.Flags().Lookup(name) != nil {

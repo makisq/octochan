@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -121,6 +122,26 @@ var serveCmd = &cobra.Command{
 			srv.StandbyAudit = &audit.Journal{Path: filepath.Join(fm.BaseDir(), standbyAudit)}
 			srv.Exec = childExecutor(dir, viper.GetDuration("server.command_timeout"), pairEnv(pair, barrier))
 		}
+		writable := func() (bool, string) {
+			if pair == nil || pair.Writable() {
+				return true, ""
+			}
+			st := pair.Status()
+			return false, fmt.Sprintf("узел %s — standby: запись — на primary %s", st.Node, orDash(st.Peer))
+		}
+		if ctx := cmd.Context(); ctx != nil {
+			go watchIncidents(ctx, func() bool { ok, _ := writable(); return ok }, logger.Printf)
+		}
+		srv.Routes = map[string]http.Handler{
+			"POST /v1/incidents": incidentsHandler(writable),
+			"POST /v1/events/{trigger}": eventsHandler(func() (bool, string) {
+				if pair == nil || pair.Writable() {
+					return true, ""
+				}
+				st := pair.Status()
+				return false, fmt.Sprintf("узел %s — standby: событие — на primary %s", st.Node, orDash(st.Peer))
+			}),
+		}
 		return srv.Serve(cmd.Context(), listen, settings, servePlaintext, func(url string) {
 			cmd.Printf("Сервер слушает %s\n", url)
 			cmd.Printf("Каталог:   %s\n", dir)
@@ -224,6 +245,9 @@ func remoteAuthorize(role *rbac.Role, args []string) error {
 		}
 	}
 
+	if _, ok := reply(args); ok {
+		return nil
+	}
 	findMu.Lock()
 	found, _, err := rootCmd.Find(args)
 	key := ""
@@ -264,6 +288,10 @@ func childExecutor(dir string, timeout time.Duration, extra func() []string) rem
 	}
 	return func(ctx context.Context, role string, args []string, stdin string) remote.Result {
 		fail := func(err error) remote.Result { return remote.Result{Stderr: err.Error() + "\n", Code: 1} }
+		// ping и его родня отвечает сам сервер: процесс для них не нужен.
+		if out, ok := reply(args); ok {
+			return remote.Result{Stdout: out}
+		}
 
 		self, err := os.Executable()
 		if err != nil {
@@ -461,15 +489,21 @@ var connectCmd = &cobra.Command{
 }
 
 var remoteCmd = &cobra.Command{
-	Use:   "remote <host:port[,host:port]> <команда>...",
+	Use:   "remote [host:port[,host:port]] <команда>...",
 	Short: "Выполнить одну команду на общем оркестраторе",
 	Long: "Входит в роль --role, выполняет команду на сервере и выходит. Аргумент «-»\n" +
 		"передаёт серверу stdin. Флаги remote пишутся до адреса: всё после него —\n" +
-		"команда для сервера.",
-	Args: cobra.MinimumNArgs(2),
+		"команда для сервера. Без адреса — remote.address из config.yaml.\n\n" +
+		"ping — проверить, что сервер жив и принимает вход: он ответит pong.",
+	Args: cobra.MinimumNArgs(1),
 	Example: "ochan remote orchestrator.example:7443 diff prod.conf test.conf\n" +
-		"cat новый.conf | ochan remote --role Dan orchestrator.example:7443 validate -",
+		"cat новый.conf | ochan remote --role Dan orchestrator.example:7443 validate -\n" +
+		"ochan remote ping",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		args, err := withRemoteAddress(args)
+		if err != nil {
+			return err
+		}
 		command := args[1:]
 		stdin := ""
 		for _, arg := range command {
@@ -511,6 +545,22 @@ var remoteCmd = &cobra.Command{
 	},
 }
 
+// withRemoteAddress — первый аргумент remote: адрес. Адреса нет (имя
+// команды не содержит «:») — remote.address из настроек.
+func withRemoteAddress(args []string) ([]string, error) {
+	if strings.Contains(args[0], ":") {
+		if len(args) < 2 {
+			return nil, errors.New("после адреса — команда для сервера, например ping")
+		}
+		return args, nil
+	}
+	addr := viper.GetString("remote.address")
+	if addr == "" {
+		return nil, fmt.Errorf("%q — не адрес host:port, а remote.address в config.yaml не задан", args[0])
+	}
+	return append([]string{addr}, args...), nil
+}
+
 // openSession подключается и входит в роль, спрашивая логин и пароль,
 // если сервер их ждёт.
 func openSession(cmd *cobra.Command, addr string, input *bufio.Reader) (*remote.Pool, error) {
@@ -544,6 +594,9 @@ func openSession(cmd *cobra.Command, addr string, input *bufio.Reader) (*remote.
 		return nil, err
 	}
 	cmd.Printf("Подключено к %s, роль %s\n", client.Primary(), state.Role)
+	if why := client.ReadOnly(); why != "" {
+		cmd.PrintErrf("внимание: %s — подключено к standby: только чтение по копии, запись он отклонит\n", why)
+	}
 	return client, nil
 }
 

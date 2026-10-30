@@ -14,12 +14,19 @@
 
 ## Оглавление
 
-- [`ochan !install`](#ochan-install) — Установить модуль или пакет алиасов
+- [`ochan !!install`](#ochan-install) — Установить модуль или пакет алиасов
+- [`ochan !!registry`](#ochan-registry) — Реестры пакетов: источники, ключи подписи, публикация, отзыв
+- [`ochan !!registry keygen`](#ochan-registry-keygen) — Создать ключ подписи реестра ed25519
+- [`ochan !!registry publish`](#ochan-registry-publish) — Опубликовать пакет в реестр-каталог
+- [`ochan !!registry revoke`](#ochan-registry-revoke) — Отозвать версию пакета в реестре-каталоге
+- [`ochan !!rin`](#ochan-rin) — Поставить пакет алиасов из реестра — с планом и согласованием
+- [`ochan !!search`](#ochan-search) — Найти пакет алиасов в реестрах
 - [`ochan agent`](#ochan-agent) — Машина-агент: сообщать серверу о себе
 - [`ochan agent run`](#ochan-agent-run) — Сообщать серверу о себе раз в --every
 - [`ochan agents`](#ochan-agents) — Реестр агентов: машины, которые сами сообщают серверу о себе
 - [`ochan agents beat`](#ochan-agents-beat) — Сообщить серверу о себе — это вызывает ochan agent run
 - [`ochan agents forget`](#ochan-agents-forget) — Убрать агента из реестра
+- [`ochan agents free`](#ochan-agents-free) — Включить free агенту: модель выполняет без человека по политике
 - [`ochan aliases`](#ochan-aliases) — Показать доступные алиасы и встроенные функции
 - [`ochan apply`](#ochan-apply) — Выполнить сценарий
 - [`ochan approve`](#ochan-approve) — Согласовать заявку
@@ -42,12 +49,23 @@
 - [`ochan fp protocol`](#ochan-fp-protocol) — Показать протокол — то, что модель читает первым
 - [`ochan fp words`](#ochan-fp-words) — Словарь языка: слова, их смыслы и откуда они
 - [`ochan ha`](#ochan-ha) — Пара серверов primary/standby: настройка, состояние, переключение
+- [`ochan ha contour`](#ochan-ha-contour) — Контур узла: HA-AI (без человека-оператора) или обычный
 - [`ochan ha init`](#ochan-ha-init) — Сделать этот узел узлом пары
 - [`ochan ha promote`](#ochan-ha-promote) — Сделать этот узел primary: переключение пары
 - [`ochan ha status`](#ochan-ha-status) — Состояние узлов пары
 - [`ochan help`](#ochan-help) — Отобразить список всех доступных команд
 - [`ochan history`](#ochan-history) — Показать журнал операций
 - [`ochan if`](#ochan-if) — Условная проверка значения в конфиге
+- [`ochan incident`](#ochan-incident) — Инциденты HA-AI: модель чинит до срока, не успела — эскалация инженерам
+- [`ochan incident attach`](#ochan-incident-attach) — Приложить журнал к инциденту: он уйдёт инженерам при эскалации
+- [`ochan incident check`](#ochan-incident-check) — Эскалировать инциденты, срок которых вышел, и отправить отчёт по расписанию — для cron
+- [`ochan incident escalate`](#ochan-incident-escalate) — Эскалировать инцидент инженерам сейчас: модель не справится
+- [`ochan incident note`](#ochan-incident-note) — Заметка к инциденту: что модель нашла и сделала
+- [`ochan incident open`](#ochan-incident-open) — Открыть инцидент: модель идёт чинить, срок — по уровню
+- [`ochan incident report`](#ochan-incident-report) — Отправить статистику инцидентов на почту сейчас
+- [`ochan incident resolve`](#ochan-incident-resolve) — Инцидент решён
+- [`ochan incident secret`](#ochan-incident-secret) — Создать секрет вебхука мониторинга
+- [`ochan incident stats`](#ochan-incident-stats) — Статистика инцидентов: что решила модель, что ушло инженерам, что не решено
 - [`ochan inspect`](#ochan-inspect) — Показать информацию о модуле
 - [`ochan inventory`](#ochan-inventory) — Цели: хосты инвентаря, их группы и переменные
 - [`ochan inventory ack`](#ochan-inventory-ack) — Отметить новые хосты увиденными
@@ -58,6 +76,7 @@
 - [`ochan logs rank`](#ochan-logs-rank) — Ранжировать строки журнала по уровням важности
 - [`ochan modules`](#ochan-modules) — Показать установленные модули и пакеты алиасов
 - [`ochan patch`](#ochan-patch) — Применить изменения к основному конфигу
+- [`ochan ping`](#ochan-ping) — Проверить, что ochan отвечает: pong
 - [`ochan plan`](#ochan-plan) — Показать, что произойдёт, ничего не делая
 - [`ochan policy`](#ochan-policy) — Политики автоматического выполнения: что ochan watch выполняет без человека
 - [`ochan policy add`](#ochan-policy-add) — Зарегистрировать политику: заранее данное согласование
@@ -96,15 +115,19 @@
 - [`ochan timer`](#ochan-timer) — Управление напоминанием об истечении токена
 - [`ochan tls`](#ochan-tls) — Сертификат сервера: tls init
 - [`ochan tls init`](#ochan-tls-init) — Создать самоподписанный сертификат сервера
+- [`ochan trigger`](#ochan-trigger) — Триггеры: роль, которую открывает событие CI, на окно
+- [`ochan trigger end`](#ochan-trigger-end) — Закрыть окно триггера: событие кончилось
+- [`ochan trigger fire`](#ochan-trigger-fire) — Открыть окно триггера: событие началось
+- [`ochan trigger secret`](#ochan-trigger-secret) — Создать секрет вебхука триггера
 - [`ochan validate`](#ochan-validate) — Проверить конфиг на ошибки
 - [`ochan watch`](#ochan-watch) — Следить за инвентарём: новый хост — план, заявка, а по политике — выполнение
 
-## ochan !install
+## ochan !!install
 
 Установить модуль или пакет алиасов.
 
 ```
-ochan !install <модуль.hcplugin | пакет | файл.ochan>
+ochan !!install <модуль.hcplugin | пакет | файл.ochan>
 ```
 
 Одна команда ставит всё, чем расширяется ochan, в ~/.octochan/modules:
@@ -128,14 +151,132 @@ ochan !install <модуль.hcplugin | пакет | файл.ochan>
 Примеры:
 
 ```
-ochan '!install' ssh-runner.hcplugin
-ochan '!install' ./pgconf
-ochan '!install' --remove pgconf
+ochan '!!install' ssh-runner.hcplugin
+ochan '!!install' ./pgconf
+ochan '!!install' --remove pgconf
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--remove` | bool | — | удалить модуль или пакет алиасов |
+
+## ochan !!registry
+
+Реестры пакетов: источники, ключи подписи, публикация, отзыв.
+
+```
+ochan !!registry
+```
+
+Без подкоманды — источники registry.sources по приоритету и ключи
+registry.keys. Свой реестр — каталог: keygen создаёт ключ подписи, publish
+кладёт пакет и подписывает индекс, revoke отзывает версию. Каталог
+отдают по HTTP или коммитят в git.
+
+Право: `install`.
+
+Примеры:
+
+```
+ochan '!!registry'
+ochan '!!registry' keygen corp-release
+ochan '!!registry' publish ./pgconf --registry /srv/registry --key corp-release.key
+ochan '!!registry' revoke @pgconf v1.3.0 --registry /srv/registry --key corp-release.key --reason "CVE-2026-1234"
+```
+
+Подкоманды: [`keygen`](#ochan-registry-keygen), [`publish`](#ochan-registry-publish), [`revoke`](#ochan-registry-revoke).
+
+## ochan !!registry keygen
+
+Создать ключ подписи реестра ed25519.
+
+```
+ochan !!registry keygen <имя>
+```
+
+Право: `install`.
+
+## ochan !!registry publish
+
+Опубликовать пакет в реестр-каталог.
+
+```
+ochan !!registry publish <каталог пакета> --registry <каталог реестра>
+```
+
+Право: `install`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--key` | string | — | закрытый ключ подписи индекса (keygen) |
+| `--registry` | string | — | каталог реестра |
+
+## ochan !!registry revoke
+
+Отозвать версию пакета в реестре-каталоге.
+
+```
+ochan !!registry revoke <@пакет> <версия> --registry <каталог реестра> --reason <почему>
+```
+
+Право: `install`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--key` | string | — | закрытый ключ подписи индекса (keygen) |
+| `--reason` | string | — | причина отзыва: её увидят все |
+| `--registry` | string | — | каталог реестра |
+
+## ochan !!rin
+
+Поставить пакет алиасов из реестра — с планом и согласованием.
+
+```
+ochan !!rin <@пакет> [версия]
+```
+
+Ищет пакет в registry.sources по приоритету, строит план установки —
+источник, что и куда разместит, режимы, зависимости, подпись индекса,
+sha256 архива — и оформляет заявку. После ochan approve <id> пакет
+ставит ochan apply --request <id>: ровно тот архив, сумму которого
+согласовали. Отозванная автором версия не ставится.
+
+--plan — только показать план; --approve — поставить сразу, если роль
+может согласовывать.
+
+Право: `install`.
+
+Примеры:
+
+```
+ochan '!!rin' @pgconf --plan
+ochan '!!rin' @pgconf v1.4.0
+ochan '!!rin' @pgconf --approve
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--approve` | bool | — | поставить сразу, без заявки: роли нужно право approve |
+| `--plan` | bool | — | только показать план установки |
+
+## ochan !!search
+
+Найти пакет алиасов в реестрах.
+
+```
+ochan !!search <слово>
+```
+
+Ищет по имени и описанию пакета во всех источниках registry.sources —
+и только в них. Источники одного приоритета — одним блоком.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan '!!search' pgconf
+```
 
 ## ochan agent
 
@@ -174,7 +315,11 @@ ochan agent run --server a.example:7443,b.example:7443 --name db7 --group db,db_
 |---|---|---|---|
 | `--allow-plaintext` | bool | — | разрешить подключение без ssl к другой машине |
 | `--every` | duration | `1m0s` | как часто сообщать о себе |
+| `--free-for` | string | — | free: срок, например 4h |
+| `--free-policy` | string | — | free: политика — что выполнять без человека |
+| `--free-role` | string | — | free: чьи права на выполнение модель берёт |
 | `--group` | stringSlice | — | группы агента |
+| `--isolation` | string | `natural` | natural — модель только предлагает; free — выполняет по политике (только master, только HA-AI) |
 | `--name` | string | — | имя агента — имя хоста в инвентаре |
 | `--once` | bool | — | сообщить один раз и выйти |
 | `--role` | string | `agent` | роль агента на сервере |
@@ -197,7 +342,7 @@ ochan agents
 
 Право: `read`.
 
-Подкоманды: [`beat`](#ochan-agents-beat), [`forget`](#ochan-agents-forget).
+Подкоманды: [`beat`](#ochan-agents-beat), [`forget`](#ochan-agents-forget), [`free`](#ochan-agents-free).
 
 ## ochan agents beat
 
@@ -229,6 +374,37 @@ ochan agents forget <имя>
 ```
 
 Право: `approve`.
+
+## ochan agents free
+
+Включить free агенту: модель выполняет без человека по политике.
+
+```
+ochan agents free <агент> --role <роль> --for <срок> --policy <политика>
+```
+
+Только master и только на primary контура HA-AI (ochan ha contour ai).
+Заявка модели (роль llm), которая укладывается в политику, согласуется ею и
+выполняется сразу — от имени --role, с её правами и пределами. Вне
+политики — обычная заявка: ждёт master. free гаснет по --for, с отзывом
+или сроком политики и с --revoke. Песочница, кольца, арбитр и сверка плана
+действуют как всегда: free меняет только то, кто сказал «да».
+
+Право: `admin`.
+
+Примеры:
+
+```
+ochan agents free db7 --role deployer --for 4h --policy new-servers
+ochan agents free db7 --revoke
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | срок: 30m, 4h, 1d |
+| `--policy` | string | — | политика: что выполнять без человека |
+| `--revoke` | bool | — | отозвать free агента |
+| `--role` | string | — | чьи права на выполнение модель берёт |
 
 ## ochan aliases
 
@@ -766,7 +942,22 @@ ochan ha status a.example:7443,b.example:7443
 ochan ha promote
 ```
 
-Подкоманды: [`init`](#ochan-ha-init), [`promote`](#ochan-ha-promote), [`status`](#ochan-ha-status).
+Подкоманды: [`contour`](#ochan-ha-contour), [`init`](#ochan-ha-init), [`promote`](#ochan-ha-promote), [`status`](#ochan-ha-status).
+
+## ochan ha contour
+
+Контур узла: HA-AI (без человека-оператора) или обычный.
+
+```
+ochan ha contour <ai | human>
+```
+
+ai — в контуре нет человека-оператора: на primary такого узла master может
+включить free (ochan agents free). human — обычный контур: free на узле не
+действует, действующие выдачи ждут, пока контур снова не станет ai.
+Только master; контур — у каждого узла пары свой, ставят на обоих.
+
+Право: `admin`.
 
 ## ochan ha init
 
@@ -784,6 +975,7 @@ standby. Общий секрет пары (ha.token_file) создаётся, е
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--ai-contour` | bool | — | контур HA-AI: человека-оператора нет (только master) |
 | `--node` | string | — | имя узла |
 | `--role` | string | — | primary или standby |
 
@@ -869,6 +1061,162 @@ ochan if config.conf server.port == 8080 "Порт корректен"
 ochan if postgresql.conf shared_buffers '>=' 4GB "Буферов достаточно"
 ```
 
+## ochan incident
+
+Инциденты HA-AI: модель чинит до срока, не успела — эскалация инженерам.
+
+```
+ochan incident [номер]
+```
+
+Инцидент открывает мониторинг (вебхук POST /v1/incidents или incident open)
+или сама модель. У уровня критичности — срок (incidents.levels): столько
+модель чинит сама. Её заметки, заявки (request --incident) и их выполнение —
+шаги инцидента. Решила — incident resolve. Не успела или признала, что не
+справится (incident escalate), — инцидент эскалируется: инженерной группе
+(incidents.engineers) уходит письмо с описанием, шагами, журналами и .docx,
+а модель по инциденту больше не действует. Срок проверяет сервер, любая
+команда инцидентов и incident check — для cron.
+
+Без аргументов — инциденты; с номером — карточка.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan incident open --level critical --host db7 "PostgreSQL не принимает соединения"
+ochan incident note 3f2a "max_connections исчерпан: 200 из 200"
+ochan request raise.yaml --incident 3f2a
+ochan incident resolve 3f2a "поднят max_connections до 300, соединения идут"
+ochan incident escalate 3f2a "причина не в конфиге: нужен человек"
+```
+
+Подкоманды: [`attach`](#ochan-incident-attach), [`check`](#ochan-incident-check), [`escalate`](#ochan-incident-escalate), [`note`](#ochan-incident-note), [`open`](#ochan-incident-open), [`report`](#ochan-incident-report), [`resolve`](#ochan-incident-resolve), [`secret`](#ochan-incident-secret), [`stats`](#ochan-incident-stats).
+
+## ochan incident attach
+
+Приложить журнал к инциденту: он уйдёт инженерам при эскалации.
+
+```
+ochan incident attach <номер> <журнал | ->
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--name` | string | — | имя журнала во вложении (для stdin) |
+
+## ochan incident check
+
+Эскалировать инциденты, срок которых вышел, и отправить отчёт по расписанию — для cron.
+
+```
+ochan incident check
+```
+
+Право: `read`.
+
+## ochan incident escalate
+
+Эскалировать инцидент инженерам сейчас: модель не справится.
+
+```
+ochan incident escalate <номер> <почему | ->
+```
+
+Право: `read`.
+
+## ochan incident note
+
+Заметка к инциденту: что модель нашла и сделала.
+
+```
+ochan incident note <номер> <что сделано или найдено | ->
+```
+
+Право: `read`.
+
+## ochan incident open
+
+Открыть инцидент: модель идёт чинить, срок — по уровню.
+
+```
+ochan incident open --level <уровень> [--host h] <что случилось | ->
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--host` | stringSlice | — | хосты инцидента |
+| `--level` | string | — | уровень критичности: incidents.levels |
+| `--source` | string | — | кто открыл: мониторинг, модель |
+
+## ochan incident report
+
+Отправить статистику инцидентов на почту сейчас.
+
+```
+ochan incident report [--for 7d]
+```
+
+Шлёт статистику за период группе отчёта (incidents.report.to, иначе
+incidents.engineers) с таблицей инцидентов во вложении .csv. Расписание
+отчётов (incidents.report.every) не сдвигает.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | период: 24h, 7d, all; без него — incidents.report.every или 7d |
+
+## ochan incident resolve
+
+Инцидент решён.
+
+```
+ochan incident resolve <номер> <что сделано | ->
+```
+
+Право: `read`.
+
+## ochan incident secret
+
+Создать секрет вебхука мониторинга.
+
+```
+ochan incident secret
+```
+
+Секрет — 256 случайных бит в ~/.octochan/incidents.secret (права 0600).
+Мониторинг шлёт его заголовком Authorization: Bearer <секрет> на
+POST https://<сервер>/v1/incidents с телом {"level": "critical",
+"hosts": ["db7"], "summary": "…", "source": "zabbix", "log": "…"}.
+
+Право: `admin`.
+
+## ochan incident stats
+
+Статистика инцидентов: что решила модель, что ушло инженерам, что не решено.
+
+```
+ochan incident stats [--for 7d]
+```
+
+Считает инциденты, открытые за период: решены моделью до срока, человеком до
+эскалации, людьми после эскалации; не решены — у инженеров или у модели;
+почему модель не справилась — срок вышел, отдала сама, отдал человек.
+Время решения — среднее и медиана. Период — --for (24h, 7d, all), без него —
+incidents.report.every или 7d.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | период: 24h, 7d, all; без него — incidents.report.every или 7d |
+
 ## ochan inspect
 
 Показать информацию о модуле.
@@ -935,7 +1283,7 @@ ochan lang
 ```
 
 Язык выбирается в config.yaml: lang: ru или lang: eng (en). Другие языки
-приносят модули: модуль ставится через !install, после чего его язык
+приносят модули: модуль ставится через !!install, после чего его язык
 указывается в lang и действует со следующего запуска ochan.
 
 Чего нет в переводе, берётся из английского, а чего нет и там — остаётся
@@ -1057,6 +1405,28 @@ ochan patch prod.conf changes.conf -o patched.conf
 |---|---|---|---|
 | `--force` | bool | — | перезаписать существующий файл |
 | `-o`, `--output` | string | — | куда записать результат (по умолчанию patched.conf) |
+
+## ochan ping
+
+Проверить, что ochan отвечает: pong.
+
+```
+ochan ping
+```
+
+Отвечает pong. Через ochan remote <адрес> ping — проверка, что сервер
+жив, принимает вход и выполняет команды. Так же отвечают SELECT 1 — как
+psql — и приветствие Ohayō, senpai!
+
+Право: `свободная — доступна любой роли`.
+
+Примеры:
+
+```
+ochan ping
+ochan remote orchestrator.example:7443 ping
+ochan remote orchestrator.example:7443 'SELECT 1'
+```
 
 ## ochan plan
 
@@ -1218,12 +1588,14 @@ ochan reject <id>
 Выполнить одну команду на общем оркестраторе.
 
 ```
-ochan remote <host:port[,host:port]> <команда>...
+ochan remote [host:port[,host:port]] <команда>...
 ```
 
 Входит в роль --role, выполняет команду на сервере и выходит. Аргумент «-»
 передаёт серверу stdin. Флаги remote пишутся до адреса: всё после него —
-команда для сервера.
+команда для сервера. Без адреса — remote.address из config.yaml.
+
+ping — проверить, что сервер жив и принимает вход: он ответит pong.
 
 Право: `remote`.
 
@@ -1232,6 +1604,7 @@ ochan remote <host:port[,host:port]> <команда>...
 ```
 ochan remote orchestrator.example:7443 diff prod.conf test.conf
 cat новый.conf | ochan remote --role Dan orchestrator.example:7443 validate -
+ochan remote ping
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
@@ -1284,6 +1657,7 @@ ochan request --script --sandbox --root ./configs - < сценарий.ochan
 | `--allow-net` | stringArray | — | разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз |
 | `--bundle` | bool | — | stdin — JSON {"script": …, "prompt": …, "report": …}; так их передаёт ochan-mcp |
 | `--doc` | string | — | выгрузить заявку в файл .docx |
+| `--incident` | string | — | инцидент, ради которого заявка: она станет его шагом |
 | `--limit` | stringArray | — | только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз |
 | `--name` | string | — | имя сценария, поданного на stdin |
 | `--prompt` | string | — | формальный промпт: его жёсткие правила проверяются по плану сценария |
@@ -1312,6 +1686,7 @@ ochan requests [id]
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--after` | string | — | что было после: заявки, которые ждут эту, или оформленные в окне триггера (release#1234) |
 | `--doc` | string | — | выгрузить заявку в файл .docx |
 | `--ready` | bool | — | только согласованные, которые можно выполнять сейчас |
 
@@ -1327,7 +1702,7 @@ ochan role
 
 После установки есть две роли: master — первая и высшая, ей доступно всё;
 llm — для нейросетей: читать, планировать, оформлять заявки. Права — группы
-(admin, agent, apply, approve, audit, auth, install, plan, read, remote, request, server), all или имя команды.
+(admin, agent, apply, approve, audit, auth, install, plan, read, remote, request, server, trigger), all или имя команды.
 
 Право: `свободная — доступна любой роли`.
 
@@ -1754,7 +2129,8 @@ ochan shell
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| `--no-logo` | bool | — | не показывать логотип при входе |
+| `--logo` | bool | — | показывать логотип при входе — и в следующих сессиях, даже если shell.logo: false |
+| `--no-logo` | bool | — | не показывать логотип при входе — и в следующих сессиях |
 
 ## ochan srs
 
@@ -1862,6 +2238,80 @@ ochan tls init --host orchestrator.example --host 10.0.0.5
 | `--days` | int | `365` | срок действия сертификата в днях |
 | `--force` | bool | — | перезаписать существующие сертификат и ключ |
 | `--host` | stringArray | — | имя или адрес сервера в сертификате; можно указать несколько раз |
+
+## ochan trigger
+
+Триггеры: роль, которую открывает событие CI, на окно.
+
+```
+ochan trigger
+```
+
+Триггер в config.yaml называет событие, роль, которую оно открывает, её
+область целей и max_window. Роль под триггером вне окна не может ничего,
+кроме того, что доступно любой роли; в окне — свои права, но цели только
+под scope. Окно открывает событие (ochan trigger fire или вебхук сервера
+POST /v1/events/<триггер>), закрывает событие конца или max_window — сама.
+
+Без аргументов — триггеры и их окна.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan trigger
+ochan trigger fire release --id 1234
+ochan trigger end release --id 1234 --reason "релиз выкачен"
+ochan trigger secret release
+```
+
+Подкоманды: [`end`](#ochan-trigger-end), [`fire`](#ochan-trigger-fire), [`secret`](#ochan-trigger-secret).
+
+## ochan trigger end
+
+Закрыть окно триггера: событие кончилось.
+
+```
+ochan trigger end <триггер> --id <номер события>
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--id` | string | — | номер события у источника: номер сборки CI |
+| `--reason` | string | — | почему окно закрыто |
+
+## ochan trigger fire
+
+Открыть окно триггера: событие началось.
+
+```
+ochan trigger fire <триггер> --id <номер события>
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--id` | string | — | номер события у источника: номер сборки CI |
+
+## ochan trigger secret
+
+Создать секрет вебхука триггера.
+
+```
+ochan trigger secret <триггер>
+```
+
+Секрет — 256 случайных бит в ~/.octochan/triggers/<триггер>.secret (права
+0600). CI шлёт его заголовком Authorization: Bearer <секрет> на
+POST https://<сервер>/v1/events/<триггер> с телом {"id": "1234",
+"state": "start"} и {"id": "1234", "state": "end"}. Новый секрет
+заменяет прежний.
+
+Право: `admin`.
 
 ## ochan validate
 

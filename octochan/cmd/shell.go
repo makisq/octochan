@@ -68,7 +68,7 @@ func loadShellHistory() {
 // Строка, начатая с пробела, не запоминается — как в bash с
 // HISTCONTROL=ignorespace: так набирают то, чему не место в истории.
 func rememberCommand(raw, input string) {
-	if strings.HasPrefix(raw, " ") || strings.HasPrefix(input, "!") {
+	if strings.HasPrefix(raw, " ") || strings.HasPrefix(input, "!!") {
 		return
 	}
 	input = redactSecrets(input)
@@ -88,9 +88,16 @@ func rememberCommand(raw, input string) {
 
 func init() {
 	shellCmd.RunE = func(cmd *cobra.Command, _ []string) error {
+		if shellLogo && shellNoLogo {
+			return i18n.Errorf("--logo и --no-logo вместе: выберите одно")
+		}
+		if err := rememberLogo(); err != nil {
+			cmd.PrintErrln(i18n.Sprintf("внимание: выбор логотипа не сохранён: %v", err))
+		}
 		return runInteractiveShell(cmd.Context())
 	}
-	shellCmd.Flags().BoolVar(&shellNoLogo, "no-logo", false, "не показывать логотип при входе")
+	shellCmd.Flags().BoolVar(&shellNoLogo, "no-logo", false, "не показывать логотип при входе — и в следующих сессиях")
+	shellCmd.Flags().BoolVar(&shellLogo, "logo", false, "показывать логотип при входе — и в следующих сессиях, даже если shell.logo: false")
 }
 
 // shellTerminal — исходный режим терминала; восстанавливается при любом
@@ -194,11 +201,14 @@ func executeShellInput(ctx context.Context, raw string) {
 		fmt.Println(i18n.T("До встречи!"))
 		exitShell(0)
 		return
-	case "!clear", "clr":
+	case "!!clear", "clr":
 		fmt.Print("\x1b[2J\x1b[H")
 		return
-	case "!history", "his":
+	case "!!history", "his":
 		showCommandHistory()
+		return
+	case "!clear", "!history":
+		fmt.Println(i18n.Sprintf("ошибка: команды оболочки пишутся с «!!»: !%s — одиночный «!» теперь означает «не»", input))
 		return
 	}
 
@@ -280,6 +290,14 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 	resetFlags(rootCmd)
 
 	rootCmd.SetArgs(args)
+	if out, ok := reply(args); ok {
+		fmt.Print(out)
+		return stop.Load()
+	}
+	if err := singleBang(args); err != nil {
+		fmt.Printf(i18n.T("ошибка: %v\n"), err)
+		return stop.Load()
+	}
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			fmt.Println(i18n.T("Прервано"))
@@ -395,8 +413,8 @@ func completeCommands(d prompt.Document) []prompt.Suggest {
 
 	suggests = append(suggests,
 		prompt.Suggest{Text: "exit", Description: "Выйти из оболочки"},
-		prompt.Suggest{Text: "!clear", Description: "Очистить экран"},
-		prompt.Suggest{Text: "!history", Description: "История команд"},
+		prompt.Suggest{Text: "!!clear", Description: "Очистить экран"},
+		prompt.Suggest{Text: "!!history", Description: "История команд"},
 	)
 
 	return prompt.FilterHasPrefix(suggests, d.GetWordBeforeCursor(), true)

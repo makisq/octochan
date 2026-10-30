@@ -294,7 +294,7 @@ func TestTableOnlyReadsOrRequests(t *testing.T) {
 	// не должна быть доступна модели — ни сейчас, ни после правки таблицы.
 	forbidden := []string{
 		"apply", "approve", "reject", "rollback", "patch", "tee", "auth", "timer",
-		"!install", "inspect", "srs", "run", "eval", "shell", "if", "else", "logs", "logs files",
+		"!!install", "inspect", "srs", "run", "eval", "shell", "if", "else", "logs", "logs files",
 	}
 
 	// Журнал самого ochan модели не показывается: разрешена только
@@ -436,6 +436,15 @@ func TestPlanAndRequestArgv(t *testing.T) {
 	// Порядок между заявками: номер — только шестнадцатеричный.
 	assertArgv(t, e.argvOf("request_scenario", map[string]any{"scenario": "scenario.yaml", "after": "1C4A"}),
 		"request", "--after=1c4a", "--", e.real("scenario.yaml"))
+	assertArgv(t, e.argvOf("request_scenario", map[string]any{"scenario": "scenario.yaml", "incident": "3F2A"}),
+		"request", "--incident=3f2a", "--", e.real("scenario.yaml"))
+	assertArgv(t, e.argvOf("incident_open", map[string]any{"level": "critical", "host": "db7", "summary": "нет соединений"}),
+		"incident", "open", "--level=critical", "--host=db7", "--", "-")
+	assertArgv(t, e.argvOf("incident_note", map[string]any{"id": "3f2a", "text": "max_connections исчерпан"}),
+		"incident", "note", "--", "3f2a", "-")
+	assertArgv(t, e.argvOf("incident_escalate", map[string]any{"id": "3f2a", "reason": "не в конфиге"}),
+		"incident", "escalate", "--", "3f2a", "-")
+	assertArgv(t, e.argvOf("incident_stats", map[string]any{"for": "30d"}), "incident", "stats", "--for=30d")
 }
 
 // ---------------------------------------------------------------------------
@@ -644,7 +653,8 @@ func TestToolsList(t *testing.T) {
 	for _, descriptor := range r.Result.Tools {
 		names[descriptor["name"].(string)] = true
 		annotations := descriptor["annotations"].(map[string]any)
-		writes := strings.HasPrefix(descriptor["name"].(string), "request_")
+		name := descriptor["name"].(string)
+		writes := (strings.HasPrefix(name, "request_") || strings.HasPrefix(name, "incident_")) && name != "incident_stats"
 		if annotations["readOnlyHint"] == writes {
 			t.Errorf("%s: readOnlyHint не соответствует назначению", descriptor["name"])
 		}

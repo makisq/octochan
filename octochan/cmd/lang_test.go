@@ -158,7 +158,7 @@ func TestShellHistoryPersists(t *testing.T) {
 	rememberCommand(" role create x", "role create x") // с пробела — не запоминается
 	rememberCommand("plan x.ochan", "plan x.ochan")
 	rememberCommand("plan x.ochan", "plan x.ochan") // повтор — один раз
-	rememberCommand("!history", "!history")
+	rememberCommand("!!history", "!!history")
 
 	commandHistory = nil
 	loadShellHistory()

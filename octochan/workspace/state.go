@@ -8,12 +8,25 @@ import (
 )
 
 // State — то, что ochan помнит между запусками, кроме конфига, ролей и
-// модулей (у них свои файлы): история команд оболочки.
+// модулей (у них свои файлы): история команд оболочки и выбор логотипа.
 //
 // Выход из ochan не стирает сессию: после перезапуска стрелка вверх
-// достаёт прежние команды, и !history показывает их.
+// достаёт прежние команды, и !!history показывает их.
 type State struct {
 	History []string `json:"history,omitempty"`
+	// Logo — выбор ochan shell --logo или --no-logo: он действует, пока его
+	// не поменяют тем же флагом. nil — выбора не было, решает shell.logo.
+	Logo *bool `json:"logo,omitempty"`
+}
+
+// SetLogo запоминает выбор логотипа.
+func SetLogo(path string, on bool) error {
+	s, err := LoadState(path)
+	if err != nil {
+		return err
+	}
+	s.Logo = &on
+	return s.Save(path)
 }
 
 // StatePath — файл состояния.

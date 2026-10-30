@@ -46,6 +46,7 @@ var readCommands = map[string]bool{
 	"plan": true, "services": true, "aliases": true, "modules": true,
 	"history": true, "requests": true, "status": true, "check": true,
 	"fp check": true, "fp protocol": true, "fp words": true, "logs rank": true,
+	"incident": true, "incident stats": true,
 }
 
 // commandPath — команда ochan с подкомандой, если первая из постоянных
@@ -58,9 +59,13 @@ func commandPath(t tool) string {
 }
 
 // writeCommands — единственное, что сервер может создать: заявку в
-// состоянии «ждёт решения». Согласует и выполняет её человек.
+// состоянии «ждёт решения» — согласует и выполняет её человек — и записи
+// инцидента: его открытие, шаги, решение и эскалацию инженерам. Записи
+// инцидента ничего в системе не меняют.
 var writeCommands = map[string]bool{
-	"request": true,
+	"request":       true,
+	"incident open": true, "incident note": true, "incident attach": true,
+	"incident resolve": true, "incident escalate": true,
 }
 
 // checkTable проверяет таблицу инструментов.
@@ -214,6 +219,17 @@ func nameSlot() slot {
 		Description: "script name, for example raise_limit.ochan: it appears in error messages, the plan and the request"}
 }
 
+// incidentSlot — инцидент, ради которого заявка: она станет его шагом.
+func incidentSlot() slot {
+	return slot{Name: "incident", Kind: slotID, Flag: "incident",
+		Description: "the incident this request is for: filing and applying it become incident steps; " +
+			"refused once the incident is escalated to engineers"}
+}
+
+func incidentIDSlot() slot {
+	return slot{Name: "id", Kind: slotID, Required: true, Description: "incident ID or its beginning"}
+}
+
 // afterSlot — порядок между заявками: новая выполнится только после этой.
 func afterSlot() slot {
 	return slot{Name: "after", Kind: slotID, Flag: "after",
@@ -362,6 +378,7 @@ func buildTools(live []string) []tool {
 				sourceSlot("base", "configuration being edited", live),
 				sourceSlot("changes", "configuration with the new values", live),
 				afterSlot(),
+				incidentSlot(),
 				docSlot(),
 			},
 			Writes: true,
@@ -373,7 +390,7 @@ func buildTools(live []string) []tool {
 			Description: "Creates a request in the \"pending\" state to run a scenario. The request stores " +
 				"the scenario text. The request itself runs nothing: a human approves and applies it.",
 			Command: "request",
-			Slots:   []slot{scenarioSlot(), overridesSlot(), afterSlot(), docSlot()},
+			Slots:   []slot{scenarioSlot(), overridesSlot(), afterSlot(), incidentSlot(), docSlot()},
 			Writes:  true,
 			Remote:  true,
 		},
@@ -448,8 +465,85 @@ func buildTools(live []string) []tool {
 			Fixed:     []string{"--script", "--bundle"},
 			Sandboxed: true,
 			Bundle:    true,
-			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), afterSlot(), docSlot()},
+			Slots:     []slot{scriptSlot(), scriptPromptSlot(), reportSlot(), nameSlot(), afterSlot(), incidentSlot(), docSlot()},
 			Writes:    true,
+		},
+		{
+			Name:  "incidents",
+			Title: "Incidents",
+			Description: "Without id, lists incidents with the time left to fix each; with id, shows the incident " +
+				"card: level, deadline, steps, attached logs, outcome.",
+			Command: "incident",
+			Slots:   []slot{{Name: "id", Kind: slotID, Description: "incident ID or its beginning"}},
+		},
+		{
+			Name:  "incident_stats",
+			Title: "Incident statistics",
+			Description: "Statistics of incidents opened in a period: resolved by you before the deadline, by a human, " +
+				"by engineers after escalation; unresolved — with engineers or still yours; why you did not manage — " +
+				"time ran out, you handed it over, a human did; mean and median time to resolve, by level. Read it " +
+				"before a new incident to see which kinds you usually fail to fix and escalate those early.",
+			Command: "incident",
+			Fixed:   []string{"stats"},
+			Slots: []slot{{Name: "for", Kind: slotParam, Flag: "for",
+				Description: "period: 24h, 7d, 30d or all; incidents.report.every or 7d by default"}},
+		},
+		{
+			Name:  "incident_open",
+			Title: "Open an incident",
+			Description: "Opens an incident you detected. Its level sets how long you may fix it yourself. When the " +
+				"time is up, or after incident_escalate, it goes to the engineering group with your steps and logs, " +
+				"and you stop acting on it: do not try to fix it further.",
+			Command: "incident",
+			Fixed:   []string{"open"},
+			Slots: []slot{
+				{Name: "level", Kind: slotParam, Flag: "level", Required: true,
+					Description: "criticality level from incidents.levels, for example low, medium, high, critical"},
+				{Name: "host", Kind: slotParam, Flag: "host", Description: "affected host"},
+				{Name: "summary", Kind: slotText, Required: true, Description: "what happened, for engineers to read"},
+			},
+			Writes: true,
+		},
+		{
+			Name:  "incident_note",
+			Title: "Note an incident step",
+			Description: "Records what you found or did. Engineers read these notes if the incident is escalated: " +
+				"write facts, hypotheses you checked and their results.",
+			Command: "incident",
+			Fixed:   []string{"note"},
+			Slots:   []slot{incidentIDSlot(), {Name: "text", Kind: slotText, Required: true, Description: "the step"}},
+			Writes:  true,
+		},
+		{
+			Name:        "incident_attach",
+			Title:       "Attach a log to an incident",
+			Description: "Attaches a log file; it goes to the engineers with the escalation. Up to 256 KiB per file.",
+			Command:     "incident",
+			Fixed:       []string{"attach"},
+			Slots: []slot{incidentIDSlot(),
+				{Name: "log", Kind: slotFile, Required: true, Description: "log file inside the allowed directories"}},
+			Writes: true,
+		},
+		{
+			Name:        "incident_resolve",
+			Title:       "Resolve an incident",
+			Description: "Closes the incident as fixed. Refused once it is escalated: then engineers own it.",
+			Command:     "incident",
+			Fixed:       []string{"resolve"},
+			Slots: []slot{incidentIDSlot(),
+				{Name: "summary", Kind: slotText, Required: true, Description: "what fixed it and how you checked"}},
+			Writes: true,
+		},
+		{
+			Name:  "incident_escalate",
+			Title: "Escalate an incident to engineers",
+			Description: "Hands the incident to the engineering group now, when your knowledge is not enough: do it " +
+				"instead of repeating attempts. The engineers get the description, your steps and the logs.",
+			Command: "incident",
+			Fixed:   []string{"escalate"},
+			Slots: []slot{incidentIDSlot(),
+				{Name: "reason", Kind: slotText, Required: true, Description: "why you cannot fix it"}},
+			Writes: true,
 		},
 		{
 			Name:  "rank_logs",

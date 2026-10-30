@@ -222,8 +222,26 @@ func TestServerPair(t *testing.T) {
 		return err == nil
 	})
 
-	// a пропал; человек повышает b.
+	// a пропал. Пока человек не повысил b, к нему подключаются для чтения:
+	// он отвечает по копии, а запись отклоняет.
 	a.stop()
+	standby, err := remote.DialPool(ctx, []string{a.addr, b.addr}, remote.Settings{}, false)
+	if err != nil {
+		t.Fatalf("подключение к одному standby: %v", err)
+	}
+	if standby.Primary() != b.addr || !strings.Contains(standby.ReadOnly(), "primary не найден") {
+		t.Fatalf("пул без primary: %s, %q", standby.Primary(), standby.ReadOnly())
+	}
+	if _, err := standby.Login(ctx, "master", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := standby.Exec(ctx, []string{"requests"}, "", true); err != nil || !strings.Contains(res.Stdout, id) {
+		t.Fatalf("чтение со standby: %v\n%+v", err, res)
+	}
+	if _, err := standby.Exec(ctx, []string{"approve", id}, "", false); !errors.As(err, &notPrimary) {
+		t.Fatalf("запись на standby без primary: %v", err)
+	}
+
 	out, err := b.ochan("ha", "promote")
 	if err != nil || !strings.Contains(out, "Узел b — primary, эпоха 2") || !strings.Contains(out, "Заявка 0badc0de00 упала") {
 		t.Fatalf("promote: %v\n%s", err, out)

@@ -73,7 +73,7 @@ func main() { pluginhost.ServeCommandModule(&TestModule{}) }
 
 ```
 $ go build -o test-module.hcplugin ./dwd
-$ ochan '!install' test-module.hcplugin
+$ ochan '!!install' test-module.hcplugin
 Модуль test-module.hcplugin установлен и загружен
 $ ochan modules
   test-module.hcplugin             test-module v1.3.0 (команд: 1)

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"octochan/i18n"
 	"octochan/rbac"
 	"octochan/remote"
 	"octochan/workspace"
@@ -31,11 +32,12 @@ import (
 // копируются настройки узла (config.yaml, tls/, ha.json, ha.token),
 // токены исполнителей и модули — их ставят на каждый узел.
 var replicatedPaths = []string{"requests", "history", "decisions", "policies", "aliases", "scenarios",
-	"audit.log", rbac.FileName, "inventory.yaml", "inventory.seen.json", agentsFile}
+	"audit.log", rbac.FileName, "inventory.yaml", "inventory.seen.json", agentsFile, triggersFile, triggerSecrets, freeFile, incidentsDir, incidentsSecret}
 
 var (
 	haInitNode string
 	haInitRole string
+	haInitAI   bool
 	haPeers    []string
 )
 
@@ -124,6 +126,9 @@ func serveBarrier(ctx context.Context, ha *remote.HA) (string, error) {
 // readOnlyCommand — команда только читает: её выполняет и standby, и
 // клиент может отправить её на любой узел пары.
 func readOnlyCommand(args []string) bool {
+	if _, ok := reply(args); ok {
+		return true
+	}
 	findMu.Lock()
 	found, _, err := rootCmd.Find(args)
 	key := ""
@@ -179,6 +184,12 @@ var haInitCmd = &cobra.Command{
 			epoch = 1
 		}
 		st := &remote.HAState{Node: haInitNode, Role: haInitRole, Epoch: epoch, Since: time.Now().UTC(), By: whoAmI()}
+		if haInitAI {
+			if !isMaster() {
+				return refuse(cmd, i18n.Errorf("контур HA-AI объявляет только master"))
+			}
+			st.Contour = remote.ContourAI
+		}
 		if err := remote.SaveHAState(path, st); err != nil {
 			return err
 		}
@@ -194,6 +205,9 @@ var haInitCmd = &cobra.Command{
 			cmd.Printf("Общий секрет пары: %s (права 0600) — скопируйте его на второй узел\n", tokenPath)
 		}
 		cmd.Printf("Узел %s: %s, эпоха %d (%s)\n", st.Node, st.Role, st.Epoch, path)
+		if st.Contour == remote.ContourAI {
+			printAIContour(cmd)
+		}
 		if viper.GetString("ha.peer") == "" {
 			cmd.Println("Укажите адрес второго узла: ha.peer в config.yaml")
 		}
@@ -222,6 +236,9 @@ var haStatusCmd = &cobra.Command{
 			}
 			cmd.Printf("Этот узел: %s — %s, эпоха %d, с %s (%s)\n", st.Node, st.Role, st.Epoch,
 				st.Since.Local().Format("2006-01-02 15:04:05"), orDash(st.By))
+			if st.Contour == remote.ContourAI {
+				cmd.Println(i18n.T("Контур:    HA-AI — человека-оператора нет; free включает только master"))
+			}
 			for _, dir := range st.Diverged {
 				cmd.Printf("Отложено расходящееся состояние: %s\n", dir)
 			}
@@ -243,6 +260,9 @@ var haStatusCmd = &cobra.Command{
 			}
 			if st.Role == remote.RoleStandby {
 				line += ", копия от " + formatSync(st.LastSync)
+			}
+			if st.Contour == remote.ContourAI {
+				line += ", HA-AI"
 			}
 			cmd.Println(line)
 			if st.Error != "" {
@@ -287,8 +307,78 @@ var haPromoteCmd = &cobra.Command{
 			return err
 		}
 		cmd.Printf("Узел %s — primary, эпоха %d\n", st.Node, st.Epoch)
-		return settleAfterPromote(cmd, st)
+		if err := settleAfterPromote(cmd, st); err != nil {
+			return err
+		}
+		reportFreeAfterPromote(cmd, st)
+		return nil
 	},
+}
+
+var haContourCmd = &cobra.Command{
+	Use:   "contour <ai | human>",
+	Short: "Контур узла: HA-AI (без человека-оператора) или обычный",
+	Long: "ai — в контуре нет человека-оператора: на primary такого узла master может\n" +
+		"включить free (ochan agents free). human — обычный контур: free на узле не\n" +
+		"действует, действующие выдачи ждут, пока контур снова не станет ai.\n" +
+		"Только master; контур — у каждого узла пары свой, ставят на обоих.",
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !isMaster() {
+			return refuse(cmd, i18n.Errorf("контур узла меняет только master"))
+		}
+		path, err := haStatePath()
+		if err != nil {
+			return err
+		}
+		st, err := remote.LoadHAState(path)
+		if err != nil {
+			return i18n.Errorf("этот узел не в паре: ochan ha init --ai-contour")
+		}
+		switch args[0] {
+		case "ai":
+			st.Contour = remote.ContourAI
+		case "human":
+			st.Contour = ""
+		default:
+			return fmt.Errorf("контур %q: ai или human", args[0])
+		}
+		if err := remote.SaveHAState(path, st); err != nil {
+			return err
+		}
+		auditFree("-", rbac.Master, fmt.Sprintf("контур узла %s: %s", st.Node, args[0]), nil)
+		cmd.Printf("Узел %s: контур %s\n", st.Node, args[0])
+		if st.Contour == remote.ContourAI {
+			printAIContour(cmd)
+		}
+		return nil
+	},
+}
+
+func printAIContour(cmd *cobra.Command) {
+	cmd.Println(i18n.T("Контур:    HA-AI"))
+	cmd.Println(i18n.T("внимание: в этом контуре нет человека-оператора; free включает только master — ochan agents free"))
+}
+
+// isMaster — текущая роль — master.
+func isMaster() bool { return currentRole != nil && currentRole.Name == rbac.Master }
+
+// reportFreeAfterPromote — free переходит с состоянием: на HA-AI узле он
+// действует дальше, на обычном — ждёт контура ai.
+func reportFreeAfterPromote(cmd *cobra.Command, st *remote.HAState) {
+	grants, err := activeFree()
+	if err != nil || len(grants) == 0 {
+		return
+	}
+	for i := range grants {
+		g := &grants[i]
+		if st.Contour == remote.ContourAI {
+			cmd.Printf("free агента %s действует на этом узле: %s\n", g.Agent, freeText(g))
+			auditFree(g.Agent, g.Role, fmt.Sprintf("free перешёл на узел %s (эпоха %d)", st.Node, st.Epoch), nil)
+		} else {
+			cmd.Printf("free агента %s здесь не действует: узел %s не в контуре HA-AI\n", g.Agent, st.Node)
+		}
+	}
 }
 
 // settleAfterPromote — заявки, которые выполнялись на прежнем primary:
@@ -340,7 +430,8 @@ func formatSync(t time.Time) string {
 func init() {
 	haInitCmd.Flags().StringVar(&haInitNode, "node", "", "имя узла")
 	haInitCmd.Flags().StringVar(&haInitRole, "role", "", "primary или standby")
+	haInitCmd.Flags().BoolVar(&haInitAI, "ai-contour", false, "контур HA-AI: человека-оператора нет (только master)")
 	haStatusCmd.Flags().BoolVar(&remotePlain, "allow-plaintext", false, "разрешить опрос без ssl другой машины")
-	haCmd.AddCommand(haInitCmd, haStatusCmd, haPromoteCmd)
+	haCmd.AddCommand(haInitCmd, haStatusCmd, haPromoteCmd, haContourCmd)
 	rootCmd.AddCommand(haCmd)
 }

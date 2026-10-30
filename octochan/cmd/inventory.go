@@ -83,7 +83,10 @@ func resolveTargets(ctx context.Context, parsed *scenario.Scenario, limit []stri
 			return fmt.Errorf("сценарий выбирает цели из инвентаря (host, group), а %w", errNoInventory)
 		}
 	}
-	return parsed.ResolveTargets(hosts, sels)
+	if err := parsed.ResolveTargets(hosts, sels); err != nil {
+		return err
+	}
+	return checkTriggerScope(parsed)
 }
 
 // scriptInventory — хосты, которые увидит inventory() сценария: все
@@ -101,7 +104,7 @@ func scriptInventory(ctx context.Context, limit []string) ([]inventory.Host, err
 		}
 		return nil, err
 	}
-	return inventory.Filter(hosts, sels), nil
+	return scopeHosts(inventory.Filter(hosts, sels)), nil
 }
 
 func seenStore() (*inventory.Seen, error) {

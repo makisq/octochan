@@ -843,6 +843,15 @@ func (p *Parser) parseMultiplicative() (Expr, error) {
 }
 
 func (p *Parser) parseUnary() (Expr, error) {
+	// «!» — то же отрицание, что not, но на уровне унарного минуса.
+	if p.check(TokenBang) {
+		opTok := p.advance()
+		operand, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &Unary{Pos: opTok.Pos, Op: TokenNot, Operand: operand}, nil
+	}
 	if p.check(TokenMinus) {
 		opTok := p.advance()
 		operand, err := p.parseUnary()

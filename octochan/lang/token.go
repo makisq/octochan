@@ -73,6 +73,9 @@ const (
 	TokenFatArrow
 	TokenCompose
 	TokenArrow
+	// TokenBang — «!»: отрицание, как not, но связывает теснее: !a == b —
+	// это (!a) == b, как в C-подобных языках.
+	TokenBang
 )
 
 var tokenNames = map[TokenKind]string{
@@ -131,6 +134,7 @@ var tokenNames = map[TokenKind]string{
 	TokenFatArrow:  "=>",
 	TokenCompose:   ">>",
 	TokenArrow:     "->",
+	TokenBang:      "!",
 }
 
 func (k TokenKind) String() string {

@@ -67,7 +67,7 @@ func (l language) Translations() []pluginhost.Language {
 
 ```
 $ go build -o lang-de.hcplugin ./examples/langmodule
-$ ochan '!install' lang-de.hcplugin
+$ ochan '!!install' lang-de.hcplugin
 Модуль lang-de.hcplugin установлен и загружен
 ```
 
@@ -86,7 +86,7 @@ $ ochan lang
 $ ochan help
 Verfügbare Befehle:
 ------------------
-!install                 Install a command module
+!!install                 Install a command module
 …
 approve                  Antrag genehmigen
 ```
@@ -103,7 +103,7 @@ approve                  Antrag genehmigen
   `approve` на любом языке.
 - Встроенный английский модуль переписать не может.
 - Модуль языка — исполняемый файл, поэтому ставится только через
-  `!install`, с проверкой контрольной суммы.
+  `!!install`, с проверкой контрольной суммы.
 - Протокол формального промпта и описания инструментов MCP остаются
   английскими при любом `lang`: их читает модель.
 - Если в `lang` указан язык, модуль которого не установлен, ochan

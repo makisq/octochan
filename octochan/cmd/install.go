@@ -11,6 +11,7 @@ import (
 	"unicode"
 
 	"octochan/fp"
+	"octochan/i18n"
 	"octochan/lang"
 	"octochan/pluginhost"
 
@@ -21,7 +22,7 @@ import (
 var installRemove bool
 
 var installCmd = &cobra.Command{
-	Use:   "!install <модуль.hcplugin | пакет | файл.ochan>",
+	Use:   "!!install <модуль.hcplugin | пакет | файл.ochan>",
 	Short: "Установить модуль или пакет алиасов",
 	Long: "Одна команда ставит всё, чем расширяется ochan, в ~/.octochan/modules:\n\n" +
 		"  модуль.hcplugin  модуль gRPC: команды, языки и исполнители сценариев —\n" +
@@ -35,9 +36,9 @@ var installCmd = &cobra.Command{
 		"ломает. Исполнитель модуля выбирается по полю service сценария, как\n" +
 		"встроенный; его токен — ochan auth --executor <имя>.\n\n" +
 		"С --remove удаляет модуль (имя файла) или пакет (имя пакета).",
-	Example: "ochan '!install' ssh-runner.hcplugin\n" +
-		"ochan '!install' ./pgconf\n" +
-		"ochan '!install' --remove pgconf",
+	Example: "ochan '!!install' ssh-runner.hcplugin\n" +
+		"ochan '!!install' ./pgconf\n" +
+		"ochan '!!install' --remove pgconf",
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if installRemove {
@@ -58,6 +59,23 @@ var installCmd = &cobra.Command{
 		return fmt.Errorf("ставятся модули %s, пакеты алиасов (каталог) и файлы %s",
 			pluginhost.ModuleExtension, lang.AliasExtension)
 	},
+}
+
+// singleBang — команда набрана по-старому, с одним «!»: встроенные команды
+// ochan пишутся с «!!», а одиночный «!» теперь означает «не». Без этой
+// проверки cobra ответила бы «unknown command» и не сказала, в чём дело.
+func singleBang(args []string) error {
+	if len(args) == 0 || !strings.HasPrefix(args[0], "!") || strings.HasPrefix(args[0], "!!") {
+		return nil
+	}
+	name := "!" + args[0]
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == name {
+			return i18n.Errorf("встроенные команды ochan пишутся с «!!»: %s, а не %s — одиночный «!» теперь означает «не»",
+				name, args[0])
+		}
+	}
+	return nil
 }
 
 // installPlugin ставит модуль gRPC и называет, что он принёс.

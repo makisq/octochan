@@ -29,8 +29,8 @@ lang: eng      # ru (по умолчанию), eng или en; другие — �
 предупреждает на русском и английском, какой модуль поставить:
 
 ```
-внимание: lang: язык "jp" не найден; доступны: en, ru. Другой язык ставится модулем: ochan !install <модуль>
-warning: lang: language "jp" is not available (en, ru); install its module with ochan !install <module>
+внимание: lang: язык "jp" не найден; доступны: en, ru. Другой язык ставится модулем: ochan !!install <модуль>
+warning: lang: language "jp" is not available (en, ru); install its module with ochan !!install <module>
 ```
 
 ## Другой язык — модулем
@@ -45,7 +45,7 @@ warning: lang: language "jp" is not available (en, ru); install its module with 
 ochan lang template de > de.json                 # шаблон: что переводить
 # перевести значения в de.json, положить его в examples/langmodule
 go build -o lang-de.hcplugin ./examples/langmodule
-ochan '!install' lang-de.hcplugin                # модуль ставится и остаётся
+ochan '!!install' lang-de.hcplugin                # модуль ставится и остаётся
 # в config.yaml: lang: de — и со следующего запуска ochan по-немецки
 ```
 
@@ -79,12 +79,12 @@ func (language) Translations() []pluginhost.Language {
 | установленные модули команд и языков, пакеты алиасов | `modules/` (с контрольными суммами) |
 | роли, права, текущая роль и история переключений | `roles.bin` |
 | журнал операций и заявки | `history/`, `requests/` |
-| история команд оболочки | `state.json` |
+| история команд оболочки, выбор `--logo` / `--no-logo` | `state.json` |
 
 Поэтому путь «поставил модуль — вышел — поменял `lang` — зашёл» работает
 как ожидается: модуль на месте, язык другой, роль и история — прежние.
 
-История оболочки: стрелка вверх и `!history` после перезапуска показывают
+История оболочки: стрелка вверх и `!!history` после перезапуска показывают
 и прежние команды. Пароли в ссылках (`postgres://dba:пароль@…`) и
 `password=` в строках подключения записываются как `***`; строка, начатая
 с пробела, не запоминается вовсе. Размер — `shell.history_size` (1000).

@@ -59,7 +59,13 @@ type HAState struct {
 	// Diverged — отложенные расходящиеся состояния, относительно рабочего
 	// каталога.
 	Diverged []string `json:"diverged,omitempty"`
+	// Contour — ContourAI: контур без человека-оператора (HA-AI). Только
+	// на таком узле master может включить free.
+	Contour string `json:"contour,omitempty"`
 }
+
+// ContourAI — контур HA-AI: человека-оператора в нём нет.
+const ContourAI = "ai"
 
 // LoadHAState читает ha.json.
 func LoadHAState(path string) (*HAState, error) {
@@ -142,6 +148,7 @@ type HAStatus struct {
 	LastSync time.Time `json:"last_sync,omitempty"`
 	Error    string    `json:"error,omitempty"`
 	Diverged []string  `json:"diverged,omitempty"`
+	Contour  string    `json:"contour,omitempty"`
 }
 
 // Writable — узел принимает запись: primary без конфликта.
@@ -237,7 +244,7 @@ func (h *HA) Status() HAStatus {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	st := HAStatus{Node: h.state.Node, Role: h.state.Role, Epoch: h.state.Epoch, Self: h.cfg.Self, Peer: h.cfg.Peer,
-		Conflict: h.conflict, LastSync: h.lastSync, Error: h.lastErr, Diverged: h.state.Diverged}
+		Conflict: h.conflict, LastSync: h.lastSync, Error: h.lastErr, Diverged: h.state.Diverged, Contour: h.state.Contour}
 	if st.Role == RolePrimary {
 		st.Primary = h.cfg.Self
 	} else {

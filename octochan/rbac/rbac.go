@@ -34,25 +34,36 @@ const All = "all"
 // команда пишется через точку: role.create.
 var Groups = map[string][]string{
 	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
-		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "validate"},
+		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "trigger", "validate",
+		// !!search только читает реестры из настроек.
+		"!!search", "incident"},
 	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
 	// watch оформляет заявки; выполнить по политике он может, только если у
 	// роли есть и apply — это проверяется как у команды apply.
-	"request": {"compensate", "request", "watch"},
+	// incident.* — записи инцидента: открыть, заметка, журнал, решение,
+	// эскалация. Это не изменение системы, а отчёт о нём.
+	// incident.report шлёт статистику на почту: тоже отчёт, а не изменение.
+	"request": {"compensate", "incident.attach", "incident.check", "incident.escalate", "incident.note",
+		"incident.open", "incident.report", "incident.resolve", "request", "watch"},
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
 	// больше не построит для него план. policy.add — заранее данное
 	// согласование: по политике watch согласует заявки сам.
 	// fp.journal.amend — поздняя поправка исхода плана: тоже решение.
 	"approve": {"agents.forget", "approve", "fp.journal.amend", "inventory.ack", "policy.add", "policy.revoke", "reject"},
 	// agent — машина-агент: сообщать серверу о себе и только.
-	"agent":   {"agents.beat"},
+	"agent": {"agents.beat"},
+	// trigger — источник событий (CI): открыть и закрыть окно триггера, и
+	// только. Какую роль открывает окно, решает config.yaml, а не он.
+	"trigger": {"trigger.end", "trigger.fire"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
-	"install": {"!install", "inspect"},
+	"install": {"!!install", "!!registry", "!!rin", "inspect"},
 	"auth":    {"auth", "timer"},
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
-		"role.scope", "role.undeny", "role.update"},
+		"role.scope", "role.undeny", "role.update", "trigger.secret",
+		// agents.free — только master: команда проверяет это сама.
+		"agents.free", "ha.contour", "incident.secret"},
 	// audit — журнал аудита: кто, что и когда пытался выполнить.
 	"audit": {"audit"},
 	// server — держать общий оркестратор; remote — подключаться к чужому.
@@ -67,7 +78,7 @@ var Groups = map[string][]string{
 // и вернуться обратно. Сравнение точное: role здесь не открывает
 // role.create.
 var Free = []string{"back.role", "completion", "completion.bash", "completion.fish", "completion.powershell",
-	"completion.zsh", "help", "role", "role.list", "role.proof", "role.show", "set.role", "shell"}
+	"completion.zsh", "help", "ping", "role", "role.list", "role.proof", "role.show", "set.role", "shell"}
 
 // LLMCeiling — потолок роли llm. Нейросеть предлагает, человек решает
 // (П6): выполнять, согласовывать, ставить модули и управлять ролями llm
@@ -205,6 +216,7 @@ func CheckPerms(perms, extra []string) error {
 	}
 	known := append(KnownCommands(), extra...)
 	for _, perm := range perms {
+		perm = Canonical(perm)
 		if perm == All {
 			continue
 		}
