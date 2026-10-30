@@ -36,13 +36,16 @@ var Groups = map[string][]string{
 	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
 		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "trigger", "validate",
 		// !!search только читает реестры из настроек.
-		"!!search"},
+		"!!search", "incident"},
 	"plan": {"plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
 	// watch оформляет заявки; выполнить по политике он может, только если у
 	// роли есть и apply — это проверяется как у команды apply.
-	"request": {"compensate", "request", "watch"},
+	// incident.* — записи инцидента: открыть, заметка, журнал, решение,
+	// эскалация. Это не изменение системы, а отчёт о нём.
+	"request": {"compensate", "incident.attach", "incident.check", "incident.escalate", "incident.note",
+		"incident.open", "incident.resolve", "request", "watch"},
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
 	// больше не построит для него план. policy.add — заранее данное
 	// согласование: по политике watch согласует заявки сам.
@@ -59,7 +62,7 @@ var Groups = map[string][]string{
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
 		"role.scope", "role.undeny", "role.update", "trigger.secret",
 		// agents.free — только master: команда проверяет это сама.
-		"agents.free", "ha.contour"},
+		"agents.free", "ha.contour", "incident.secret"},
 	// audit — журнал аудита: кто, что и когда пытался выполнить.
 	"audit": {"audit"},
 	// server — держать общий оркестратор; remote — подключаться к чужому.

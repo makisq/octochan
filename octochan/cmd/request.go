@@ -22,19 +22,20 @@ import (
 )
 
 var (
-	requestDoc     string
-	requestComment string
-	approveYes     bool
-	rejectReason   string
-	rejectKind     string
-	applyRequestID string
-	notifyMail     bool
-	requestScript  bool
-	requestAfter   []string
-	requestsReady  bool
-	requestsAfter  string
-	requestOpts    scriptOptions
-	requestPrompt  promptOptions
+	requestDoc      string
+	requestComment  string
+	approveYes      bool
+	rejectReason    string
+	rejectKind      string
+	applyRequestID  string
+	notifyMail      bool
+	requestScript   bool
+	requestAfter    []string
+	requestsReady   bool
+	requestIncident string
+	requestsAfter   string
+	requestOpts     scriptOptions
+	requestPrompt   promptOptions
 )
 
 // requestStore открывает хранилище заявок.
@@ -81,10 +82,14 @@ var requestCmd = &cobra.Command{
 			return err
 		}
 		request.After = after
+		if request.Incident, err = linkIncident(requestIncident); err != nil {
+			return err
+		}
 		stampRequest(request)
 		if err := store.Create(request); err != nil {
 			return err
 		}
+		noteRequestStep(request, "request", request.Summary)
 
 		cmd.Printf("Заявка %s создана (%s)\n", request.ID, request.State.Russian())
 		if len(after) > 0 {
@@ -710,6 +715,7 @@ func init() {
 	requestsCmd.Flags().StringVar(&requestsAfter, "after", "",
 		"что было после: заявки, которые ждут эту, или оформленные в окне триггера (release#1234)")
 	requestCmd.Flags().StringSliceVar(&requestAfter, "after", nil, "выполнять только после этих заявок")
+	requestCmd.Flags().StringVar(&requestIncident, "incident", "", "инцидент, ради которого заявка: она станет его шагом")
 	approveCmd.Flags().StringVar(&requestComment, "comment", "", "комментарий к решению")
 	approveCmd.Flags().BoolVar(&approveYes, "yes", false, "план заявки нейросети проверен: согласовать без вопроса")
 	rejectCmd.Flags().StringVar(&rejectReason, "reason", "", "причина отказа")

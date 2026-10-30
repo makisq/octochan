@@ -108,6 +108,9 @@ type Request struct {
 	Packages []PackageInstall `json:"packages,omitempty"`
 	// Free — агент, чей free согласовал заявку без человека.
 	Free string `json:"free,omitempty"`
+	// Incident — инцидент, ради которого заявку оформили: её оформление и
+	// выполнение — шаги инцидента.
+	Incident string `json:"incident,omitempty"`
 	// Trigger — окна триггеров, в которых заявку оформили (release#1234):
 	// ochan requests --after release#1234 перечисляет такие заявки.
 	Trigger string `json:"trigger,omitempty"`

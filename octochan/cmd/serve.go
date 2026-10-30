@@ -122,7 +122,18 @@ var serveCmd = &cobra.Command{
 			srv.StandbyAudit = &audit.Journal{Path: filepath.Join(fm.BaseDir(), standbyAudit)}
 			srv.Exec = childExecutor(dir, viper.GetDuration("server.command_timeout"), pairEnv(pair, barrier))
 		}
+		writable := func() (bool, string) {
+			if pair == nil || pair.Writable() {
+				return true, ""
+			}
+			st := pair.Status()
+			return false, fmt.Sprintf("узел %s — standby: запись — на primary %s", st.Node, orDash(st.Peer))
+		}
+		if ctx := cmd.Context(); ctx != nil {
+			go watchIncidents(ctx, func() bool { ok, _ := writable(); return ok }, logger.Printf)
+		}
 		srv.Routes = map[string]http.Handler{
+			"POST /v1/incidents": incidentsHandler(writable),
 			"POST /v1/events/{trigger}": eventsHandler(func() (bool, string) {
 				if pair == nil || pair.Writable() {
 					return true, ""

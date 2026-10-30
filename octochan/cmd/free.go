@@ -203,6 +203,10 @@ func freeRequest(cmd *cobra.Command, store *workspace.Requests, request *workspa
 	if err != nil || len(grants) == 0 {
 		return
 	}
+	if err := incidentOpenForFree(request); err != nil {
+		cmd.Printf("Заявка %s ждёт человека: %v\n", request.ID, err)
+		return
+	}
 	parsed, err := requestScenario(cmd.Context(), request)
 	if err != nil {
 		cmd.Printf("free: сценарий заявки не разобран: %v — ждёт master\n", err)

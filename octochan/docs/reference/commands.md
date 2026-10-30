@@ -56,6 +56,14 @@
 - [`ochan help`](#ochan-help) — Отобразить список всех доступных команд
 - [`ochan history`](#ochan-history) — Показать журнал операций
 - [`ochan if`](#ochan-if) — Условная проверка значения в конфиге
+- [`ochan incident`](#ochan-incident) — Инциденты HA-AI: модель чинит до срока, не успела — эскалация инженерам
+- [`ochan incident attach`](#ochan-incident-attach) — Приложить журнал к инциденту: он уйдёт инженерам при эскалации
+- [`ochan incident check`](#ochan-incident-check) — Эскалировать инциденты, срок которых вышел — для cron
+- [`ochan incident escalate`](#ochan-incident-escalate) — Эскалировать инцидент инженерам сейчас: модель не справится
+- [`ochan incident note`](#ochan-incident-note) — Заметка к инциденту: что модель нашла и сделала
+- [`ochan incident open`](#ochan-incident-open) — Открыть инцидент: модель идёт чинить, срок — по уровню
+- [`ochan incident resolve`](#ochan-incident-resolve) — Инцидент решён
+- [`ochan incident secret`](#ochan-incident-secret) — Создать секрет вебхука мониторинга
 - [`ochan inspect`](#ochan-inspect) — Показать информацию о модуле
 - [`ochan inventory`](#ochan-inventory) — Цели: хосты инвентаря, их группы и переменные
 - [`ochan inventory ack`](#ochan-inventory-ack) — Отметить новые хосты увиденными
@@ -1051,6 +1059,124 @@ ochan if config.conf server.port == 8080 "Порт корректен"
 ochan if postgresql.conf shared_buffers '>=' 4GB "Буферов достаточно"
 ```
 
+## ochan incident
+
+Инциденты HA-AI: модель чинит до срока, не успела — эскалация инженерам.
+
+```
+ochan incident [номер]
+```
+
+Инцидент открывает мониторинг (вебхук POST /v1/incidents или incident open)
+или сама модель. У уровня критичности — срок (incidents.levels): столько
+модель чинит сама. Её заметки, заявки (request --incident) и их выполнение —
+шаги инцидента. Решила — incident resolve. Не успела или признала, что не
+справится (incident escalate), — инцидент эскалируется: инженерной группе
+(incidents.engineers) уходит письмо с описанием, шагами, журналами и .docx,
+а модель по инциденту больше не действует. Срок проверяет сервер, любая
+команда инцидентов и incident check — для cron.
+
+Без аргументов — инциденты; с номером — карточка.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan incident open --level critical --host db7 "PostgreSQL не принимает соединения"
+ochan incident note 3f2a "max_connections исчерпан: 200 из 200"
+ochan request raise.yaml --incident 3f2a
+ochan incident resolve 3f2a "поднят max_connections до 300, соединения идут"
+ochan incident escalate 3f2a "причина не в конфиге: нужен человек"
+```
+
+Подкоманды: [`attach`](#ochan-incident-attach), [`check`](#ochan-incident-check), [`escalate`](#ochan-incident-escalate), [`note`](#ochan-incident-note), [`open`](#ochan-incident-open), [`resolve`](#ochan-incident-resolve), [`secret`](#ochan-incident-secret).
+
+## ochan incident attach
+
+Приложить журнал к инциденту: он уйдёт инженерам при эскалации.
+
+```
+ochan incident attach <номер> <журнал | ->
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--name` | string | — | имя журнала во вложении (для stdin) |
+
+## ochan incident check
+
+Эскалировать инциденты, срок которых вышел — для cron.
+
+```
+ochan incident check
+```
+
+Право: `read`.
+
+## ochan incident escalate
+
+Эскалировать инцидент инженерам сейчас: модель не справится.
+
+```
+ochan incident escalate <номер> <почему | ->
+```
+
+Право: `read`.
+
+## ochan incident note
+
+Заметка к инциденту: что модель нашла и сделала.
+
+```
+ochan incident note <номер> <что сделано или найдено | ->
+```
+
+Право: `read`.
+
+## ochan incident open
+
+Открыть инцидент: модель идёт чинить, срок — по уровню.
+
+```
+ochan incident open --level <уровень> [--host h] <что случилось | ->
+```
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--host` | stringSlice | — | хосты инцидента |
+| `--level` | string | — | уровень критичности: incidents.levels |
+| `--source` | string | — | кто открыл: мониторинг, модель |
+
+## ochan incident resolve
+
+Инцидент решён.
+
+```
+ochan incident resolve <номер> <что сделано | ->
+```
+
+Право: `read`.
+
+## ochan incident secret
+
+Создать секрет вебхука мониторинга.
+
+```
+ochan incident secret
+```
+
+Секрет — 256 случайных бит в ~/.octochan/incidents.secret (права 0600).
+Мониторинг шлёт его заголовком Authorization: Bearer <секрет> на
+POST https://<сервер>/v1/incidents с телом {"level": "critical",
+"hosts": ["db7"], "summary": "…", "source": "zabbix", "log": "…"}.
+
+Право: `admin`.
+
 ## ochan inspect
 
 Показать информацию о модуле.
@@ -1491,6 +1617,7 @@ ochan request --script --sandbox --root ./configs - < сценарий.ochan
 | `--allow-net` | stringArray | — | разрешить в песочнице fetch и curl к этому хосту (host или host:port); можно указать несколько раз |
 | `--bundle` | bool | — | stdin — JSON {"script": …, "prompt": …, "report": …}; так их передаёт ochan-mcp |
 | `--doc` | string | — | выгрузить заявку в файл .docx |
+| `--incident` | string | — | инцидент, ради которого заявка: она станет его шагом |
 | `--limit` | stringArray | — | только цели (хосты инвентаря), подходящие под селектор: group=db_new, host=db*; можно указать несколько раз |
 | `--name` | string | — | имя сценария, поданного на stdin |
 | `--prompt` | string | — | формальный промпт: его жёсткие правила проверяются по плану сценария |

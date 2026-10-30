@@ -85,6 +85,11 @@ func joinBlockers(blockers []workspace.Blocker) string {
 // согласованной: ничего не начиналось. Всё остальное — упала, и
 // интерфейс говорит, что это значит для заявок вокруг неё.
 func markOutcome(cmd *cobra.Command, store *workspace.Requests, request *workspace.Request, refs []string, runErr error) {
+	if runErr != nil {
+		noteRequestStep(request, "apply", "упала: "+runErr.Error())
+	} else {
+		noteRequestStep(request, "apply", "выполнена")
+	}
 	if runErr == nil {
 		if err := store.MarkApplied(request, refs); err != nil {
 			cmd.PrintErrf("внимание: не удалось отметить заявку выполненной: %v\n", err)

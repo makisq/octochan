@@ -43,6 +43,8 @@ const (
 	EventTrigger = "trigger"
 	// EventFree — free: выдача, отзыв, истечение и решения без человека.
 	EventFree = "free"
+	// EventIncident — инцидент открыт, решён или эскалирован.
+	EventIncident = "incident"
 )
 
 // Record — запись журнала.
