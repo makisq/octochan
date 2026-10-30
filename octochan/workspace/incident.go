@@ -81,14 +81,59 @@ type Incident struct {
 	State    IncidentState  `json:"state"`
 	Steps    []IncidentStep `json:"steps"`
 	Logs     []IncidentLog  `json:"logs,omitempty"`
-	// Closed и Outcome — когда и чем кончилось: решение или причина
-	// эскалации.
+	// Closed и Outcome — когда и чем кончилось последний раз: решение или
+	// причина эскалации.
 	Closed  time.Time `json:"closed,omitempty"`
 	Outcome string    `json:"outcome,omitempty"`
-	// Notified — кому ушло письмо об эскалации; пусто и NotifyError —
-	// не ушло и почему.
-	Notified    []string `json:"notified,omitempty"`
-	NotifyError string   `json:"notify_error,omitempty"`
+	// Escalated, EscalatedBy, Reason — эскалация: когда, кто (ochan — срок
+	// вышел, llm — модель сама) и почему. Resolved и ResolvedBy — решение.
+	// Эскалированный инцидент потом решает человек: в статистике видно и
+	// то и другое.
+	Escalated   time.Time `json:"escalated,omitempty"`
+	EscalatedBy string    `json:"escalated_by,omitempty"`
+	Reason      string    `json:"reason,omitempty"`
+	Resolved    time.Time `json:"resolved,omitempty"`
+	ResolvedBy  string    `json:"resolved_by,omitempty"`
+	// Mails — письма по инциденту: эскалация и решение.
+	Mails []IncidentMail `json:"mails,omitempty"`
+}
+
+// IncidentMail — письмо по инциденту: о чём, кому, ушло ли.
+type IncidentMail struct {
+	Kind  string    `json:"kind"`
+	Time  time.Time `json:"time"`
+	To    []string  `json:"to,omitempty"`
+	Error string    `json:"error,omitempty"`
+}
+
+// Exhaustion — как кончился инцидент для статистики.
+type Exhaustion string
+
+// Итоги инцидента.
+const (
+	OutcomeOpen       Exhaustion = "open"
+	OutcomeByModel    Exhaustion = "model"     // решила модель, до срока
+	OutcomeByHuman    Exhaustion = "human"     // решил человек, до эскалации
+	OutcomeTimeout    Exhaustion = "timeout"   // срок вышел — инженерам
+	OutcomeModelGave  Exhaustion = "gave_up"   // модель сама отдала инженерам
+	OutcomeEscalation Exhaustion = "escalated" // отдал инженерам человек
+)
+
+// Result — итог инцидента: кто его закрыл и как.
+func (i *Incident) Result(model string) Exhaustion {
+	switch {
+	case !i.Escalated.IsZero() && i.EscalatedBy == "ochan":
+		return OutcomeTimeout
+	case !i.Escalated.IsZero() && i.EscalatedBy == model:
+		return OutcomeModelGave
+	case !i.Escalated.IsZero():
+		return OutcomeEscalation
+	case i.State == IncidentResolved && i.ResolvedBy == model:
+		return OutcomeByModel
+	case i.State == IncidentResolved:
+		return OutcomeByHuman
+	}
+	return OutcomeOpen
 }
 
 // Overdue — открыт, а срок вышел.
@@ -189,7 +234,13 @@ func (s *Incidents) Get(id string) (*Incident, error) {
 }
 
 // Update меняет инцидент под замком: два процесса не эскалируют его оба.
+// Номер — как у Get: полный или его начало.
 func (s *Incidents) Update(id string, change func(*Incident) error) (*Incident, error) {
+	found, err := s.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	id = found.ID
 	unlock, err := lockPath(s.path(id) + ".lock")
 	if err != nil {
 		return nil, err

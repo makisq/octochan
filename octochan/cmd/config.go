@@ -100,6 +100,10 @@ func initConfig() error {
 	// Адрес общего оркестратора по умолчанию: ochan remote ping без адреса.
 	viper.SetDefault("remote.address", "")
 
+	// Инциденты HA-AI: письмо о решённом инциденте и отчёт за период.
+	viper.SetDefault("incidents.notify_resolved", true)
+	viper.SetDefault("incidents.report.every", "")
+
 	// Как оператор ставит задачу модели: formal — только формальным
 	// промптом, natural — на естественном языке.
 	viper.SetDefault("fp.mode", "formal")

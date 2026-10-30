@@ -444,6 +444,7 @@ func TestPlanAndRequestArgv(t *testing.T) {
 		"incident", "note", "--", "3f2a", "-")
 	assertArgv(t, e.argvOf("incident_escalate", map[string]any{"id": "3f2a", "reason": "не в конфиге"}),
 		"incident", "escalate", "--", "3f2a", "-")
+	assertArgv(t, e.argvOf("incident_stats", map[string]any{"for": "30d"}), "incident", "stats", "--for=30d")
 }
 
 // ---------------------------------------------------------------------------
@@ -653,7 +654,7 @@ func TestToolsList(t *testing.T) {
 		names[descriptor["name"].(string)] = true
 		annotations := descriptor["annotations"].(map[string]any)
 		name := descriptor["name"].(string)
-		writes := strings.HasPrefix(name, "request_") || strings.HasPrefix(name, "incident_")
+		writes := (strings.HasPrefix(name, "request_") || strings.HasPrefix(name, "incident_")) && name != "incident_stats"
 		if annotations["readOnlyHint"] == writes {
 			t.Errorf("%s: readOnlyHint не соответствует назначению", descriptor["name"])
 		}

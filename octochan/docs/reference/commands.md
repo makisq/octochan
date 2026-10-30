@@ -58,12 +58,14 @@
 - [`ochan if`](#ochan-if) — Условная проверка значения в конфиге
 - [`ochan incident`](#ochan-incident) — Инциденты HA-AI: модель чинит до срока, не успела — эскалация инженерам
 - [`ochan incident attach`](#ochan-incident-attach) — Приложить журнал к инциденту: он уйдёт инженерам при эскалации
-- [`ochan incident check`](#ochan-incident-check) — Эскалировать инциденты, срок которых вышел — для cron
+- [`ochan incident check`](#ochan-incident-check) — Эскалировать инциденты, срок которых вышел, и отправить отчёт по расписанию — для cron
 - [`ochan incident escalate`](#ochan-incident-escalate) — Эскалировать инцидент инженерам сейчас: модель не справится
 - [`ochan incident note`](#ochan-incident-note) — Заметка к инциденту: что модель нашла и сделала
 - [`ochan incident open`](#ochan-incident-open) — Открыть инцидент: модель идёт чинить, срок — по уровню
+- [`ochan incident report`](#ochan-incident-report) — Отправить статистику инцидентов на почту сейчас
 - [`ochan incident resolve`](#ochan-incident-resolve) — Инцидент решён
 - [`ochan incident secret`](#ochan-incident-secret) — Создать секрет вебхука мониторинга
+- [`ochan incident stats`](#ochan-incident-stats) — Статистика инцидентов: что решила модель, что ушло инженерам, что не решено
 - [`ochan inspect`](#ochan-inspect) — Показать информацию о модуле
 - [`ochan inventory`](#ochan-inventory) — Цели: хосты инвентаря, их группы и переменные
 - [`ochan inventory ack`](#ochan-inventory-ack) — Отметить новые хосты увиденными
@@ -1090,7 +1092,7 @@ ochan incident resolve 3f2a "поднят max_connections до 300, соедин
 ochan incident escalate 3f2a "причина не в конфиге: нужен человек"
 ```
 
-Подкоманды: [`attach`](#ochan-incident-attach), [`check`](#ochan-incident-check), [`escalate`](#ochan-incident-escalate), [`note`](#ochan-incident-note), [`open`](#ochan-incident-open), [`resolve`](#ochan-incident-resolve), [`secret`](#ochan-incident-secret).
+Подкоманды: [`attach`](#ochan-incident-attach), [`check`](#ochan-incident-check), [`escalate`](#ochan-incident-escalate), [`note`](#ochan-incident-note), [`open`](#ochan-incident-open), [`report`](#ochan-incident-report), [`resolve`](#ochan-incident-resolve), [`secret`](#ochan-incident-secret), [`stats`](#ochan-incident-stats).
 
 ## ochan incident attach
 
@@ -1108,7 +1110,7 @@ ochan incident attach <номер> <журнал | ->
 
 ## ochan incident check
 
-Эскалировать инциденты, срок которых вышел — для cron.
+Эскалировать инциденты, срок которых вышел, и отправить отчёт по расписанию — для cron.
 
 ```
 ochan incident check
@@ -1152,6 +1154,24 @@ ochan incident open --level <уровень> [--host h] <что случилос
 | `--level` | string | — | уровень критичности: incidents.levels |
 | `--source` | string | — | кто открыл: мониторинг, модель |
 
+## ochan incident report
+
+Отправить статистику инцидентов на почту сейчас.
+
+```
+ochan incident report [--for 7d]
+```
+
+Шлёт статистику за период группе отчёта (incidents.report.to, иначе
+incidents.engineers) с таблицей инцидентов во вложении .csv. Расписание
+отчётов (incidents.report.every) не сдвигает.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | период: 24h, 7d, all; без него — incidents.report.every или 7d |
+
 ## ochan incident resolve
 
 Инцидент решён.
@@ -1176,6 +1196,26 @@ POST https://<сервер>/v1/incidents с телом {"level": "critical",
 "hosts": ["db7"], "summary": "…", "source": "zabbix", "log": "…"}.
 
 Право: `admin`.
+
+## ochan incident stats
+
+Статистика инцидентов: что решила модель, что ушло инженерам, что не решено.
+
+```
+ochan incident stats [--for 7d]
+```
+
+Считает инциденты, открытые за период: решены моделью до срока, человеком до
+эскалации, людьми после эскалации; не решены — у инженеров или у модели;
+почему модель не справилась — срок вышел, отдала сама, отдал человек.
+Время решения — среднее и медиана. Период — --for (24h, 7d, all), без него —
+incidents.report.every или 7d.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | период: 24h, 7d, all; без него — incidents.report.every или 7d |
 
 ## ochan inspect
 
@@ -2089,8 +2129,8 @@ ochan shell
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| `--logo` | bool | — | показать логотип при входе, даже если shell.logo: false |
-| `--no-logo` | bool | — | не показывать логотип при входе |
+| `--logo` | bool | — | показывать логотип при входе — и в следующих сессиях, даже если shell.logo: false |
+| `--no-logo` | bool | — | не показывать логотип при входе — и в следующих сессиях |
 
 ## ochan srs
 

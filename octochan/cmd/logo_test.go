@@ -130,3 +130,35 @@ func TestNearestColors(t *testing.T) {
 		t.Errorf("фиолетовый логотипа → %d, ожидался ярко-синий 94", got)
 	}
 }
+
+// --logo и --no-logo запоминаются: следующая сессия без флага помнит выбор,
+// и он важнее shell.logo.
+func TestLogoChoiceSurvivesSessions(t *testing.T) {
+	newScriptEnv(t)
+	t.Cleanup(func() { shellLogo, shellNoLogo = false, false })
+	if !logoEnabled() {
+		t.Fatal("по умолчанию shell.logo: true")
+	}
+	shellNoLogo = true
+	if err := rememberLogo(); err != nil {
+		t.Fatal(err)
+	}
+	shellNoLogo = false
+	if logoEnabled() {
+		t.Fatal("--no-logo не запомнился")
+	}
+	// Запись истории оболочки выбор не стирает.
+	rememberCommand("diff a b", "diff a b")
+	t.Cleanup(func() { commandHistory = nil })
+	if logoEnabled() {
+		t.Fatal("история стёрла выбор логотипа")
+	}
+	shellLogo = true
+	if err := rememberLogo(); err != nil {
+		t.Fatal(err)
+	}
+	shellLogo = false
+	if !logoEnabled() {
+		t.Fatal("--logo не запомнился")
+	}
+}

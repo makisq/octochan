@@ -91,10 +91,13 @@ func init() {
 		if shellLogo && shellNoLogo {
 			return i18n.Errorf("--logo и --no-logo вместе: выберите одно")
 		}
+		if err := rememberLogo(); err != nil {
+			cmd.PrintErrln(i18n.Sprintf("внимание: выбор логотипа не сохранён: %v", err))
+		}
 		return runInteractiveShell(cmd.Context())
 	}
-	shellCmd.Flags().BoolVar(&shellNoLogo, "no-logo", false, "не показывать логотип при входе")
-	shellCmd.Flags().BoolVar(&shellLogo, "logo", false, "показать логотип при входе, даже если shell.logo: false")
+	shellCmd.Flags().BoolVar(&shellNoLogo, "no-logo", false, "не показывать логотип при входе — и в следующих сессиях")
+	shellCmd.Flags().BoolVar(&shellLogo, "logo", false, "показывать логотип при входе — и в следующих сессиях, даже если shell.logo: false")
 }
 
 // shellTerminal — исходный режим терминала; восстанавливается при любом

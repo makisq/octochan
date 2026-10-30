@@ -15,7 +15,7 @@
 |---|---|
 | `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, trigger, validate |
 | `plan` | plan |
-| `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident resolve, request, watch |
+| `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, request, watch |
 | `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
 | `install` | !!install, !!registry, !!rin, inspect |

@@ -205,9 +205,27 @@ func stepIncident(id, kind, text, ref string) (*workspace.Incident, error) {
 // Эскалация
 // ---------------------------------------------------------------------------
 
+// onStandby — узел — standby пары: сроки и отчёты — дело primary, а копия
+// инцидентов здесь перезапишется следующей репликацией. Иначе cron с
+// incident check на обоих узлах слал бы каждое письмо дважды.
+func onStandby() bool {
+	if os.Getenv(EnvHAStandby) == "1" {
+		return true
+	}
+	path, err := haStatePath()
+	if err != nil {
+		return false
+	}
+	st, err := remote.LoadHAState(path)
+	return err == nil && st.Role == remote.RoleStandby
+}
+
 // settleIncidents эскалирует открытые инциденты, срок которых вышел.
 // Вызывается командами инцидентов, заявками по инциденту и сервером.
 func settleIncidents(out func(string, ...any)) {
+	if onStandby() {
+		return
+	}
 	store, err := incidentStore()
 	if err != nil {
 		return
@@ -238,7 +256,9 @@ func escalateIncident(id, reason, by string, out func(string, ...any)) error {
 		if i.State != workspace.IncidentOpen {
 			return closedForModel(i)
 		}
-		i.State, i.Closed, i.Outcome = workspace.IncidentEscalated, time.Now().UTC(), reason
+		now := time.Now().UTC()
+		i.State, i.Closed, i.Outcome = workspace.IncidentEscalated, now, reason
+		i.Escalated, i.EscalatedBy, i.Reason = now, by, reason
 		i.Step(by, "escalate", reason, "")
 		escalated = i
 		return nil
@@ -249,11 +269,7 @@ func escalateIncident(id, reason, by string, out func(string, ...any)) error {
 	to := incidentEngineers(escalated.Level)
 	mailErr := sendEscalation(escalated, to)
 	_, err = store.Update(id, func(i *workspace.Incident) error {
-		if mailErr != nil {
-			i.NotifyError = mailErr.Error()
-		} else {
-			i.Notified = to
-		}
+		i.Mails = append(i.Mails, mailRecord("escalation", to, mailErr))
 		return nil
 	})
 	auditIncident(escalated, "эскалирован инженерам: "+reason, nil)
@@ -280,7 +296,16 @@ func sendEscalation(i *workspace.Incident, to []string) error {
 	for _, l := range i.Logs {
 		attachments = append(attachments, report.Attachment{Name: l.Name, Data: l.Content})
 	}
-	cfg := report.MailConfig{
+	subject := fmt.Sprintf("[ochan] Инцидент %s (%s) эскалирован: %s", i.ID, i.Level, i.Outcome)
+	return mailSender(mailConfig(to), report.Mail{Subject: subject, Body: body, Attachments: attachments})
+}
+
+// mailSender — отправка; тесты подменяют её.
+var mailSender = report.Send
+
+// mailConfig — почта ochan с получателями to.
+func mailConfig(to []string) report.MailConfig {
+	return report.MailConfig{
 		Host:     viper.GetString("defaults.smtp_host"),
 		Port:     viper.GetInt("defaults.smtp_port"),
 		From:     viper.GetString("defaults.smtp_from"),
@@ -289,12 +314,75 @@ func sendEscalation(i *workspace.Incident, to []string) error {
 		Password: os.Getenv("OCTOCHAN_SMTP_PASSWORD"),
 		StartTLS: viper.GetBool("defaults.smtp_starttls"),
 	}
-	subject := fmt.Sprintf("[ochan] Инцидент %s (%s) эскалирован: %s", i.ID, i.Level, i.Outcome)
-	return mailSender(cfg, report.Mail{Subject: subject, Body: body, Attachments: attachments})
 }
 
-// mailSender — отправка; тесты подменяют её.
-var mailSender = report.Send
+func mailRecord(kind string, to []string, err error) workspace.IncidentMail {
+	m := workspace.IncidentMail{Kind: kind, Time: time.Now().UTC(), To: to}
+	if err != nil {
+		m.Error = err.Error()
+	}
+	return m
+}
+
+// notifyResolved — письмо о решённом инциденте той же группе, которой ушла
+// бы эскалация: решила модель — люди знают, что было и что сделано; решил
+// человек после эскалации — знают, что инцидент закрыт.
+func notifyResolved(cmd *cobra.Command, store *workspace.Incidents, i *workspace.Incident) {
+	if !viper.GetBool("incidents.notify_resolved") {
+		return
+	}
+	to := incidentEngineers(i.Level)
+	err := sendResolution(i, to)
+	_, _ = store.Update(i.ID, func(i *workspace.Incident) error {
+		i.Mails = append(i.Mails, mailRecord("resolved", to, err))
+		return nil
+	})
+	if err != nil {
+		cmd.PrintErrf("%s\n", i18n.Sprintf("внимание: письмо о решении не ушло: %v", err))
+		return
+	}
+	cmd.Printf("Письмо о решении: %s\n", strings.Join(to, ", "))
+}
+
+// sendResolution — письмо о решении: кто решил, за сколько, что сделано и
+// какими шагами.
+func sendResolution(i *workspace.Incident, to []string) error {
+	if len(to) == 0 {
+		return fmt.Errorf("инженерная группа не задана: incidents.engineers в config.yaml")
+	}
+	who := "моделью"
+	if i.ResolvedBy != rbac.LLM {
+		who = "человеком (" + i.ResolvedBy + ")"
+	}
+	took := i.Resolved.Sub(i.Opened).Round(time.Second)
+	var b strings.Builder
+	fmt.Fprintf(&b, "Инцидент %s решён %s за %s\n\n", i.ID, who, took)
+	fmt.Fprintf(&b, "Уровень:   %s (модель чинит сама %s)\n", i.Level, i.Timer)
+	fmt.Fprintf(&b, "Открыт:    %s (%s)\n", i.Opened.Local().Format("2006-01-02 15:04"), i.Source)
+	if len(i.Hosts) > 0 {
+		fmt.Fprintf(&b, "Хосты:     %s\n", strings.Join(i.Hosts, ", "))
+	}
+	fmt.Fprintf(&b, "Что:       %s\n", i.Summary)
+	if !i.Escalated.IsZero() {
+		fmt.Fprintf(&b, "Эскалация: %s (%s)\n", i.Escalated.Local().Format("2006-01-02 15:04"), i.Reason)
+	}
+	fmt.Fprintf(&b, "Решение:   %s\n\nЧто сделано:\n", i.Outcome)
+	for _, s := range i.Steps {
+		ref := ""
+		if s.Ref != "" {
+			ref = " " + s.Ref
+		}
+		fmt.Fprintf(&b, "  %s  %-10s %s%s: %s\n", s.Time.Local().Format("15:04:05"), s.Who, s.Kind, ref, s.Text)
+	}
+	if requests := incidentRequests(i.ID); len(requests) > 0 {
+		b.WriteString("\nЗаявки по инциденту:\n")
+		for _, r := range requests {
+			fmt.Fprintf(&b, "  %s  %s  %s\n", r.ID, r.State.Russian(), r.Summary)
+		}
+	}
+	subject := fmt.Sprintf("[ochan] Инцидент %s (%s) решён %s за %s: %s", i.ID, i.Level, who, took, i.Outcome)
+	return mailSender(mailConfig(to), report.Mail{Subject: subject, Body: b.String()})
+}
 
 // escalationText — тело письма инженерам.
 func escalationText(i *workspace.Incident) string {
@@ -578,11 +666,16 @@ func showIncident(cmd *cobra.Command, i *workspace.Incident) {
 	} else {
 		cmd.Printf("Итог:      %s (%s)\n", i.Outcome, i.Closed.Local().Format("2006-01-02 15:04:05"))
 	}
-	if len(i.Notified) > 0 {
-		cmd.Printf("Письмо:    %s\n", strings.Join(i.Notified, ", "))
-	}
-	if i.NotifyError != "" {
-		cmd.Printf("Письмо:    не ушло — %s\n", i.NotifyError)
+	for _, m := range i.Mails {
+		what := i18n.T("эскалация")
+		if m.Kind == "resolved" {
+			what = i18n.T("решение")
+		}
+		if m.Error != "" {
+			cmd.Printf("Письмо:    %s — не ушло: %s\n", what, m.Error)
+		} else {
+			cmd.Printf("Письмо:    %s — %s\n", what, strings.Join(m.To, ", "))
+		}
 	}
 	if len(i.Hosts) > 0 {
 		cmd.Printf("Хосты:     %s\n", strings.Join(i.Hosts, ", "))
@@ -714,7 +807,9 @@ var incidentResolveCmd = &cobra.Command{
 			case i.State == workspace.IncidentEscalated && (currentRole == nil || currentRole.Name == rbac.LLM):
 				return closedForModel(i)
 			}
-			i.State, i.Closed, i.Outcome = workspace.IncidentResolved, time.Now().UTC(), text
+			now := time.Now().UTC()
+			i.State, i.Closed, i.Outcome = workspace.IncidentResolved, now, text
+			i.Resolved, i.ResolvedBy = now, actor()
 			i.Step(actor(), "resolve", text, "")
 			return nil
 		})
@@ -723,6 +818,7 @@ var incidentResolveCmd = &cobra.Command{
 		}
 		auditIncident(i, "решён: "+text, nil)
 		cmd.Printf("Инцидент %s решён за %s: %s\n", i.ID, i.Closed.Sub(i.Opened).Round(time.Second), text)
+		notifyResolved(cmd, store, i)
 		return nil
 	},
 }
@@ -753,11 +849,11 @@ var incidentEscalateCmd = &cobra.Command{
 
 var incidentCheckCmd = &cobra.Command{
 	Use:   "check",
-	Short: "Эскалировать инциденты, срок которых вышел — для cron",
+	Short: "Эскалировать инциденты, срок которых вышел, и отправить отчёт по расписанию — для cron",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		settleIncidents(cmd.Printf)
-		return nil
+		return dueIncidentReport(cmd.Printf)
 	},
 }
 
@@ -851,17 +947,28 @@ func incidentsHandler(writable func() (bool, string)) http.HandlerFunc {
 	}
 }
 
-// watchIncidents — сервер проверяет сроки сам, пока он primary.
+// watchIncidents — сервер проверяет сроки и шлёт отчёт по расписанию сам,
+// пока он primary.
 func watchIncidents(ctx context.Context, writable func() bool, logf func(string, ...any)) {
 	tick := time.NewTicker(30 * time.Second)
 	defer tick.Stop()
+	reported := ""
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			if writable() {
-				settleIncidents(logf)
+			if !writable() {
+				continue
+			}
+			settleIncidents(logf)
+			// Одна и та же ошибка отчёта — в журнал один раз, а не каждые 30 секунд.
+			err := dueIncidentReport(logf)
+			if text := fmt.Sprint(err); err != nil && text != reported {
+				logf("%v\n", err)
+				reported = text
+			} else if err == nil {
+				reported = ""
 			}
 		}
 	}

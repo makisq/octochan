@@ -236,6 +236,7 @@ curl -si -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 | `plan_script` | `plan --script --bundle` | план сценария в песочнице; с промптом — проверка жёстких правил по плану |
 | `request_script` | `request --script --bundle` | заявка на выполнение сценария с промптом и отчётом модели; `after`, `incident` — так же |
 | `incidents` | `incident` | инциденты и сколько осталось до срока; с `id` — карточка: уровень, шаги, журналы, итог |
+| `incident_stats` | `incident stats` | статистика за период (`for`: `24h`, `7d`, `all`): что модель решила сама, что ушло инженерам и почему, время решения, по уровням |
 | `incident_open` | `incident open` | открыть инцидент: уровень, хост, что случилось |
 | `incident_note` | `incident note` | шаг: что модель нашла и сделала — это прочтут инженеры |
 | `incident_attach` | `incident attach` | приложить журнал внутри `--root`, до 256 КиБ |

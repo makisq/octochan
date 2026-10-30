@@ -78,16 +78,34 @@
   письмо с описанием, шагами, заявками, важными строками журналов и
   журналом аудита, вложения — `.docx` и журналы. Модель по
   эскалированному инциденту больше не действует; закрывает его человек.
-- Срок проверяют сервер на primary, команды инцидентов и `incident check`.
-- MCP: `incidents`, `incident_open`, `incident_note`, `incident_attach`,
-  `incident_resolve`, `incident_escalate`, поле `incident` у заявок.
+- Решённый инцидент — письмо тем же адресам: кто решил (модель или
+  человек), за сколько, что сделано, была ли эскалация
+  (`incidents.notify_resolved`, по умолчанию включено). В карточке — все
+  письма по инциденту и ушли ли они.
+- `ochan incident stats [--for 7d|all]` — статистика инцидентов, открытых
+  за период: решены моделью до срока, человеком до эскалации, людьми после
+  эскалации; не решены — у инженеров или у модели; почему модель не
+  справилась; среднее и медиана времени решения; по уровням.
+- Отчёт на почту: `incidents.report.every` (как часто и за какой срок) и
+  `incidents.report.to` (иначе `incidents.engineers`) — сервер на primary
+  и `incident check` шлют статистику с таблицей `.csv` сами, окна подряд,
+  без пропусков; не ушло — повтор через 10 минут, окно не сдвигается.
+  Расписание копируется на standby. `ochan incident report` — сейчас.
+- Срок проверяют сервер на primary, команды инцидентов и `incident check`;
+  standby сроков не проверяет и писем не шлёт — cron можно ставить на оба
+  узла. Номер инцидента везде можно сокращать: `incident resolve 88fb`.
+- MCP: `incidents`, `incident_stats`, `incident_open`, `incident_note`,
+  `incident_attach`, `incident_resolve`, `incident_escalate`, поле
+  `incident` у заявок.
 
 ### Мелочи
 
 - `ochan ping` → `pong`; `ochan remote <адрес> ping` отвечает сам сервер,
   без процесса. `SELECT 1` отвечает как psql, `Ohayō, senpai!` —
   `Konbanwa`. `remote` без адреса берёт `remote.address`.
-- `ochan shell --logo` — логотип при `shell.logo: false`.
+- `ochan shell --logo` — логотип при `shell.logo: false`. Выбор `--logo`
+  или `--no-logo` запоминается в `state.json` и действует в следующих
+  сессиях, пока его не сменят.
 
 Отложено: режим embedded (своя модель и кольцо 0) — тип режима и
 `rings.Ring0` есть, генерации нет.

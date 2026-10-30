@@ -46,7 +46,7 @@ var readCommands = map[string]bool{
 	"plan": true, "services": true, "aliases": true, "modules": true,
 	"history": true, "requests": true, "status": true, "check": true,
 	"fp check": true, "fp protocol": true, "fp words": true, "logs rank": true,
-	"incident": true,
+	"incident": true, "incident stats": true,
 }
 
 // commandPath — команда ochan с подкомандой, если первая из постоянных
@@ -475,6 +475,18 @@ func buildTools(live []string) []tool {
 				"card: level, deadline, steps, attached logs, outcome.",
 			Command: "incident",
 			Slots:   []slot{{Name: "id", Kind: slotID, Description: "incident ID or its beginning"}},
+		},
+		{
+			Name:  "incident_stats",
+			Title: "Incident statistics",
+			Description: "Statistics of incidents opened in a period: resolved by you before the deadline, by a human, " +
+				"by engineers after escalation; unresolved — with engineers or still yours; why you did not manage — " +
+				"time ran out, you handed it over, a human did; mean and median time to resolve, by level. Read it " +
+				"before a new incident to see which kinds you usually fail to fix and escalate those early.",
+			Command: "incident",
+			Fixed:   []string{"stats"},
+			Slots: []slot{{Name: "for", Kind: slotParam, Flag: "for",
+				Description: "period: 24h, 7d, 30d or all; incidents.report.every or 7d by default"}},
 		},
 		{
 			Name:  "incident_open",
