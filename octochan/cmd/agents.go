@@ -200,6 +200,7 @@ var agentsCmd = &cobra.Command{
 		}
 		sort.Strings(names)
 		now := time.Now()
+		grants, _ := activeFree()
 		for _, name := range names {
 			a := reg.Agents[name]
 			state := "на связи"
@@ -208,6 +209,9 @@ var agentsCmd = &cobra.Command{
 			}
 			cmd.Printf("%-16s %-10s %-22s %-20s %s назад, роль %s\n", a.Name, state, a.Address, orNone(a.Groups),
 				now.Sub(a.Last).Round(time.Second), orDash(a.Role))
+			if free := freeLine(a.Name, grants); free != "" {
+				cmd.Printf("%-16s isolation %s\n", "", free)
+			}
 		}
 		return nil
 	},
@@ -314,6 +318,10 @@ func init() {
 	agentsBeatCmd.Flags().StringSliceVar(&agentGroups, "group", nil, "группы агента")
 	agentsBeatCmd.Flags().StringArrayVar(&agentVars, "var", nil, "переменная агента ключ=значение")
 	agentsBeatCmd.Flags().DurationVar(&agentEvery, "every", time.Minute, "как часто агент сообщает о себе")
-	agentsCmd.AddCommand(agentsBeatCmd, agentsForgetCmd)
+	agentsFreeCmd.Flags().StringVar(&freeRole, "role", "", "чьи права на выполнение модель берёт")
+	agentsFreeCmd.Flags().StringVar(&freeFor, "for", "", "срок: 30m, 4h, 1d")
+	agentsFreeCmd.Flags().StringVar(&freePolicy, "policy", "", "политика: что выполнять без человека")
+	agentsFreeCmd.Flags().BoolVar(&freeRevoke, "revoke", false, "отозвать free агента")
+	agentsCmd.AddCommand(agentsBeatCmd, agentsForgetCmd, agentsFreeCmd)
 	rootCmd.AddCommand(agentsCmd)
 }

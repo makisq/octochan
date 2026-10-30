@@ -48,6 +48,9 @@ var compensateCmd = &cobra.Command{
 		cmd.Printf("Заявка %s создана (%s): обратное действие заявки %s\n",
 			request.ID, request.State.Russian(), original.ID)
 		cmd.Print("\n" + request.Plan.Render(60) + "\n")
+		if freeCompensation(cmd, store, original, request) {
+			return nil
+		}
 		cmd.Printf("Согласовать: ochan approve %s\n", request.ID)
 		return nil
 	},

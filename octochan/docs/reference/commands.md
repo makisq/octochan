@@ -26,6 +26,7 @@
 - [`ochan agents`](#ochan-agents) — Реестр агентов: машины, которые сами сообщают серверу о себе
 - [`ochan agents beat`](#ochan-agents-beat) — Сообщить серверу о себе — это вызывает ochan agent run
 - [`ochan agents forget`](#ochan-agents-forget) — Убрать агента из реестра
+- [`ochan agents free`](#ochan-agents-free) — Включить free агенту: модель выполняет без человека по политике
 - [`ochan aliases`](#ochan-aliases) — Показать доступные алиасы и встроенные функции
 - [`ochan apply`](#ochan-apply) — Выполнить сценарий
 - [`ochan approve`](#ochan-approve) — Согласовать заявку
@@ -48,6 +49,7 @@
 - [`ochan fp protocol`](#ochan-fp-protocol) — Показать протокол — то, что модель читает первым
 - [`ochan fp words`](#ochan-fp-words) — Словарь языка: слова, их смыслы и откуда они
 - [`ochan ha`](#ochan-ha) — Пара серверов primary/standby: настройка, состояние, переключение
+- [`ochan ha contour`](#ochan-ha-contour) — Контур узла: HA-AI (без человека-оператора) или обычный
 - [`ochan ha init`](#ochan-ha-init) — Сделать этот узел узлом пары
 - [`ochan ha promote`](#ochan-ha-promote) — Сделать этот узел primary: переключение пары
 - [`ochan ha status`](#ochan-ha-status) — Состояние узлов пары
@@ -303,7 +305,11 @@ ochan agent run --server a.example:7443,b.example:7443 --name db7 --group db,db_
 |---|---|---|---|
 | `--allow-plaintext` | bool | — | разрешить подключение без ssl к другой машине |
 | `--every` | duration | `1m0s` | как часто сообщать о себе |
+| `--free-for` | string | — | free: срок, например 4h |
+| `--free-policy` | string | — | free: политика — что выполнять без человека |
+| `--free-role` | string | — | free: чьи права на выполнение модель берёт |
 | `--group` | stringSlice | — | группы агента |
+| `--isolation` | string | `natural` | natural — модель только предлагает; free — выполняет по политике (только master, только HA-AI) |
 | `--name` | string | — | имя агента — имя хоста в инвентаре |
 | `--once` | bool | — | сообщить один раз и выйти |
 | `--role` | string | `agent` | роль агента на сервере |
@@ -326,7 +332,7 @@ ochan agents
 
 Право: `read`.
 
-Подкоманды: [`beat`](#ochan-agents-beat), [`forget`](#ochan-agents-forget).
+Подкоманды: [`beat`](#ochan-agents-beat), [`forget`](#ochan-agents-forget), [`free`](#ochan-agents-free).
 
 ## ochan agents beat
 
@@ -358,6 +364,37 @@ ochan agents forget <имя>
 ```
 
 Право: `approve`.
+
+## ochan agents free
+
+Включить free агенту: модель выполняет без человека по политике.
+
+```
+ochan agents free <агент> --role <роль> --for <срок> --policy <политика>
+```
+
+Только master и только на primary контура HA-AI (ochan ha contour ai).
+Заявка модели (роль llm), которая укладывается в политику, согласуется ею и
+выполняется сразу — от имени --role, с её правами и пределами. Вне
+политики — обычная заявка: ждёт master. free гаснет по --for, с отзывом
+или сроком политики и с --revoke. Песочница, кольца, арбитр и сверка плана
+действуют как всегда: free меняет только то, кто сказал «да».
+
+Право: `admin`.
+
+Примеры:
+
+```
+ochan agents free db7 --role deployer --for 4h --policy new-servers
+ochan agents free db7 --revoke
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--for` | string | — | срок: 30m, 4h, 1d |
+| `--policy` | string | — | политика: что выполнять без человека |
+| `--revoke` | bool | — | отозвать free агента |
+| `--role` | string | — | чьи права на выполнение модель берёт |
 
 ## ochan aliases
 
@@ -895,7 +932,22 @@ ochan ha status a.example:7443,b.example:7443
 ochan ha promote
 ```
 
-Подкоманды: [`init`](#ochan-ha-init), [`promote`](#ochan-ha-promote), [`status`](#ochan-ha-status).
+Подкоманды: [`contour`](#ochan-ha-contour), [`init`](#ochan-ha-init), [`promote`](#ochan-ha-promote), [`status`](#ochan-ha-status).
+
+## ochan ha contour
+
+Контур узла: HA-AI (без человека-оператора) или обычный.
+
+```
+ochan ha contour <ai | human>
+```
+
+ai — в контуре нет человека-оператора: на primary такого узла master может
+включить free (ochan agents free). human — обычный контур: free на узле не
+действует, действующие выдачи ждут, пока контур снова не станет ai.
+Только master; контур — у каждого узла пары свой, ставят на обоих.
+
+Право: `admin`.
 
 ## ochan ha init
 
@@ -913,6 +965,7 @@ standby. Общий секрет пары (ha.token_file) создаётся, е
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--ai-contour` | bool | — | контур HA-AI: человека-оператора нет (только master) |
 | `--node` | string | — | имя узла |
 | `--role` | string | — | primary или standby |
 

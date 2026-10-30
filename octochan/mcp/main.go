@@ -59,6 +59,7 @@ func run() int {
 		version   bool
 		web       httpOptions
 		origins   listFlag
+		agent     string
 	)
 
 	flags := flag.NewFlagSet("ochan-mcp", flag.ContinueOnError)
@@ -71,6 +72,7 @@ func run() int {
 	flags.DurationVar(&timeout, "timeout", 2*time.Minute, "предел времени одного вызова")
 	flags.IntVar(&maxOutput, "max-output", 100_000, "предел объёма вывода, возвращаемого модели, в байтах")
 	flags.BoolVar(&version, "version", false, "показать версию и выйти")
+	flags.StringVar(&agent, "agent", "", "агент, от которого работает модель: на узле HA-AI заявки проверяет только его free")
 	flags.StringVar(&web.listen, "listen", "", "слушать адрес по HTTP (Streamable HTTP) вместо stdio, например 127.0.0.1:8765")
 	flags.StringVar(&web.path, "path", "/mcp", "путь MCP на HTTP-сервере")
 	flags.StringVar(&web.tokenFile, "token-file", defaultTokenFile(),
@@ -123,12 +125,16 @@ func run() int {
 		// stdout в HTTP-режиме протоколу не принадлежит.
 		out = io.Discard
 	}
-	srv, err := newServer(box, &runner{
+	run := &runner{
 		binary:    binary,
 		dir:       box.roots[0],
 		timeout:   timeout,
 		maxOutput: maxOutput,
-	}, out, logger)
+	}
+	if agent != "" {
+		run.env = append(run.env, "OCTOCHAN_AGENT="+agent)
+	}
+	srv, err := newServer(box, run, out, logger)
 	if err != nil {
 		logger.Print(err)
 		return 1

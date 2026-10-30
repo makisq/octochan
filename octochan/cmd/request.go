@@ -104,6 +104,10 @@ var requestCmd = &cobra.Command{
 			cmd.Printf("Документ: %s\n", requestDoc)
 		}
 
+		if freeEligible(request) {
+			freeRequest(cmd, store, request)
+			return nil
+		}
 		cmd.Printf("Согласовать: ochan approve %s\n", request.ID)
 		return nil
 	},

@@ -41,6 +41,8 @@ const (
 	EventRole    = "role"
 	// EventTrigger — окно триггера открылось, закрылось или истекло.
 	EventTrigger = "trigger"
+	// EventFree — free: выдача, отзыв, истечение и решения без человека.
+	EventFree = "free"
 )
 
 // Record — запись журнала.

@@ -57,7 +57,9 @@ var Groups = map[string][]string{
 	"install": {"!!install", "!!registry", "!!rin", "inspect"},
 	"auth":    {"auth", "timer"},
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
-		"role.scope", "role.undeny", "role.update", "trigger.secret"},
+		"role.scope", "role.undeny", "role.update", "trigger.secret",
+		// agents.free — только master: команда проверяет это сама.
+		"agents.free", "ha.contour"},
 	// audit — журнал аудита: кто, что и когда пытался выполнить.
 	"audit": {"audit"},
 	// server — держать общий оркестратор; remote — подключаться к чужому.

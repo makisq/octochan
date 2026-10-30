@@ -106,6 +106,8 @@ type Request struct {
 	// сначала зависимости, последним — сам пакет. Сумма архива — та, на
 	// которую сказали «да»: другой архив не поставится.
 	Packages []PackageInstall `json:"packages,omitempty"`
+	// Free — агент, чей free согласовал заявку без человека.
+	Free string `json:"free,omitempty"`
 	// Trigger — окна триггеров, в которых заявку оформили (release#1234):
 	// ochan requests --after release#1234 перечисляет такие заявки.
 	Trigger string `json:"trigger,omitempty"`

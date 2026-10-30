@@ -7,12 +7,18 @@ import (
 	"strings"
 	"time"
 
+	"octochan/remote"
+
 	"github.com/spf13/cobra"
 )
 
 var (
-	agentServer string
-	agentRole   string
+	agentServer     string
+	agentRole       string
+	agentIsolation  string
+	agentFreeRole   string
+	agentFreeFor    string
+	agentFreePolicy string
 )
 
 var agentCmd = &cobra.Command{
@@ -51,6 +57,9 @@ var agentRunCmd = &cobra.Command{
 		}
 		defer pool.Logout(context.Background())
 
+		if agentIsolation != "natural" && agentIsolation != "free" {
+			return fmt.Errorf("--isolation %q: natural или free", agentIsolation)
+		}
 		args := []string{"agents", "beat", "--name", agentName, "--every", agentEvery.String()}
 		for _, g := range agentGroups {
 			args = append(args, "--group", g)
@@ -62,6 +71,7 @@ var agentRunCmd = &cobra.Command{
 		if ctx == nil {
 			ctx = context.Background()
 		}
+		freeAsked := false
 		for {
 			result, err := pool.Exec(ctx, args, "", false)
 			switch {
@@ -77,6 +87,14 @@ var agentRunCmd = &cobra.Command{
 				cmd.PrintErrf("%s  сервер отказал: %s\n", time.Now().Format("15:04:05"), strings.TrimSpace(result.Stderr))
 			default:
 				cmd.Printf("%s  %s\n", time.Now().Format("15:04:05"), strings.TrimSpace(result.Stdout))
+				if agentIsolation == "free" && !freeAsked {
+					// free включается один раз, после того как агент в
+					// реестре: выдают тому, кто сообщил о себе.
+					freeAsked = true
+					if err := askFree(ctx, cmd, pool); err != nil {
+						return err
+					}
+				}
 			}
 			if agentOnce {
 				return nil
@@ -99,7 +117,32 @@ func init() {
 	f.DurationVar(&agentEvery, "every", time.Minute, "как часто сообщать о себе")
 	f.BoolVar(&agentOnce, "once", false, "сообщить один раз и выйти")
 	f.StringVar(&agentRole, "role", "agent", "роль агента на сервере")
+	f.StringVar(&agentIsolation, "isolation", "natural", "natural — модель только предлагает; free — выполняет по политике (только master, только HA-AI)")
+	f.StringVar(&agentFreeRole, "free-role", "", "free: чьи права на выполнение модель берёт")
+	f.StringVar(&agentFreeFor, "free-for", "", "free: срок, например 4h")
+	f.StringVar(&agentFreePolicy, "free-policy", "", "free: политика — что выполнять без человека")
 	f.BoolVar(&remotePlain, "allow-plaintext", false, "разрешить подключение без ssl к другой машине")
 	agentCmd.AddCommand(agentRunCmd)
 	rootCmd.AddCommand(agentCmd)
+}
+
+// askFree включает free агента на сервере: ochan agents free в сессии
+// агента. Сервер пустит, только если сессия — master и узел — primary
+// контура HA-AI; иначе агент не работает вовсе, а не молча без free.
+func askFree(ctx context.Context, cmd *cobra.Command, pool *remote.Pool) error {
+	args := []string{"agents", "free", agentName, "--role", agentFreeRole, "--for", agentFreeFor,
+		"--policy", agentFreePolicy}
+	result, err := pool.Exec(ctx, args, "", false)
+	if err != nil {
+		return fmt.Errorf("free: %w", err)
+	}
+	if result.Code != 0 {
+		return fmt.Errorf("free: %s", strings.TrimSpace(result.Stderr))
+	}
+	for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
+		if strings.HasPrefix(line, "Агент ") {
+			cmd.Printf("%s  %s\n", time.Now().Format("15:04:05"), line)
+		}
+	}
+	return nil
 }
