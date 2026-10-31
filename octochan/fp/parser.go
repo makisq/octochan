@@ -39,6 +39,7 @@ func Parse(name, src string) (*Program, []Diagnostic) {
 	p.parse()
 	if p.prog.Goal == nil && !p.hasGoalError() {
 		p.report(Pos{1, 1}, ErrSyn, "программа начинается с заголовка goal: слово")
+		p.incomplete(len(p.lines) == 0)
 	}
 	sortDiagnostics(p.diags)
 	return p.prog, p.diags
@@ -65,6 +66,18 @@ func (p *parser) hasGoalError() bool {
 func (p *parser) report(pos Pos, code Code, format string, args ...any) {
 	p.diags = append(p.diags, Diagnostic{Pos: pos, Code: code, Msg: fmt.Sprintf(format, args...)})
 }
+
+// incomplete помечает последнюю находку как снимаемую продолжением
+// текста, если when.
+func (p *parser) incomplete(when bool) {
+	if when && len(p.diags) > 0 {
+		p.diags[len(p.diags)-1].Incomplete = true
+	}
+}
+
+// atEnd — после текущего раздела строк нет: пустой раздел ещё может
+// получить тело.
+func (p *parser) atEnd() bool { return p.i >= len(p.lines) }
 
 // body забирает строки с отступом, идущие за заголовком раздела.
 func (p *parser) body() []srcLine {
@@ -464,6 +477,7 @@ func (p *parser) block(c *cursor, title string, line func(*cursor)) {
 	lines := p.body()
 	if !c.bad && len(lines) == 0 {
 		p.report(Pos{c.ln.no, 1}, ErrSyn, "раздел %s: пуст", title)
+		p.incomplete(p.atEnd())
 	}
 	for _, ln := range lines {
 		if ln.err != nil {
@@ -602,6 +616,7 @@ func (p *parser) generalization(c *cursor) {
 	}
 	if len(lines) != 1 {
 		p.report(name.Pos, ErrSyn, "у обобщения одна строка тела: Класс = операция(слоты), найдено строк: %d", len(lines))
+		p.incomplete(len(lines) == 0 && p.atEnd())
 		return
 	}
 	if lines[0].err != nil {
@@ -879,6 +894,7 @@ func (p *parser) cell(c *cursor) {
 	}
 	if len(cell.Sets) == 0 && cell.Binds == nil {
 		p.report(name.Pos, ErrSyn, "ячейка %s пуста", cell.Name)
+		p.incomplete(p.atEnd())
 		return
 	}
 	p.prog.Cells = append(p.prog.Cells, cell)
@@ -961,6 +977,7 @@ func (p *parser) reportBlock(c *cursor) {
 	}
 	if len(p.prog.Report) == 0 {
 		p.report(Pos{c.ln.no, 1}, ErrSyn, "раздел report: пуст")
+		p.incomplete(p.atEnd())
 	}
 }
 

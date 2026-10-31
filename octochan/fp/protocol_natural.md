@@ -1,8 +1,9 @@
 # ochan protocol: natural language
 
 This is the first text a model receives when it connects to the ochan-mcp
-server. The operator has set `fp.mode: natural`: tasks come to you in
-natural language, not in the formal prompt language.
+server. The operator has set `llm.mode: natural` (or the former
+`fp.mode: natural`): tasks come to you in natural language, not in the
+formal prompt language.
 
 References such as P5 or P6 point to the principles (П) of the manifesto,
 docs/formal-prompting.md.
@@ -55,6 +56,9 @@ docs/formal-prompting.md.
 Set in `~/.octochan/config.yaml`:
 
 ```yaml
-fp:
-  mode: natural   # natural: tasks in natural language; formal: only formal prompts
+llm:
+  mode: natural   # natural: tasks in natural language; protocol: only formal prompts
 ```
+
+The former switch `fp.mode: natural` means the same when `llm.mode` is not
+set.

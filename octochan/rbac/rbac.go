@@ -36,8 +36,9 @@ var Groups = map[string][]string{
 	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
 		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "trigger", "validate",
 		// !!search только читает реестры из настроек.
-		"!!search", "incident"},
-	"plan": {"plan"},
+		"!!search", "incident", "llm", "mail"},
+	// llm.generate — своя модель пишет ответ: ничего не меняет, как план.
+	"plan": {"llm.generate", "plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
 	// любую другую.
 	// watch оформляет заявки; выполнить по политике он может, только если у
@@ -45,8 +46,9 @@ var Groups = map[string][]string{
 	// incident.* — записи инцидента: открыть, заметка, журнал, решение,
 	// эскалация. Это не изменение системы, а отчёт о нём.
 	// incident.report шлёт статистику на почту: тоже отчёт, а не изменение.
+	// mail.send — письмо агенту или людям: сообщение, а не изменение системы.
 	"request": {"compensate", "incident.attach", "incident.check", "incident.escalate", "incident.note",
-		"incident.open", "incident.report", "incident.resolve", "request", "watch"},
+		"incident.open", "incident.report", "incident.resolve", "mail.send", "request", "watch"},
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
 	// больше не построит для него план. policy.add — заранее данное
 	// согласование: по политике watch согласует заявки сам.

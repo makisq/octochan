@@ -178,9 +178,9 @@ func openIncident(level string, hosts []string, summary, source string) (*worksp
 func closedForModel(i *workspace.Incident) error {
 	switch i.State {
 	case workspace.IncidentEscalated:
-		return i18n.Errorf("инцидент %s эскалирован инженерам (%s): модель по нему больше не действует", i.ID, i.Outcome)
+		return i18n.Errorf("инцидент %s эскалирован инженерам (%s): модель по нему больше не действует", i.ID, brief(i.Outcome))
 	case workspace.IncidentResolved:
-		return i18n.Errorf("инцидент %s уже решён: %s", i.ID, i.Outcome)
+		return i18n.Errorf("инцидент %s уже решён: %s", i.ID, brief(i.Outcome))
 	}
 	return nil
 }
@@ -274,10 +274,10 @@ func escalateIncident(id, reason, by string, out func(string, ...any)) error {
 	})
 	auditIncident(escalated, "эскалирован инженерам: "+reason, nil)
 	if mailErr != nil {
-		out("Инцидент %s эскалирован (%s), но письмо инженерам не ушло: %v\n", id, reason, mailErr)
+		out("Инцидент %s эскалирован (%s), но письмо инженерам не ушло: %v\n", id, brief(reason), mailErr)
 		return err
 	}
-	out("Инцидент %s эскалирован инженерам (%s): письмо — %s\n", id, reason, strings.Join(to, ", "))
+	out("Инцидент %s эскалирован инженерам (%s): письмо — %s\n", id, brief(reason), strings.Join(to, ", "))
 	return err
 }
 
@@ -286,6 +286,11 @@ func escalateIncident(id, reason, by string, out func(string, ...any)) error {
 func sendEscalation(i *workspace.Incident, to []string) error {
 	if len(to) == 0 {
 		return fmt.Errorf("инженерная группа не задана: incidents.engineers в config.yaml")
+	}
+	if lang, err := mailLanguage(); err != nil {
+		return err
+	} else if lang == langFormal {
+		return sendFormalIncident(i, to, "escalated")
 	}
 	body := escalationText(i)
 	doc, err := report.DOCX(escalationDoc(i, body))
@@ -298,6 +303,17 @@ func sendEscalation(i *workspace.Incident, to []string) error {
 	}
 	subject := fmt.Sprintf("[ochan] Инцидент %s (%s) эскалирован: %s", i.ID, i.Level, i.Outcome)
 	return mailSender(mailConfig(to), report.Mail{Subject: subject, Body: body, Attachments: attachments})
+}
+
+// sendFormalIncident — письмо об инциденте формальным промптом: факты в
+// теле, записи инцидента и журналы — вложениями.
+func sendFormalIncident(i *workspace.Incident, to []string, what string) error {
+	attachments := []report.Attachment{{Name: "incident-" + i.ID + ".txt", Data: incidentRecords(i)}}
+	for _, l := range i.Logs {
+		attachments = append(attachments, report.Attachment{Name: l.Name, Data: l.Content})
+	}
+	subject := fmt.Sprintf("[ochan] goal: failure — incident %s %s %s %s", i.ID, i.Level, what, i.Result(rbac.LLM))
+	return mailSender(mailConfig(to), report.Mail{Subject: subject, Body: formalIncident(i), Attachments: attachments})
 }
 
 // mailSender — отправка; тесты подменяют её.
@@ -349,6 +365,11 @@ func notifyResolved(cmd *cobra.Command, store *workspace.Incidents, i *workspace
 func sendResolution(i *workspace.Incident, to []string) error {
 	if len(to) == 0 {
 		return fmt.Errorf("инженерная группа не задана: incidents.engineers в config.yaml")
+	}
+	if lang, err := mailLanguage(); err != nil {
+		return err
+	} else if lang == langFormal {
+		return sendFormalIncident(i, to, "resolved")
 	}
 	who := "моделью"
 	if i.ResolvedBy != rbac.LLM {
@@ -590,6 +611,27 @@ var (
 	incidentAttachName string
 )
 
+// brief — текст записи одной строкой: у многострочного (формальный промпт
+// своей модели) — первая строка и «…». Целиком он в карточке и письме.
+func brief(text string) string {
+	first, rest, multi := strings.Cut(strings.TrimSpace(text), "\n")
+	if multi && strings.TrimSpace(rest) != "" {
+		return first + " …"
+	}
+	return first
+}
+
+// indent сдвигает строки текста.
+func indent(text, by string) string {
+	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	for n, l := range lines {
+		if l != "" {
+			lines[n] = by + l
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // textArg — текст из аргумента или stdin («-»).
 func textArg(arg string) (string, error) {
 	if arg != "-" {
@@ -648,7 +690,7 @@ var incidentCmd = &cobra.Command{
 			if i.State == workspace.IncidentOpen {
 				state = i18n.Sprintf("открыт, модель чинит ещё %s", i.Deadline.Sub(now).Round(time.Second))
 			}
-			cmd.Printf("%s  %s  %-9s %-34s %s\n", i.Opened.Local().Format("2006-01-02 15:04"), i.ID, i.Level, state, i.Summary)
+			cmd.Printf("%s  %s  %-9s %-34s %s\n", i.Opened.Local().Format("2006-01-02 15:04"), i.ID, i.Level, state, brief(i.Summary))
 		}
 		return nil
 	},
@@ -664,7 +706,7 @@ func showIncident(cmd *cobra.Command, i *workspace.Incident) {
 		cmd.Printf("Срок:      %s (осталось %s), затем — эскалация: %s\n", i.Deadline.Local().Format("15:04:05"),
 			i.Deadline.Sub(now).Round(time.Second), strings.Join(incidentEngineers(i.Level), ", "))
 	} else {
-		cmd.Printf("Итог:      %s (%s)\n", i.Outcome, i.Closed.Local().Format("2006-01-02 15:04:05"))
+		cmd.Printf("Итог:      %s (%s)\n", brief(i.Outcome), i.Closed.Local().Format("2006-01-02 15:04:05"))
 	}
 	for _, m := range i.Mails {
 		what := i18n.T("эскалация")
@@ -680,14 +722,18 @@ func showIncident(cmd *cobra.Command, i *workspace.Incident) {
 	if len(i.Hosts) > 0 {
 		cmd.Printf("Хосты:     %s\n", strings.Join(i.Hosts, ", "))
 	}
-	cmd.Printf("Что:       %s\n", i.Summary)
+	if strings.Contains(i.Summary, "\n") {
+		cmd.Printf("Что:\n%s\n", indent(i.Summary, "  "))
+	} else {
+		cmd.Printf("Что:       %s\n", i.Summary)
+	}
 	cmd.Println("\nШаги:")
 	for _, s := range i.Steps {
 		ref := ""
 		if s.Ref != "" {
 			ref = " " + s.Ref
 		}
-		cmd.Printf("  %s  %-10s %s%s: %s\n", s.Time.Local().Format("15:04:05"), s.Who, s.Kind, ref, s.Text)
+		cmd.Printf("  %s  %-10s %s%s: %s\n", s.Time.Local().Format("15:04:05"), s.Who, s.Kind, ref, brief(s.Text))
 	}
 	if len(i.Logs) > 0 {
 		cmd.Println("\nЖурналы:")
@@ -704,6 +750,9 @@ var incidentOpenCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		summary, err := textArg(args[0])
 		if err != nil {
+			return err
+		}
+		if err := checkModelSays(cmd, summary, i18n.T("что случилось")); err != nil {
 			return err
 		}
 		source := incidentSource
@@ -732,6 +781,9 @@ var incidentNoteCmd = &cobra.Command{
 		}
 		if text == "" {
 			return fmt.Errorf("пустая заметка")
+		}
+		if err := checkModelSays(cmd, text, i18n.T("заметка")); err != nil {
+			return err
 		}
 		i, err := stepIncident(args[0], "note", text, "")
 		if err != nil {
@@ -795,6 +847,9 @@ var incidentResolveCmd = &cobra.Command{
 		if text == "" {
 			return fmt.Errorf("что сделано — обязательно: решение без описания не проверить")
 		}
+		if err := checkModelSays(cmd, text, i18n.T("решение")); err != nil {
+			return err
+		}
 		store, err := incidentStore()
 		if err != nil {
 			return err
@@ -817,7 +872,7 @@ var incidentResolveCmd = &cobra.Command{
 			return err
 		}
 		auditIncident(i, "решён: "+text, nil)
-		cmd.Printf("Инцидент %s решён за %s: %s\n", i.ID, i.Closed.Sub(i.Opened).Round(time.Second), text)
+		cmd.Printf("Инцидент %s решён за %s: %s\n", i.ID, i.Closed.Sub(i.Opened).Round(time.Second), brief(text))
 		notifyResolved(cmd, store, i)
 		return nil
 	},
@@ -834,6 +889,9 @@ var incidentEscalateCmd = &cobra.Command{
 		}
 		if text == "" {
 			return fmt.Errorf("почему эскалация — обязательно: это первое, что прочтут инженеры")
+		}
+		if err := checkModelSays(cmd, text, i18n.T("причина эскалации")); err != nil {
+			return err
 		}
 		store, err := incidentStore()
 		if err != nil {

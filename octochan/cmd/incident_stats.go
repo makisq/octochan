@@ -253,8 +253,21 @@ func sendIncidentReport(from, to time.Time, label string) ([]string, error) {
 	}
 	subject := fmt.Sprintf("[ochan] Инциденты за %s (%s): %d, решила модель %d, у инженеров %d, открыто %d",
 		label, period, s.Total, s.ByModel, s.Pending, s.Open)
+	body := statsText(s, label)
+	lang, err := mailLanguage()
+	if err != nil {
+		return nil, err
+	}
+	if lang == langFormal {
+		subject = fmt.Sprintf("[ochan] goal: count — incidents %s %s: total %d, model %d, engineers %d, open %d",
+			label, strings.ReplaceAll(period, " — ", ".."), s.Total, s.ByModel, s.Pending, s.Open)
+		if s.From.IsZero() {
+			subject = strings.Replace(subject, "incidents всё время", "incidents all", 1)
+		}
+		body = formalStats(s)
+	}
 	name := "incidents-" + strings.ReplaceAll(period, " — ", "_") + ".csv"
-	mail := report.Mail{Subject: subject, Body: statsText(s, label),
+	mail := report.Mail{Subject: subject, Body: body,
 		Attachments: []report.Attachment{{Name: name, Data: statsCSV(s)}}}
 	return recipients, mailSender(mailConfig(recipients), mail)
 }

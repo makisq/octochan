@@ -111,7 +111,7 @@ func TestFPProtocolCommand(t *testing.T) {
 	// fp.mode: natural — модель принимает задачи на естественном языке.
 	setting(t, "fp.mode", "natural")
 	out := e.must("fp", "protocol")
-	if out != fp.ProtocolFor(fp.Natural) || !strings.Contains(out, "tasks come to you in\nnatural language") {
+	if out != fp.ProtocolFor(fp.Natural) || !strings.Contains(out, "tasks come to you in natural language") {
 		t.Fatalf("в режиме natural не тот протокол:\n%s", out)
 	}
 	if e.must("fp", "protocol", "--mode", "formal") != fp.Protocol() {
@@ -119,6 +119,17 @@ func TestFPProtocolCommand(t *testing.T) {
 	}
 	setting(t, "fp.mode", "prose")
 	e.fails(`fp.mode: "prose", допустимо formal или natural`, "fp", "protocol")
+
+	// llm.mode решает так же, а embedded — формальный протокол.
+	setting(t, "fp.mode", "formal")
+	setting(t, "llm.mode", "natural")
+	if e.must("fp", "protocol") != fp.ProtocolFor(fp.Natural) {
+		t.Fatal("llm.mode: natural не дал протокол natural")
+	}
+	setting(t, "llm.mode", "embedded")
+	if e.must("fp", "protocol") != fp.Protocol() {
+		t.Fatal("llm.mode: embedded не дал формальный протокол")
+	}
 }
 
 // Язык замкнут: слово со смыслом — из словаря, а словарь виден

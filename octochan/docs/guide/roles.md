@@ -13,9 +13,9 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, logs, modules, policy, print, requests, sandbox, services, stats, status, trigger, validate |
-| `plan` | plan |
-| `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, request, watch |
+| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, policy, print, requests, sandbox, services, stats, status, trigger, validate |
+| `plan` | llm generate, plan |
+| `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, mail send, request, watch |
 | `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
 | `install` | !!install, !!registry, !!rin, inspect |

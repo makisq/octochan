@@ -498,6 +498,9 @@ var fpJournalCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if err := printRingSummary(cmd, cfg, all); err != nil {
+			return err
+		}
 		if len(all) == 0 {
 			cmd.Println("Журнал решений пуст: планов по формальному промпту ещё не было")
 			return nil
@@ -577,6 +580,65 @@ var fpJournalCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// printRingSummary — сводка колец: режим и сколько отклонено каждым
+// кольцом. Кольцо 0 есть только во встроенном режиме: в режиме протокола
+// этой строки нет, и по отчёту видно, что гарантии другие.
+func printRingSummary(cmd *cobra.Command, cfg ringsConfig, all []*workspace.Decision) error {
+	mode, err := llmMode()
+	if err != nil {
+		return err
+	}
+	cmd.Printf("Режим: %s\n", modeLine(mode))
+	if mode == llmEmbedded {
+		generations, err := generationJournal()
+		if err != nil {
+			return err
+		}
+		records, err := generations.All()
+		if err != nil {
+			return err
+		}
+		ring0, answers, language := 0, 0, 0
+		for _, g := range records {
+			ring0 += g.Ring0
+			language += g.OutOfLanguage + g.Masked
+			if g.OK {
+				answers++
+			}
+		}
+		cmd.Printf("Отклонено на кольце 0: %d (токенов до порога); генераций %d, с ответом %d\n", ring0, len(records), answers)
+		cmd.Printf("Отклонено языком:      %d (утверждений и токенов вне ℒ — в ответах их нет)\n", language)
+	}
+	ring2, ring3 := 0, 0
+	sum, plans := 0.0, 0
+	for _, d := range all {
+		for _, p := range d.Packages {
+			switch p.Verdict {
+			case string(rings.WellFalse):
+				ring2++
+			case string(rings.Contradiction):
+				ring3++
+			}
+		}
+		if len(d.Packages) > 0 {
+			sum += d.PlanLower()
+			plans++
+		}
+	}
+	cmd.Printf("Отклонено на кольце 2: %d (нижняя граница < well_True)\n", ring2)
+	cmd.Printf("Отклонено на кольце 3: %d (противоречие)\n", ring3)
+	if plans > 0 {
+		mean := sum / float64(plans)
+		state := "в норме"
+		if mean < cfg.planSupport {
+			state = "ниже порога: планы слабые, их согласует оператор"
+		}
+		cmd.Printf("plan_support: %.2f (порог %.2f) — %s\n", mean, cfg.planSupport, state)
+	}
+	cmd.Println()
+	return nil
 }
 
 var (

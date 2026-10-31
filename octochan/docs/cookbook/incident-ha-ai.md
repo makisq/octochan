@@ -26,6 +26,9 @@ incidents:
   report:
     every: 7d                      # статистика раз в неделю, за неделю
     to: [leads@corp.example, dba@corp.example]
+mail:
+  lang: natural                    # письма инженерам — естественным языком;
+                                   # без этого в режиме protocol — формальным промптом
 ```
 
 ```yaml

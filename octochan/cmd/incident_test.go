@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"octochan/fp"
 	"octochan/remote"
 	"octochan/report"
 	"octochan/scenario"
@@ -31,6 +32,9 @@ func TestIncidentEscalation(t *testing.T) {
 		"notify":    map[string]any{"critical": []string{"oncall@corp.example"}},
 	})
 	t.Cleanup(func() { viper.Set("incidents", nil) })
+	// Письма — естественным языком; формальные — TestIncidentMailFormal.
+	viper.Set("mail.lang", "natural")
+	t.Cleanup(func() { viper.Set("mail.lang", "auto") })
 	var sent []report.Mail
 	var sentTo [][]string
 	mailSender = func(cfg report.MailConfig, mail report.Mail) error {
@@ -205,6 +209,9 @@ func TestIncidentStats(t *testing.T) {
 		"report":    map[string]any{"every": "7d", "to": []string{"leads@corp.example", "ops@corp.example"}},
 	})
 	t.Cleanup(func() { viper.Set("incidents", nil) })
+	// Письма — естественным языком; формальные — TestIncidentMailFormal.
+	viper.Set("mail.lang", "natural")
+	t.Cleanup(func() { viper.Set("mail.lang", "auto") })
 	var sent []report.Mail
 	var sentTo [][]string
 	mailSender = func(cfg report.MailConfig, mail report.Mail) error {
@@ -348,5 +355,76 @@ func writeState(t *testing.T, r *workspace.IncidentReport) {
 	data, _ := json.Marshal(r)
 	if err := os.WriteFile(filepath.Join(fm.BaseDir(), incidentsDir, "report.state"), data, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Людям пишут формальным промптом — письма ochan тоже на языке: факты —
+// ячейками, тексты мониторинга и модели — вложением.
+func TestIncidentMailFormal(t *testing.T) {
+	newScriptEnv(t)
+	viper.Set("incidents", map[string]any{
+		"levels":    map[string]any{"low": "4h", "mc+": "15m"},
+		"engineers": []string{"dba@corp.example"},
+	})
+	t.Cleanup(func() { viper.Set("incidents", nil) })
+	var sent []report.Mail
+	mailSender = func(_ report.MailConfig, mail report.Mail) error {
+		sent = append(sent, mail)
+		return nil
+	}
+	t.Cleanup(func() { mailSender = report.Send })
+
+	store, _ := incidentStore()
+	now := time.Now().UTC()
+	i := &workspace.Incident{Level: "mc+", Timer: "15m", Opened: now.Add(-time.Hour), Source: "мониторинг zabbix",
+		Hosts: []string{"web-1.example", "db7"}, Summary: "PostgreSQL на db7 не принимает соединения",
+		Escalated: now.Add(-45 * time.Minute), EscalatedBy: "ochan", Reason: "время вышло: модель не решила за 15m",
+		Resolved: now, ResolvedBy: "master", Outcome: "инженер поднял пул"}
+	if err := store.Create(i); err != nil {
+		t.Fatal(err)
+	}
+	i, _ = store.Update(i.ID, func(i *workspace.Incident) error {
+		i.State = workspace.IncidentResolved
+		i.Step("llm", "note", "max_connections исчерпан", "")
+		return i.Attach("pg.log", []byte("FATAL: too many clients\n"))
+	})
+
+	if err := sendResolution(i, []string{"dba@corp.example"}); err != nil {
+		t.Fatal(err)
+	}
+	m := sent[0]
+	if r := fp.CheckText("письмо", m.Body, fp.Options{}); !r.InLanguage() {
+		t.Fatalf("письмо о решении не на языке: %v\n%s", r.Syntax(), m.Body)
+	}
+	for _, want := range []string{"goal: failure", "set Failure.incident = incident_" + i.ID, "set Failure.level = mc",
+		"set Failure.timer = 15 min", "set Failure.result = timeout", "set Failure.host = web_1_example",
+		"set Failure.host_2 = db7", "set Failure.took = 1 h", "set Log.pg_log = 24 B"} {
+		if !strings.Contains(m.Body, want) {
+			t.Fatalf("в письме нет %q:\n%s", want, m.Body)
+		}
+	}
+	if strings.Contains(m.Body, "PostgreSQL") || m.Subject != "[ochan] goal: failure — incident "+i.ID+" mc+ resolved timeout" ||
+		len(m.Attachments) != 2 || m.Attachments[0].Name != "incident-"+i.ID+".txt" ||
+		!strings.Contains(string(m.Attachments[0].Data), "summary: PostgreSQL на db7 не принимает соединения") {
+		t.Fatalf("письмо: %s\n%s\n%v", m.Subject, m.Body, m.Attachments)
+	}
+
+	viper.Set("incidents.report.to", []string{"leads@corp.example"})
+	end := now.Add(time.Minute)
+	if _, err := sendIncidentReport(end.Add(-24*time.Hour), end, "1d"); err != nil {
+		t.Fatal(err)
+	}
+	m = sent[1]
+	if r := fp.CheckText("отчёт", m.Body, fp.Options{}); !r.InLanguage() {
+		t.Fatalf("отчёт не на языке: %v\n%s", r.Syntax(), m.Body)
+	}
+	for _, want := range []string{"goal: count", "set Period.length = 1 d", "set Count.total = 1",
+		"set Count.resolved_after_escalation = 1", "set Level.mc_escalated = 1"} {
+		if !strings.Contains(m.Body, want) {
+			t.Fatalf("в отчёте нет %q:\n%s", want, m.Body)
+		}
+	}
+	if !strings.HasPrefix(m.Subject, "[ochan] goal: count — incidents 1d ") {
+		t.Fatalf("тема отчёта: %s", m.Subject)
 	}
 }
