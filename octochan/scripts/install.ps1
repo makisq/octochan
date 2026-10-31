@@ -52,7 +52,7 @@ if ($Rlm) {
     Push-Location $root
     try { go build -trimpath -o $module ./plugins/rlm } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'сборка модуля RLM не удалась' }
-    & (Join-Path $Bin 'ochan.exe') '!install' $module
+    & (Join-Path $Bin 'ochan.exe') '!!install' $module
     if ($LASTEXITCODE -ne 0) { throw 'модуль RLM не установился' }
     Write-Host 'Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml'
 }
