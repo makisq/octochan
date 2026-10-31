@@ -46,7 +46,7 @@ var readCommands = map[string]bool{
 	"plan": true, "services": true, "aliases": true, "modules": true,
 	"history": true, "requests": true, "status": true, "check": true,
 	"fp check": true, "fp protocol": true, "fp words": true, "logs rank": true,
-	"incident": true, "incident stats": true,
+	"incident": true, "incident stats": true, "mail": true,
 }
 
 // commandPath — команда ochan с подкомандой, если первая из постоянных
@@ -59,13 +59,14 @@ func commandPath(t tool) string {
 }
 
 // writeCommands — единственное, что сервер может создать: заявку в
-// состоянии «ждёт решения» — согласует и выполняет её человек — и записи
-// инцидента: его открытие, шаги, решение и эскалацию инженерам. Записи
-// инцидента ничего в системе не меняют.
+// состоянии «ждёт решения» — согласует и выполняет её человек, — записи
+// инцидента (открытие, шаги, решение, эскалацию инженерам) и письмо агенту
+// или группе людей. Ни записи, ни письма ничего в системе не меняют.
 var writeCommands = map[string]bool{
 	"request":       true,
 	"incident open": true, "incident note": true, "incident attach": true,
 	"incident resolve": true, "incident escalate": true,
+	"mail send": true,
 }
 
 // checkTable проверяет таблицу инструментов.
@@ -544,6 +545,30 @@ func buildTools(live []string) []tool {
 			Slots: []slot{incidentIDSlot(),
 				{Name: "reason", Kind: slotText, Required: true, Description: "why you cannot fix it"}},
 			Writes: true,
+		},
+		{
+			Name:  "mail_send",
+			Title: "Send a message",
+			Description: "Sends a message to another agent (it lands in that agent's mailbox) or to a group of people " +
+				"from mail.groups (it goes by email). To agents you write only formal prompts; to people, in the " +
+				"language of the mode: a formal prompt unless the operator set natural. Text outside the language is " +
+				"refused before sending. You cannot choose email addresses, only agents and groups.",
+			Command: "mail",
+			Fixed:   []string{"send"},
+			Slots: []slot{
+				{Name: "to", Kind: slotName, Flag: "to", Required: true,
+					Description: "recipient: an agent name, a group from mail.groups, or operator"},
+				{Name: "text", Kind: slotText, Required: true, Description: "the message: a formal prompt (goal:, classes:, cell …)"},
+			},
+			Writes: true,
+		},
+		{
+			Name:  "mail_inbox",
+			Title: "Mailbox",
+			Description: "Without id, lists the messages in your agent's mailbox (the agent ochan-mcp was started " +
+				"with, --agent); with id, shows a message in full: one in your mailbox or one you sent.",
+			Command: "mail",
+			Slots:   []slot{{Name: "id", Kind: slotID, Description: "message ID or its beginning"}},
 		},
 		{
 			Name:  "rank_logs",

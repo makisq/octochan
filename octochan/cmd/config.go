@@ -100,6 +100,21 @@ func initConfig() error {
 	// Адрес общего оркестратора по умолчанию: ochan remote ping без адреса.
 	viper.SetDefault("remote.address", "")
 
+	// Режим модели: protocol | embedded | natural; пусто — по fp.mode.
+	// embedded — своя локальная модель за адаптером по протоколу движка v1.
+	viper.SetDefault("llm.mode", "")
+	viper.SetDefault("llm.engine", "")
+	viper.SetDefault("llm.endpoint", "http://127.0.0.1:8080")
+	viper.SetDefault("llm.model", "")
+	viper.SetDefault("llm.rings.tau", 0.42)
+	viper.SetDefault("llm.max_tokens", 2048)
+	viper.SetDefault("llm.retries", 32)
+	viper.SetDefault("llm.timeout", "60s")
+
+	// Почта: язык писем людям — auto (по режиму), formal или natural.
+	viper.SetDefault("mail.lang", "auto")
+	viper.SetDefault("mail.operator", "")
+
 	// Инциденты HA-AI: письмо о решённом инциденте и отчёт за период.
 	viper.SetDefault("incidents.notify_resolved", true)
 	viper.SetDefault("incidents.report.every", "")

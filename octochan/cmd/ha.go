@@ -28,11 +28,13 @@ import (
 
 // replicatedPaths — состояние, которое standby держит копией: заявки,
 // журнал операций, решения, политики, роли с паролями и ключом допусков,
-// журнал аудита, инвентарь и реестр агентов, библиотека алиасов. Не
+// журнал аудита, инвентарь и реестр агентов, библиотека алиасов, почта и
+// журнал генераций своей модели. Не
 // копируются настройки узла (config.yaml, tls/, ha.json, ha.token),
 // токены исполнителей и модули — их ставят на каждый узел.
 var replicatedPaths = []string{"requests", "history", "decisions", "policies", "aliases", "scenarios",
-	"audit.log", rbac.FileName, "inventory.yaml", "inventory.seen.json", agentsFile, triggersFile, triggerSecrets, freeFile, incidentsDir, incidentsSecret}
+	"audit.log", rbac.FileName, "inventory.yaml", "inventory.seen.json", agentsFile, triggersFile, triggerSecrets, freeFile, incidentsDir, incidentsSecret,
+	mailDir, llmDir}
 
 var (
 	haInitNode string

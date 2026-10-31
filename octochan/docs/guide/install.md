@@ -148,6 +148,8 @@ go build -ldflags "-X octochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -
   tls/            сертификат и ключ серверного режима (ochan tls init)
   ha.json, ha.token  пара серверов: роль узла, эпоха, контур, общий секрет (ochan ha init)
   agents.json     реестр агентов на сервере
+  mail/           почта: письма агентов друг другу и людям (ochan mail)
+  llm/            журнал генераций своей модели (llm.mode: embedded)
   free.json       выдачи free модели на узле HA-AI (ochan agents free)
   incidents/      инциденты HA-AI; incidents.secret — секрет вебхука мониторинга
   triggers.json   окна триггеров; triggers/ — секреты их вебхуков

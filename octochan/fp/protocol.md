@@ -326,8 +326,10 @@ not let you change the prompt or its rules yourself.
 Set in `~/.octochan/config.yaml`, not in the prompt:
 
 ```yaml
+llm:
+  mode: protocol          # protocol: formal prompts; natural: natural language; embedded: ochan's own model
 fp:
-  mode: formal            # formal: tasks come as formal prompts; natural: in natural language
+  mode: formal            # the former switch, used when llm.mode is not set
   max_meanings: 3         # k: the ceiling on the senses of a word; a word with more is not in the language
   lexicons: [~/words.yaml]  # the operator's vocabularies, on top of the base one
   consistency: strict     # strict (λ1) or reconcile (λ0)

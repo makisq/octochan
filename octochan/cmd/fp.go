@@ -67,6 +67,9 @@ var fpCheckCmd = &cobra.Command{
 		}
 
 		cmd.Printf("%s: P ∈ ℒ, слова однозначны, Req(P) ⊆ K, жёсткие правила совместны\n", src.Name)
+		if mode, err := llmMode(); err == nil {
+			cmd.Printf("Режим:   %s\n", modeLine(mode))
+		}
 		cmd.Printf("Цель γ:  %s\n", result.Goal)
 		cmd.Printf("K:       %s\n", orNone(result.Knowledge))
 		cmd.Printf("Req(P):  %s\n", orNone(result.Required))
@@ -83,21 +86,26 @@ var fpCheckCmd = &cobra.Command{
 var fpProtocolCmd = &cobra.Command{
 	Use:   "protocol",
 	Short: "Показать протокол — то, что модель читает первым",
-	Long: "Протокол зависит от fp.mode в config.yaml. formal — задачи только\n" +
-		"формальным промптом, текст вне языка — отказ ⊥syn. natural — модель\n" +
-		"принимает задачи на естественном языке; согласование заявок и пределы\n" +
-		"роли остаются, а жёстких правил, по которым проверить план, нет.",
+	Long: "Протокол зависит от режима модели: llm.mode в config.yaml, а без него —\n" +
+		"fp.mode. protocol и embedded — задачи только формальным промптом, текст вне\n" +
+		"языка — отказ ⊥syn. natural — модель принимает задачи на естественном\n" +
+		"языке; согласование заявок и пределы роли остаются, а жёстких правил, по\n" +
+		"которым проверить план, нет.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		text := viper.GetString("fp.mode")
 		if cmd.Flags().Changed("mode") {
-			text = fpProtocolMode
+			mode, err := fp.ParseMode(fpProtocolMode)
+			if err != nil {
+				return err
+			}
+			cmd.Print(fp.ProtocolFor(mode))
+			return nil
 		}
-		mode, err := fp.ParseMode(text)
+		mode, err := llmMode()
 		if err != nil {
 			return err
 		}
-		cmd.Print(fp.ProtocolFor(mode))
+		cmd.Print(fp.ProtocolFor(protocolMode(mode)))
 		return nil
 	},
 }
@@ -226,6 +234,6 @@ func init() {
 	fpCheckCmd.Flags().BoolVar(&fpStandalone, "standalone", false,
 		"не сверять скиллы с библиотекой: скилл даёт то, что объявлено в provides:")
 	fpProtocolCmd.Flags().StringVar(&fpProtocolMode, "mode", "",
-		"показать протокол режима formal или natural, а не того, что в fp.mode")
+		"показать протокол режима formal или natural, а не того, что в настройках")
 	fpCmd.AddCommand(fpCheckCmd, fpProtocolCmd)
 }

@@ -353,6 +353,7 @@ func (c *checker) checkGoal() {
 	}
 	if _, ok := c.meanings[g.Word]; !ok {
 		c.report(g.Pos, ErrSyn, "слово цели %q не объявлено в classes: — цель γ — его класс", g.Word)
+		c.diags[len(c.diags)-1].Incomplete = true
 		return
 	}
 	if class, ok := c.resolve(g.Word, nil, g.Pos, "goal"); ok {
