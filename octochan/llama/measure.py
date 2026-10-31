@@ -9,6 +9,11 @@
   v1: кольцо 0, маска языка, откаты. Из сводки колец берутся откаты,
   утверждения вне ℒ, отклонённые кольцом 0, позиции без токена.
 
+Разбор ochan проверяет язык, но не то, сходится ли ответ с задачей. Это
+отдельная метрика (consistent), у raw и у embedded: решения модели — set в
+ячейках, которых нет в задаче; они есть, не переписывают значения задачи, и
+в report: каждому решению — запись q с тем же choice, без лишних записей.
+
 ochan запускается в отдельном доме (--home): журнал и роли пользователя
 замер не трогает. Адаптер должен быть запущен (adapter.py serve).
 
@@ -32,6 +37,38 @@ SUMMARY = {
     "language": r"утверждений вне ℒ (\d+), токенов вне языка (\d+)",
     "rollbacks": r"Откатов:\s+(\d+) к началу утверждения; позиций без токена выше порога: (\d+)",
 }
+SET = re.compile(r"set\s+(\w+)\.(\w+)\s*=\s*(.+)$")
+
+
+def sections(text):
+    """Разделы верхнего уровня: [(заголовок, строки под ним)]."""
+    out = []
+    for line in text.splitlines():
+        if line and not line[0].isspace():
+            out.append((line.strip(), []))
+        elif out and line.strip():
+            out[-1][1].append(line.strip())
+    return out
+
+
+def consistent(task, answer):
+    """Ответ сходится с задачей: решения новые и каждое — в report: с тем же значением."""
+    given_cells = {head for head, _ in sections(task)}
+    given = {m.group(1, 2) for _, body in sections(task) for m in map(SET.match, body) if m}
+    made, told = [], []
+    for head, body in sections(answer):
+        if head.startswith("cell ") and head not in given_cells:
+            made += [m.groups() for m in map(SET.match, body) if m]
+        elif head == "report:":
+            q = None
+            for line in body:
+                key, _, val = line.partition(":")
+                if key == "q":
+                    q = val.strip()
+                elif key == "choice" and q is not None:
+                    told.append((q, val.strip()))
+    return (bool(made) and not any((c, a) in given for c, a, _ in made)
+            and sorted((a, v.strip()) for _, a, v in made) == sorted(told))
 
 
 def ochan(args, env, stdin=None):
@@ -63,7 +100,7 @@ def main():
     ap.add_argument("--endpoint", default="http://127.0.0.1:8090")
     ap.add_argument("--home", required=True, help="дом ochan для замера: свой config.yaml и журнал")
     ap.add_argument("--tau", type=float, default=0.42)
-    ap.add_argument("--max-new-tokens", type=int, default=384)
+    ap.add_argument("--max-new-tokens", type=int, default=1024)
     ap.add_argument("--out", required=True)
     ap.add_argument("tasks", nargs="+")
     args = ap.parse_args()
@@ -85,7 +122,8 @@ def main():
     with open(args.out, "w", encoding="utf-8") as out:
         for task in tasks:
             with open(task, encoding="utf-8") as f:
-                prompt = protocol.stdout + TASK_MARKER + f.read()
+                text = f.read()
+            prompt = protocol.stdout + TASK_MARKER + text
 
             started = time.time()
             raw = engine.raw(prompt, args.max_new_tokens)
@@ -97,9 +135,11 @@ def main():
             row = {
                 "task": os.path.basename(task),
                 "raw_in_language": check.returncode == 0,
+                "raw_consistent": consistent(text, raw),
                 "raw_seconds": round(raw_seconds, 2),
-                "raw_head": raw[:160],
+                "raw": raw,
                 "embedded_ok": gen.returncode == 0,
+                "embedded_consistent": gen.returncode == 0 and consistent(text, gen.stdout),
                 "embedded_seconds": round(time.time() - started, 2),
                 "embedded_reason": "" if gen.returncode == 0 else gen.stderr.strip().splitlines()[-1],
                 "answer": gen.stdout,
@@ -107,14 +147,18 @@ def main():
             }
             rows.append(row)
             out.write(json.dumps(row, ensure_ascii=False) + "\n")
-            print(f"{row['task']}: raw в ℒ — {'да' if row['raw_in_language'] else 'нет'}; embedded — "
-                  f"{'ответ' if row['embedded_ok'] else 'нет ответа'}, утверждений {row['statements']}, "
+            print(f"{row['task']}: raw в ℒ — {'да' if row['raw_in_language'] else 'нет'}, "
+                  f"сходится — {'да' if row['raw_consistent'] else 'нет'}; embedded — "
+                  f"{'ответ' if row['embedded_ok'] else 'нет ответа'}, "
+                  f"сходится — {'да' if row['embedded_consistent'] else 'нет'}, утверждений {row['statements']}, "
                   f"откатов {row['rollbacks']}, вне ℒ {row['out_of_language']}, кольцо 0 {row['ring0']}, "
                   f"без токена {row['dead']}, {row['embedded_seconds']} с", flush=True)
 
     n = len(rows)
     print(f"\nЗадач {n}: raw в ℒ {sum(r['raw_in_language'] for r in rows)}/{n}, "
-          f"embedded с ответом {sum(r['embedded_ok'] for r in rows)}/{n}")
+          f"raw сходится {sum(r['raw_consistent'] for r in rows)}/{n}, "
+          f"embedded с ответом {sum(r['embedded_ok'] for r in rows)}/{n}, "
+          f"embedded сходится {sum(r['embedded_consistent'] for r in rows)}/{n}")
 
 
 if __name__ == "__main__":

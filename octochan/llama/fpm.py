@@ -42,12 +42,13 @@ def load(path, device="cuda", dtype=torch.bfloat16):
         meta = json.load(f)
     tok = AutoTokenizer.from_pretrained(meta["base"])
     model = AutoModelForCausalLM.from_pretrained(meta["base"], dtype=dtype)
+    # Выходной слой — свой, обученный вместе с LoRA; LoRA — на внимании и
+    # MLP, поверх уже обрезанного выхода.
+    set_head(model, load_file(os.path.join(path, LM_HEAD))["weight"].to(dtype))
     if meta.get("lora"):
         from peft import PeftModel
 
         model = PeftModel.from_pretrained(model, os.path.join(path, meta["lora"])).merge_and_unload()
-    head = load_file(os.path.join(path, LM_HEAD))["weight"].to(dtype)
-    set_head(model, head)
     model = model.to(device).eval()
     return model, tok, torch.tensor(meta["alphabet"], device=device)
 

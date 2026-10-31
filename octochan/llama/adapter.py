@@ -40,6 +40,36 @@ TASK_MARKER = "\n\n# Task\n\n"
 DATE_STRING = "26 Jul 2024"
 
 
+def prompt_ids(tok, prompt, chat=True):
+    """Токены prompt ochan: у instruct-модели протокол — system, задача —
+    user, затем начало реплики ассистента. Тот же вход видит обучение."""
+    if not chat or tok.chat_template is None:
+        return tok(prompt).input_ids
+    system, sep, task = prompt.partition(TASK_MARKER)
+    messages = [{"role": "system", "content": system}]
+    if sep:
+        messages.append({"role": "user", "content": task})
+    text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, date_string=DATE_STRING)
+    return tok(text, add_special_tokens=False).input_ids
+
+
+def end_ids(model, tok):
+    """Токены конца ответа: EOS модели и конец реплики."""
+    eos = model.generation_config.eos_token_id
+    eos = eos if isinstance(eos, list) else [eos]
+    return sorted({i for i in eos + [tok.eos_token_id] if i is not None})
+
+
+def turn_end(model, tok):
+    """Токен, которым шаблон чата кончает реплику ассистента: <|eot_id|> у
+    Llama 3, <|im_end|> у SmolLM2. Им кончается ответ при обучении."""
+    for name in ("<|eot_id|>", "<|im_end|>", "<|end|>"):
+        token = tok.convert_tokens_to_ids(name)
+        if isinstance(token, int) and token != tok.unk_token_id and token in end_ids(model, tok):
+            return token
+    return end_ids(model, tok)[0]
+
+
 class Engine:
     def __init__(self, model, device="cuda", dtype="bfloat16", chat=True):
         self.name = model
@@ -50,9 +80,7 @@ class Engine:
         self.to_id = alphabet.tolist() if alphabet is not None else None
         self.chat = chat and self.tok.chat_template is not None
 
-        eos = self.model.generation_config.eos_token_id
-        eos = eos if isinstance(eos, list) else [eos]
-        self.end_ids = sorted({i for i in eos + [self.tok.eos_token_id] if i is not None})
+        self.end_ids = end_ids(self.model, self.tok)
         special = set(self.tok.all_special_ids) | set(self.end_ids)
         vocab = self.model.get_output_embeddings().weight.shape[0]
         outputs = {t: k for k, t in enumerate(self.to_id)} if self.to_id else {i: i for i in range(vocab)}
@@ -69,20 +97,9 @@ class Engine:
         return self._pieces[token_id]
 
     def prompt_ids(self, prompt):
-        if self._prompt[0] == prompt:
-            return self._prompt[1]
-        if self.chat:
-            system, sep, task = prompt.partition(TASK_MARKER)
-            messages = [{"role": "system", "content": system}]
-            if sep:
-                messages.append({"role": "user", "content": task})
-            text = self.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True,
-                                                date_string=DATE_STRING)
-            ids = self.tok(text, add_special_tokens=False).input_ids
-        else:
-            ids = self.tok(prompt).input_ids
-        self._prompt = (prompt, ids)
-        return ids
+        if self._prompt[0] != prompt:
+            self._prompt = (prompt, prompt_ids(self.tok, prompt, self.chat))
+        return self._prompt[1]
 
     def ids(self, prompt, output):
         ids = list(self.prompt_ids(prompt))

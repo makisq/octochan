@@ -13,6 +13,7 @@
 
 import argparse
 import glob
+import json
 import re
 import string
 
@@ -62,7 +63,12 @@ def main():
     for pattern in args.corpus:
         for path in sorted(glob.glob(pattern)):
             with open(path, encoding="utf-8") as f:
-                texts.add(COMMENT.sub("", f.read()))
+                if path.endswith(".jsonl"):
+                    # Корпус corpus.py: задачи и ответы.
+                    for row in map(json.loads, f):
+                        texts.update({row["task"], row["answer"]})
+                else:
+                    texts.add(COMMENT.sub("", f.read()))
 
     ids = set()
     for text in texts:

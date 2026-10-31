@@ -10,6 +10,9 @@
 | `adapter.py` | сервер протокола движка v1: распределение следующего токена до выборки, кеш KV по общему префиксу; `raw` — сырой вывод без колец |
 | `fpm.py` | модель в ФПм-виде: базовая модель и выходной слой, обрезанный до алфавита (`fpm.json`, `lm_head.safetensors`) |
 | `prune.py` | шаг 2: обрезка выходного словаря до алфавита ℒ (`ochan fp alphabet`) |
+| `corpus.py` | шаг 3: синтетический корпус пар «задача → ответ» на ℒ; каждую пару проверяет разбор ochan |
+| `fpcheck/` | пакетная проверка текстов разбором ochan (JSONL на входе и выходе) для `corpus.py` |
+| `train.py` | шаг 3: LoRA и выходной слой на корпусе ℒ; сохранения и продолжение после сброса видеокарты |
 | `measure.py` | замер: сырой вывод против встроенного режима ochan по набору задач |
 | `tasks/` | задачи эксплуатации на ℒ; каждая проходит `ochan fp check` |
 
@@ -55,6 +58,24 @@ python measure.py --model G:/fpm-llm/models/smollm2-135m-fpm --ochan ochan --end
 
 `measure.py` запускает ochan в отдельном доме: журнал и роли пользователя
 замер не трогает.
+
+Обучение (шаг 3):
+
+```
+go build -o fpcheck.exe ./llama/fpcheck
+ochan fp protocol --mode formal > protocol.txt
+python corpus.py --lexicon ../fp/lexicon.yaml --fpcheck fpcheck.exe --count 4000 --out corpus.jsonl
+python prune.py --model HuggingFaceTB/SmolLM2-135M-Instruct --alphabet alphabet.tsv --corpus "tasks/*.fp" corpus.jsonl --out G:/fpm-llm/models/smollm2-135m-fpm
+python train.py --model G:/fpm-llm/models/smollm2-135m-fpm --protocol protocol.txt --corpus corpus.jsonl --out G:/fpm-llm/models/smollm2-135m-fpm-lora --checkpointing --resume
+python adapter.py serve --model G:/fpm-llm/models/smollm2-135m-fpm-lora --listen 127.0.0.1:8092
+```
+
+Пара корпуса длиной ~4 500 токенов, почти всё — протокол. Без
+`--checkpointing` активации SmolLM2 занимают 18 ГБ и выходят за 12 ГБ
+видеокарты; с ним — 4,3 ГБ. Под Windows драйвер иногда сбрасывает
+видеокарту (событие `nvlddmkm` 153, TDR), процесс теряет CUDA: с
+`--resume` повторный запуск продолжает с последнего сохранения
+(`--save-every`, по умолчанию 50 шагов).
 
 ## Замеры
 
