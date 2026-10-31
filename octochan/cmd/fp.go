@@ -16,6 +16,7 @@ import (
 var (
 	fpName         string
 	fpStandalone   bool
+	fpModelText    bool
 	fpProtocolMode string
 )
 
@@ -56,6 +57,18 @@ var fpCheckCmd = &cobra.Command{
 		opts, err := fpOptions(cmd, fpStandalone)
 		if err != nil {
 			return err
+		}
+		if fpModelText {
+			// Так же, как декодер встроенного режима принимает готовый ответ.
+			bad := fp.CheckModelText(src.Name, src.Content, opts).Syntax()
+			for _, d := range bad {
+				cmd.Printf("%s:%s\n", src.Name, d)
+			}
+			if len(bad) > 0 {
+				return fmt.Errorf("%s: текст модели не в языке (%s)", src.Name, countCodes(bad))
+			}
+			cmd.Printf("%s: текст модели ∈ ℒ\n", src.Name)
+			return nil
 		}
 		result := fp.CheckText(src.Name, src.Content, opts)
 
@@ -106,6 +119,64 @@ var fpProtocolCmd = &cobra.Command{
 			return err
 		}
 		cmd.Print(fp.ProtocolFor(protocolMode(mode)))
+		return nil
+	},
+}
+
+var fpAlphabetCmd = &cobra.Command{
+	Use:   "alphabet",
+	Short: "Алфавит языка: из чего складывается текст своей модели",
+	Long: "Слова и знаки, из которых складывается текст формального промпта:\n" +
+		"ключевые слова и типы отношений, слова словаря (базового, словарей\n" +
+		"оператора и скиллов), их смыслы-классы, служебные слова, единицы,\n" +
+		"операции скиллов и знаки грамматики. По алфавиту обрезают выходной словарь\n" +
+		"своей модели (llm.mode: embedded): токена вне алфавита у неё нет.\n\n" +
+		"По строке на запись: вид и текст через табуляцию. Имена объектов в языке\n" +
+		"открыты, поэтому модели нужны ещё отдельные буквы и цифры — их добавляет\n" +
+		"тот, кто обрезает словарь.",
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		opts, err := fpOptions(cmd, false)
+		if err != nil {
+			return err
+		}
+		entries := map[string]map[string]bool{}
+		add := func(kind string, items ...string) {
+			if entries[kind] == nil {
+				entries[kind] = map[string]bool{}
+			}
+			for _, item := range items {
+				entries[kind][item] = true
+			}
+		}
+		words := func(lex *fp.Lexicon) {
+			for _, word := range lex.Words() {
+				add("word", word)
+				if entry, ok := lex.Lookup(word); ok {
+					add("sense", entry.Senses...)
+				}
+			}
+			add("function", lex.FunctionWords()...)
+			add("unit", lex.Units()...)
+		}
+		add("keyword", fp.Keywords...)
+		add("mark", fp.Punctuation()...)
+		words(opts.Lexicon)
+		if opts.Skills != nil {
+			for _, name := range opts.Skills() {
+				skill, _ := opts.Library(name)
+				add("skill", name)
+				add("op", skill.Ops...)
+				if skill.Lexicon != nil {
+					words(skill.Lexicon)
+				}
+			}
+		}
+		for _, kind := range sortedPaths(entries) {
+			for _, item := range sortedPaths(entries[kind]) {
+				cmd.Printf("%s\t%s\n", kind, item)
+			}
+		}
 		return nil
 	},
 }
@@ -233,7 +304,9 @@ func init() {
 	fpCheckCmd.Flags().StringVar(&fpName, "name", "", "имя промпта, поданного на stdin")
 	fpCheckCmd.Flags().BoolVar(&fpStandalone, "standalone", false,
 		"не сверять скиллы с библиотекой: скилл даёт то, что объявлено в provides:")
+	fpCheckCmd.Flags().BoolVar(&fpModelText, "model", false,
+		"текст модели: только язык, строже — без комментариев и символов вне ASCII, как ответ встроенной модели")
 	fpProtocolCmd.Flags().StringVar(&fpProtocolMode, "mode", "",
 		"показать протокол режима formal или natural, а не того, что в настройках")
-	fpCmd.AddCommand(fpCheckCmd, fpProtocolCmd)
+	fpCmd.AddCommand(fpCheckCmd, fpProtocolCmd, fpAlphabetCmd)
 }
