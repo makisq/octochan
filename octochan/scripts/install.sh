@@ -68,7 +68,7 @@ if [ -n "$WITH_RLM" ]; then
 	# файл модуля потом не загрузится.
 	echo "Сборка модуля RLM…"
 	(cd "$ROOT" && go build -trimpath -o "$OUT/rlm.hcplugin" ./plugins/rlm)
-	"$BIN/ochan" '!install' "$OUT/rlm.hcplugin"
+	"$BIN/ochan" '!!install' "$OUT/rlm.hcplugin"
 	echo "Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml"
 fi
 
