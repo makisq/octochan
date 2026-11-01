@@ -1,0 +1,30 @@
+id: pg_memory
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  buffers: 8 GB
+  maximum: '400'
+weights:
+  buffers: 3
+  maximum: 3
+natural:
+- 'Настрой PostgreSQL: под буферы 8 ГБ, максимум соединений 400. Бюджет памяти важнее лимита соединений.'
+- 'Подкрути память Postgres: shared buffers 8 GB, лимит соединений 400; если память и лимит спорят — побеждает
+  память.'
+formal:
+- "goal: tuned\n\nclasses:\n  State  : \"tuned\"\n  Config : \"config\"\n  Memory : \"memory\"\n  Limit\
+  \  : \"limit\"\n\nrelations:\n  Memory --limits--> Limit (memory_budget)\n  Limit  --modifies--> Config\
+  \ (connection_limit)\n  Config --strives_to--> State\n\npriority:\n  Memory < Limit\n\ncell c1:\n  set\
+  \ Memory.buffers = 8 GB\n  set Limit.maximum = 400"
+- "goal: tuned\n\nclasses:\n  State  : \"tuned\"\n  Config : \"configuration\"\n  Memory : \"ram\"\n \
+  \ Limit  : \"limit\"\n\nrelations:\n  Config --strives_to--> State\n  Memory --limits--> Limit (memory_budget)\n\
+  \  Limit  --modifies--> Config (connection_limit)\n\npriority:\n  Memory < Limit\n\ncell c1:\n  set\
+  \ Memory.buffers = 8 GB\n  set Limit.maximum = 400\n"
+- "goal: tuned\n\nclasses:\n  State  : \"tuned\"\n  Config : \"configuration\"\n  Memory : \"memory\"\n\
+  \  Limit  : \"quota\"\n\nrelations:\n  Limit  --modifies--> Config (connection_limit)\n  Config --strives_to-->\
+  \ State\n  Memory --limits--> Limit (memory_budget)\n\npriority:\n  Memory < Limit\n\ncell c1:\n  set\
+  \ Memory.buffers = 8 GB\n  set Limit.maximum = 400\n"
+lacking:
+- "goal: tuned\n\nclasses:\n  State  : \"tuned\"\n  Config : \"config\"\n  Memory : \"memory\"\n  Limit\
+  \  : \"limit\"\n\nrelations:\n  Memory --limits--> Limit (memory_budget)\n  Limit  --modifies--> Config\
+  \ (connection_limit)\n  Config --strives_to--> State\n\npriority:\n  Memory < Limit\n\ncell c1:\n  set\
+  \ Memory.buffers = 8 GB\n  set Limit.maximum = 400\n\nrequires: incident_history\n"

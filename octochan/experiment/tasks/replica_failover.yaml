@@ -1,0 +1,28 @@
+id: replica_failover
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  count: '2'
+weights:
+  count: 3
+natural:
+- 'Сделай так, чтобы база оставалась доступной: при отказе лидера реплика становится лидером, блокировка
+  ограничивает реплики. Реплик две, таймаут лидера 30 секунд.'
+- 'Переключение на реплику: двух реплик, таймаут лидера 30 s; смену лидера ограничивает лок.'
+formal:
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Replica : \"replica\"\n  Leader  : \"primary\"\
+  \n  Lock    : \"lock\"\n\nrelations:\n  Replica --modifies--> Leader (leader_change)\n  Lock    --limits-->\
+  \   Replica (leader_lock)\n  Leader  --strives_to--> State\n\ncell c1:\n  set Replica.count = 2\n  set\
+  \ Leader.timeout = 30 s"
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Replica : \"replica\"\n  Leader  : \"primary\"\
+  \n  Lock    : \"lock\"\n\nrelations:\n  Replica --modifies--> Leader (leader_change)\n  Lock    --limits-->\
+  \   Replica (leader_lock)\n  Leader  --strives_to--> State\n\ncell c1:\n  set Leader.timeout = 30 s\n\
+  \  set Replica.count = 2\n"
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Replica : \"replica\"\n  Leader  : \"primary\"\
+  \n  Lock    : \"lock\"\n\nrelations:\n  Lock    --limits-->   Replica (leader_lock)\n  Replica --modifies-->\
+  \ Leader (leader_change)\n  Leader  --strives_to--> State\n\ncell c1:\n  set Leader.timeout = 30 s\n\
+  \  set Replica.count = 2\n"
+lacking:
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Replica : \"replica\"\n  Leader  : \"primary\"\
+  \n  Lock    : \"lock\"\n\nrelations:\n  Replica --modifies--> Leader (leader_change)\n  Lock    --limits-->\
+  \   Replica (leader_lock)\n  Leader  --strives_to--> State\n\ncell c1:\n  set Replica.count = 2\n  set\
+  \ Leader.timeout = 30 s\n\nrequires: incident_history\n"

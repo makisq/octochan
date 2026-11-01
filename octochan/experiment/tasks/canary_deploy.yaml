@@ -1,0 +1,27 @@
+id: canary_deploy
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended: {}
+weights: {}
+natural:
+- 'Выкати новую версию канареечно: сначала 5 % трафика, деплой — ночью. Если что-то пойдёт не так, откат
+  прерывает деплой.'
+- 'Релиз через canary: канареечная фаза идёт перед основным деплоем, её размер 5 %, окно деплоя — ночь.
+  Откат при сбое останавливает выкатку.'
+formal:
+- "goal: release\n\nclasses:\n  Version    : \"release\"\n  Deployment : \"deploy\"\n  Strategy   : \"\
+  canary\"\n  Rollback   : \"rollback\"\n\nrelations:\n  Strategy   --precedes--> Deployment (canary_phase)\n\
+  \  Rollback   --terminates--> Deployment (failure_rollback)\n  Deployment --strives_to--> Version\n\n\
+  cell c1:\n  set Strategy.size = 5 %\n  set Deployment.window = night"
+- "goal: release\n\nclasses:\n  Version    : \"release\"\n  Deployment : \"apply\"\n  Strategy   : \"\
+  rolling\"\n  Rollback   : \"revert\"\n\nrelations:\n  Rollback   --terminates--> Deployment (failure_rollback)\n\
+  \  Deployment --strives_to--> Version\n  Strategy   --precedes--> Deployment (canary_phase)\n\ncell\
+  \ c1:\n  set Strategy.size = 5 %\n  set Deployment.window = night\n"
+- "goal: release\n\nclasses:\n  Version    : \"release\"\n  Deployment : \"apply\"\n  Strategy   : \"\
+  parallel\"\n  Rollback   : \"rollback\"\n\nrelations:\n  Strategy   --precedes--> Deployment (canary_phase)\n\
+  \  Deployment --strives_to--> Version\n  Rollback   --terminates--> Deployment (failure_rollback)\n\n\
+  cell c1:\n  set Deployment.window = night\n  set Strategy.size = 5 %\n"
+lacking:
+- "goal: release\n\nclasses:\n  Version    : \"release\"\n  Deployment : \"deploy\"\n  Strategy   : \"\
+  canary\"\n  Rollback   : \"rollback\"\n\nrelations:\n  Strategy   --precedes--> Deployment (canary_phase)\n\
+  \  Rollback   --terminates--> Deployment (failure_rollback)\n  Deployment --strives_to--> Version\n\n\
+  cell c1:\n  set Strategy.size = 5 %\n  set Deployment.window = night\n\nrequires: incident_history\n"

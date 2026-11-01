@@ -1,0 +1,288 @@
+{"item": 117, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 175, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 137, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 57, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 138, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 93, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 2, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 128, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 265, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 153, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 286, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 238, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 204, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 4, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 36, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 96, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 185, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 168, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 11, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 210, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 122, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 176, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 27, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 115, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 232, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 28, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 183, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 196, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 164, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 263, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 254, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 280, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 189, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 75, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 160, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 70, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 22, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 54, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 49, "task": "pg_memory", "plan": {"buffers": "8 GB", "maximum": "400"}, "refused": false}
+{"item": 84, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 111, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 169, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 41, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 167, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 103, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 237, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 34, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 161, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 213, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 184, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 262, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 230, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 129, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 159, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 64, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 74, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 53, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 253, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 120, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 66, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 139, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 201, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 190, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 209, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 221, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 39, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 207, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 255, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 135, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 220, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 227, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 162, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 256, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 82, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 275, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 32, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 85, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 246, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 245, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 9, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 216, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 133, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 132, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 12, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 247, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 197, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 271, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 0, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 108, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 112, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 269, "task": "pg_memory", "plan": {"buffers": "8 GB", "maximum": "400"}, "refused": false}
+{"item": 166, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 14, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 154, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 56, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 250, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 8, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 244, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 7, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 104, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 81, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 61, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 13, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 105, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 51, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 240, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 50, "task": "pg_memory", "plan": {"buffers": "8 GB", "maximum": "400"}, "refused": false}
+{"item": 145, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 151, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 192, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 99, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 58, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 6, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 94, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 86, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 83, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 191, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 65, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 233, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 180, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 179, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 242, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 40, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 130, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 78, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 47, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 260, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 200, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 283, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 1, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 172, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 67, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 223, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 124, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 3, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 234, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 141, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 194, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 45, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 21, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 285, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 59, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 97, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 91, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 106, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 229, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 150, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 110, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 272, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 71, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 243, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 102, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 173, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 205, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 219, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 188, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 100, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 101, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 225, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 33, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 211, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 55, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 181, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 215, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 279, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 156, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 43, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 90, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 118, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 5, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 88, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 98, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 72, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 212, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 235, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 218, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 287, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 79, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 239, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 241, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 170, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 282, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 121, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 69, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 261, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 17, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 228, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 249, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 236, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 152, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 89, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 177, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 224, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 231, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 248, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 142, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 195, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 276, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 171, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 10, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 206, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 125, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 38, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 258, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 193, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 42, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 107, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 131, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 268, "task": "pg_memory", "plan": {"buffers": "8 GB", "maximum": "400"}, "refused": false}
+{"item": 18, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 155, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 257, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 266, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 186, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 87, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 126, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 134, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 226, "task": "backup_schedule", "plan": {}, "refused": true}
+{"item": 147, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 20, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 62, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 199, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 178, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 251, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 264, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 267, "task": "pg_memory", "plan": {"buffers": "8 GB", "maximum": "400"}, "refused": false}
+{"item": 76, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 92, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 116, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 149, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 119, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 80, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 198, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 277, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 136, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 252, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 127, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 52, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 158, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 15, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 144, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 16, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 182, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 140, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 284, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 95, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 281, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 163, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 146, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 278, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 26, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 270, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 174, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 208, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 143, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 157, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 60, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 73, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 273, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 148, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 68, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 23, "task": "canary_deploy", "plan": {}, "refused": true}
+{"item": 113, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 25, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 203, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 31, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 114, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 63, "task": "replica_failover", "plan": {"count": "2"}, "refused": false}
+{"item": 30, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 217, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 46, "task": "nginx_reload", "plan": {}, "refused": true}
+{"item": 123, "task": "pg_memory", "plan": {"maximum": "400", "buffers": "8 GB"}, "refused": false}
+{"item": 35, "task": "disk_cleanup", "plan": {}, "refused": true}
+{"item": 214, "task": "replica_failover", "plan": {}, "refused": true}
+{"item": 222, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 44, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 19, "task": "canary_deploy", "plan": {}, "refused": false}
+{"item": 109, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 259, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 29, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 187, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 48, "task": "pg_memory", "plan": {"buffers": "8 GB", "maximum": "400"}, "refused": false}
+{"item": 274, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 37, "task": "nginx_reload", "plan": {"version": "42"}, "refused": false}
+{"item": 24, "task": "disk_cleanup", "plan": {}, "refused": false}
+{"item": 202, "task": "pg_memory", "plan": {}, "refused": true}
+{"item": 77, "task": "backup_schedule", "plan": {"period": "daily"}, "refused": false}
+{"item": 165, "task": "canary_deploy", "plan": {}, "refused": true}
