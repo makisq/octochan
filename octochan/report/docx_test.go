@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // openDOCX распаковывает документ и возвращает его части.

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"octochan/workspace"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

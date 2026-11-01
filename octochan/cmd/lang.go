@@ -8,8 +8,8 @@ import (
 	"strings"
 	"unicode"
 
-	"octochan/i18n"
-	"octochan/pluginhost"
+	"ochan/i18n"
+	"ochan/pluginhost"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

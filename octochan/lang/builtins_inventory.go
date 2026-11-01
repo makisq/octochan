@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"octochan/inventory"
+	"ochan/inventory"
 )
 
 // errNoInventory — у сценария нет инвентаря.

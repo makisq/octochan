@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"octochan/rlm"
-	"octochan/scenario"
+	"ochan/rlm"
+	"ochan/scenario"
 )
 
 // intelService — служебный сценарий разведки, который собирает сведения

@@ -29,9 +29,9 @@ import (
 	"errors"
 	"fmt"
 
-	"octochan/config"
-	"octochan/pluginhost"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/pluginhost"
+	"ochan/scenario"
 )
 
 type scenarioRequest struct {

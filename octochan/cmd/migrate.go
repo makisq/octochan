@@ -1,6 +1,6 @@
 package cmd
 
-import "octochan/scenario"
+import "ochan/scenario"
 
 // До 0.2.0 эти сервисы выполнял встроенный исполнитель RLM. Теперь RLM —
 // модуль (plugins/rlm), и отказ «сервис не зарегистрирован» называет, что

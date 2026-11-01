@@ -19,8 +19,8 @@ import (
 	"strings"
 	"unicode"
 
-	"octochan/fp"
-	"octochan/lang"
+	"ochan/fp"
+	"ochan/lang"
 )
 
 // Builtins — встроенные действия, которые видно в плане напрямую. exec —

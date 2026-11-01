@@ -21,8 +21,8 @@ import (
 	"sort"
 	"strings"
 
-	"octochan/arbiter"
-	"octochan/fp"
+	"ochan/arbiter"
+	"ochan/fp"
 )
 
 type input struct {

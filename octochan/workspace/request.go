@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // RequestState — состояние заявки.

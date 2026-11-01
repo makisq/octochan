@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"octochan/config"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/scenario"
 )
 
 // APIRequest — подготовленный модулем запрос к RLM API.

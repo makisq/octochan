@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/fp"
-	"octochan/lang"
+	"ochan/fp"
+	"ochan/lang"
 )
 
 // plan выполняет сценарий в режиме плана и проверяет по нему правила

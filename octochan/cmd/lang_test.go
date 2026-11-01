@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/i18n"
-	"octochan/logs"
-	"octochan/workspace"
+	"ochan/i18n"
+	"ochan/logs"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

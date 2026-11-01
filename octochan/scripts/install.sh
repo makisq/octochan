@@ -53,7 +53,7 @@ mkdir -p "$OUT"
 LDFLAGS=""
 MCP_LDFLAGS=""
 if [ -n "${VERSION:-}" ]; then
-	LDFLAGS="-X octochan/cmd.Version=$VERSION"
+	LDFLAGS="-X ochan/cmd.Version=$VERSION"
 	MCP_LDFLAGS="-X main.serverVersion=$VERSION"
 fi
 echo "Сборка ochan…"

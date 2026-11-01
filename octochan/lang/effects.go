@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // EffectKind — вид действия сценария, видимого за пределами интерпретатора.

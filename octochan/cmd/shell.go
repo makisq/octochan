@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"octochan/i18n"
-	"octochan/pluginhost"
-	"octochan/workspace"
+	"ochan/i18n"
+	"ochan/pluginhost"
+	"ochan/workspace"
 
 	"github.com/c-bata/go-prompt"
 	"github.com/spf13/cobra"

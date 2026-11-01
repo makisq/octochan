@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/workspace"
+	"ochan/workspace"
 
 	"github.com/spf13/viper"
 )

@@ -7,9 +7,9 @@ import (
 	"log"
 	"time"
 
-	"octochan/config"
-	"octochan/rlm"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/rlm"
+	"ochan/scenario"
 )
 
 const pangolinTableID = "pangolinunique"

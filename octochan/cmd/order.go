@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"octochan/scenario"
-	"octochan/workspace"
+	"ochan/scenario"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

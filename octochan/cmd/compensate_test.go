@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"octochan/config"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/scenario"
 )
 
 // extExecutor — исполнитель внешней системы: задача на цель с параметром

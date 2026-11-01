@@ -3,7 +3,7 @@ package cmd
 import (
 	"strings"
 
-	"octochan/rbac"
+	"ochan/rbac"
 
 	"github.com/spf13/cobra"
 )

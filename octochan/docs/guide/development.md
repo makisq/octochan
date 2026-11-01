@@ -79,7 +79,7 @@ make dist SYSTEM_ROLES=/opt/octochan/roles.yaml  # свой путь систе�
 
 Платформы — linux/amd64, linux/arm64, darwin/amd64, darwin/arm64,
 windows/amd64. Версия и путь системной политики зашиваются флагами
-компоновщика (`-X octochan/cmd.Version`, `-X octochan/rbac.SystemPolicyPath`);
+компоновщика (`-X ochan/cmd.Version`, `-X ochan/rbac.SystemPolicyPath`);
 собирая руками через `go build`, их передают так же — иначе путь политики
 будет по умолчанию, `/etc/octochan/roles.yaml`
 ([«Установка»](install.md#go-build--без-make)).

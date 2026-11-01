@@ -10,14 +10,14 @@ import (
 	"strings"
 	"syscall"
 
-	"octochan/i18n"
-	"octochan/pluginhost"
+	"ochan/i18n"
+	"ochan/pluginhost"
 
 	"github.com/spf13/cobra"
 )
 
 // Version — версия ochan. При сборке релиза задаётся через
-// -ldflags "-X octochan/cmd.Version=…"; ochan --version печатает её.
+// -ldflags "-X ochan/cmd.Version=…"; ochan --version печатает её.
 var Version = "0.3.0-alpha"
 
 var (

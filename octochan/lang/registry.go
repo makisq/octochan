@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // AliasExtension — расширение файлов с алиасами.
@@ -339,6 +339,17 @@ func versionMatches(have, want string) bool {
 func (r *Registry) Package(module string) (*Package, bool) {
 	pkg, ok := r.packages[r.resolve(module)]
 	return pkg, ok
+}
+
+// Packages — пакеты с манифестом, по имени: и те, у которых алиасов нет
+// (пакет знаний своей модели).
+func (r *Registry) Packages() []string {
+	names := make([]string, 0, len(r.packages))
+	for name := range r.packages {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Clone возвращает копию реестра. Объявления общие — их никто не

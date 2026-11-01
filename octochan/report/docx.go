@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // Document — заявка на изменение.

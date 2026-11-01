@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/fp"
-	"octochan/lang"
+	"ochan/fp"
+	"ochan/lang"
 )
 
 const slotsPrompt = `goal: tuned

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/fp"
+	"ochan/fp"
 )
 
 // Скиллы промпта — пакеты алиасов: import сверяется с библиотекой,

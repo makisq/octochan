@@ -16,7 +16,7 @@ PREFIX       ?= $(HOME)/.local
 OUT          ?= bin
 SYSTEM_ROLES ?= /etc/octochan/roles.yaml
 
-LDFLAGS     := -X octochan/cmd.Version=$(VERSION) -X octochan/rbac.SystemPolicyPath=$(SYSTEM_ROLES)
+LDFLAGS     := -X ochan/cmd.Version=$(VERSION) -X ochan/rbac.SystemPolicyPath=$(SYSTEM_ROLES)
 MCP_LDFLAGS := -X main.serverVersion=$(VERSION)
 PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 

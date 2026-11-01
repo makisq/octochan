@@ -9,7 +9,7 @@ package main
 import (
 	"fmt"
 
-	"octochan/pluginhost"
+	"ochan/pluginhost"
 
 	"github.com/spf13/cobra"
 )

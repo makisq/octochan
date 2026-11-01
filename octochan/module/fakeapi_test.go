@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"octochan/rlm"
+	"ochan/rlm"
 )
 
 // fakeAPI — подставной RLM для тестов модулей.

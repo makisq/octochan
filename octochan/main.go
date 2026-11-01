@@ -11,11 +11,11 @@ package main
 import (
 	"os"
 
-	"octochan/cmd"
-	"octochan/sandbox"
+	"ochan/cmd"
+	"ochan/sandbox"
 
 	// Регистрация источника «живой PostgreSQL» (схема postgres://).
-	_ "octochan/pgsource"
+	_ "ochan/pgsource"
 )
 
 func main() {

@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	"octochan/config"
+	"ochan/config"
 
 	"github.com/jackc/pgx/v5"
 )

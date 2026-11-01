@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"os"
 
-	"octochan/pluginhost"
+	"ochan/pluginhost"
 
 	"github.com/spf13/cobra"
 )

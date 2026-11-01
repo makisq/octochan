@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode"
 
-	"octochan/fp"
-	"octochan/lang"
+	"ochan/fp"
+	"ochan/lang"
 )
 
 // Слоты обобщений промпта на плане.

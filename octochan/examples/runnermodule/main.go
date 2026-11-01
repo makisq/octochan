@@ -24,10 +24,10 @@ import (
 	"fmt"
 	"sort"
 
-	"octochan/config"
-	"octochan/pluginhost"
-	"octochan/runnerhost"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/pluginhost"
+	"ochan/runnerhost"
+	"ochan/scenario"
 
 	"github.com/spf13/cobra"
 )

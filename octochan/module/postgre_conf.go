@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"octochan/rlm"
-	"octochan/scenario"
+	"ochan/rlm"
+	"ochan/scenario"
 )
 
 // PostgresConfigFilesModule забирает конфигурационные файлы PostgreSQL.

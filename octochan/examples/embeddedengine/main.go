@@ -30,7 +30,7 @@ import (
 	"strings"
 	"time"
 
-	"octochan/embedded"
+	"ochan/embedded"
 )
 
 type chatterFlag map[int]string

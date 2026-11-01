@@ -23,7 +23,7 @@ import (
 	"sort"
 	"time"
 
-	"octochan/fp"
+	"ochan/fp"
 )
 
 // Config — параметры обучения, incidents.learn в config.yaml.

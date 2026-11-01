@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"octochan/rbac"
-	"octochan/workspace"
+	"ochan/rbac"
+	"ochan/workspace"
 )
 
 // Письма ochan формальным промптом.

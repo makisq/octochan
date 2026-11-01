@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"octochan/inventory"
-	"octochan/scenario"
+	"ochan/inventory"
+	"ochan/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

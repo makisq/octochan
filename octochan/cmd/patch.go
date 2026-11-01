@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"octochan/config"
-	"octochan/workspace"
+	"ochan/config"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/rbac"
-	"octochan/remote"
-	"octochan/sandbox"
+	"ochan/rbac"
+	"ochan/remote"
+	"ochan/sandbox"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

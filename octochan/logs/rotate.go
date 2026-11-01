@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"octochan/i18n"
+	"ochan/i18n"
 )
 
 // DefaultPrefix — префикс архивного журнала по умолчанию: дата и время

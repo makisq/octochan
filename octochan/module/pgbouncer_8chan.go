@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"octochan/rlm"
-	"octochan/scenario"
+	"ochan/rlm"
+	"ochan/scenario"
 )
 
 // defaultTableID — таблица инвентаря по умолчанию.

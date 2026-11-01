@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"octochan/scenario"
+	"ochan/scenario"
 )
 
 // stubAPI — минимальная реализация ScenarioAPI для проверки обёртки.

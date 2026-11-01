@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"octochan/config"
+	"ochan/config"
 
 	"github.com/spf13/viper"
 )

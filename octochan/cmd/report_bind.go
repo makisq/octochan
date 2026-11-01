@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"octochan/arbiter"
-	"octochan/config"
-	"octochan/fp"
-	"octochan/lang"
+	"ochan/arbiter"
+	"ochan/config"
+	"ochan/fp"
+	"ochan/lang"
 
 	"github.com/spf13/cobra"
 )

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"octochan/fp"
-	"octochan/learn"
-	"octochan/rbac"
-	"octochan/workspace"
+	"ochan/fp"
+	"ochan/learn"
+	"ochan/rbac"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

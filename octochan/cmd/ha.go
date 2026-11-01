@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"octochan/i18n"
-	"octochan/rbac"
-	"octochan/remote"
-	"octochan/workspace"
+	"ochan/i18n"
+	"ochan/rbac"
+	"ochan/remote"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

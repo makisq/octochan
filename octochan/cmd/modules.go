@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"octochan/pluginhost"
-	"octochan/runnerhost"
+	"ochan/pluginhost"
+	"ochan/runnerhost"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"

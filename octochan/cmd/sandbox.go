@@ -3,8 +3,8 @@ package cmd
 import (
 	"os"
 
-	"octochan/i18n"
-	"octochan/lang"
+	"ochan/i18n"
+	"ochan/lang"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

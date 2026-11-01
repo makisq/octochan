@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/sandbox"
+	"ochan/sandbox"
 )
 
 // Запуск программ из сценария: только в песочнице ядра, только

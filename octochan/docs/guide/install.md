@@ -2,8 +2,10 @@
 
 ## Сборка
 
-Нужен Go 1.22 или новее. Внешних программ ochan не требует: ни Word для
-документов, ни клиента PostgreSQL для живых источников.
+Нужен Go 1.25 или новее. Внешних программ ochan не требует: ни Word для
+документов, ни клиента PostgreSQL для живых источников. Команда — `ochan`:
+её собирают и `make install`, и голый `go build` в каталоге репозитория
+(модуль Go называется `ochan`).
 
 ```bash
 git clone https://github.com/makisq/PACAL
@@ -64,7 +66,7 @@ GOOS=linux   GOARCH=arm64 go build -o ochan-arm64 .
 записана `0.3.0-alpha`, другая задаётся при сборке:
 
 ```bash
-go build -ldflags "-X octochan/cmd.Version=0.3.0-alpha" -o ochan .
+go build -ldflags "-X ochan/cmd.Version=0.3.0-alpha" -o ochan .
 (cd mcp && go build -ldflags "-X main.serverVersion=0.3.0-alpha" -o ../ochan-mcp .)
 make build VERSION=0.3.0-alpha+site     # то же через make
 ```
@@ -74,7 +76,7 @@ make build VERSION=0.3.0-alpha+site     # то же через make
 
 ```bash
 make build SYSTEM_ROLES=/opt/octochan/roles.yaml
-go build -ldflags "-X octochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o ochan .
+go build -ldflags "-X ochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o ochan .
 ```
 
 По умолчанию — `/etc/octochan/roles.yaml`; файла нет — политики нет.
