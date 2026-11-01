@@ -346,7 +346,8 @@ def parse(text):
         elif section == "cell":
             m = SET.match(body)
             if m:
-                given.setdefault((m.group(1), m.group(2)), m.group(3))
+                # Действует последняя запись, как у ячеек ochan (fp.Derive).
+                given[(m.group(1), m.group(2))] = m.group(3)
     return relations, chains, given, cells, gens, instances
 
 

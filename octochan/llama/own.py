@@ -13,6 +13,7 @@ Engine — тот же протокол движка v1, что у adapter.Engin
     python adapter.py serve --model G:/fpm-llm/models/own-small --listen 127.0.0.1:8093
 """
 
+import math
 import os
 
 import torch
@@ -125,6 +126,19 @@ class Engine(Base):
                 proposed.setdefault(text, int(i))
                 candidates.append({"text": text, "p": float(v)})
         return {"candidates": candidates, "end": float(probs[self.tok.eos])}
+
+    def score(self, prompt, output, continuations):
+        """Оценки продолжений целиком: сумма log p их токенов после prompt+output."""
+        base, start = self.ids(prompt, output), len(self.prompt_ids(prompt))
+        names = self.names_after(self.path(output))
+        scores = []
+        for text in continuations:
+            ids, seq, logp = self.tok.encode(text, names.copy()), list(base), 0.0
+            for token in ids:
+                logp += math.log(max(float(self.distribution(seq, start)[token]), 1e-45))
+                seq.append(token)
+            scores.append({"logp": logp, "tokens": len(ids)})
+        return scores
 
     def raw(self, prompt, max_new_tokens=1024, prefix=""):
         """Сырой вывод: жадный, до <eos>. prefix — начало ответа, заданное

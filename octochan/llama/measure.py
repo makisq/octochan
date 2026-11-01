@@ -26,8 +26,10 @@
 решаемым — ложный отказ: решения нужны, а их нет.
 
 Задачу без предпосылки ochan модели не передаёт и сам возвращает ⊥undef
-(llm generate): embedded на ней — отказ системы, а не ответ модели. raw
-показывает, что модель сделала бы сама.
+(llm generate): embedded на ней — отказ системы, а не ответ модели. Копию
+задачи в embedded пишет ochan, выводимое из посылок — логика (llm.derive);
+модель выбирает только среди допустимых (forced — утверждений логики,
+chosen — выборов модели). raw — что модель сделала бы сама, целиком.
 
 ochan запускается в отдельном доме (--home): журнал и роли пользователя
 замер не трогает. Скиллы задачи ставятся в этот дом перед ней пакетами-
@@ -57,6 +59,7 @@ SUMMARY = {
     "ring0": r"Кольцо 0:\s+отклонено (\d+)",
     "language": r"утверждений вне ℒ (\d+), токенов вне языка (\d+)",
     "rollbacks": r"Откатов:\s+(\d+) к началу утверждения; позиций без токена выше порога: (\d+)",
+    "logic": r"Логика:\s+утверждений (\d+) — единственные допустимые; выбрано моделью среди допустимых: (\d+)",
 }
 SET = re.compile(r"set\s+(\w+)\.(\w+)\s*=\s*(.+)$")
 REFUSALS = re.compile(r"отказов \d+ \(([^)]*)\)")
@@ -144,7 +147,7 @@ def ochan(args, env, stdin=None):
 
 def summary(stderr):
     out = {"statements": 0, "tokens": 0, "calls": 0, "ring0": 0, "out_of_language": 0, "masked": 0,
-           "rollbacks": 0, "dead": 0}
+           "rollbacks": 0, "dead": 0, "forced": 0, "chosen": 0}
     m = re.search(SUMMARY["statements"], stderr)
     if m:
         out["statements"], out["tokens"], out["calls"] = map(int, m.groups())
@@ -157,6 +160,9 @@ def summary(stderr):
     m = re.search(SUMMARY["rollbacks"], stderr)
     if m:
         out["rollbacks"], out["dead"] = map(int, m.groups())
+    m = re.search(SUMMARY["logic"], stderr)
+    if m:
+        out["forced"], out["chosen"] = map(int, m.groups())
     return out
 
 
@@ -230,13 +236,15 @@ def main():
                   f"сходится — {yes('embedded_consistent')}, точно — {yes('embedded_exact')}, "
                   f"утверждений {row['statements']}, "
                   f"откатов {row['rollbacks']}, вне ℒ {row['out_of_language']}, кольцо 0 {row['ring0']}, "
-                  f"без токена {row['dead']}, {row['embedded_seconds']} с", flush=True)
+                  f"без токена {row['dead']}, логика {row['forced']}, выбор модели {row['chosen']}, "
+                  f"{row['embedded_seconds']} с", flush=True)
 
     n = len(rows)
     total = lambda key: f"{sum(r[key] for r in rows)}/{n}"
     print(f"\nЗадач {n}: raw в ℒ {total('raw_in_language')}, сходится {total('raw_consistent')}, "
           f"точно {total('raw_exact')}; embedded с ответом {total('embedded_ok')}, "
-          f"сходится {total('embedded_consistent')}, точно {total('embedded_exact')}")
+          f"сходится {total('embedded_consistent')}, точно {total('embedded_exact')}; "
+          f"утверждений логики {sum(r['forced'] for r in rows)}, выборов модели {sum(r['chosen'] for r in rows)}")
     lacking = [r for r in rows if r["missing"]]
     due = [r for r in rows if r["decisions_due"]]
     if lacking:

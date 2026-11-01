@@ -8,10 +8,15 @@ ochan сам ведёт генерацию во встроенном режим�
     POST /v1/next  <- {"prompt": "...", "output": "...", "top": 2}
                    -> {"candidates": [{"text": "goal", "p": 0.81}, ...], "end": 0.001}
 
+    POST /v1/score <- {"prompt": "...", "output": "...", "continuations": ["  set A.x = 1\\n", ...]}
+                   -> {"scores": [{"logp": -0.21, "tokens": 7}, ...]}
+
 p — вероятность в полном распределении модели, после softmax и до любой
 выборки: температуры, top-p и штрафов здесь нет. end — вероятность конца
 ответа (EOS и конец реплики). Кандидаты — по убыванию p, служебные токены
-среди них не бывают.
+среди них не бывают. /v1/score — где логика ochan оставила выбор из
+нескольких утверждений: модель оценивает каждое целиком, сумма log p его
+токенов в том же распределении.
 
 prompt — неизменная часть: протокол, затем "\n\n# Task\n\n" и задача. У
 instruct-модели она раскладывается по шаблону чата: system — протокол, user —
@@ -37,6 +42,7 @@ instruct-модели она раскладывается по шаблону ч
 
 import argparse
 import json
+import math
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -201,6 +207,22 @@ class Engine:
                 candidates.append({"text": self.piece(token), "p": float(v)})
         return {"candidates": candidates, "end": end}
 
+    def score(self, prompt, output, continuations):
+        """Оценки продолжений целиком: сумма log p их токенов после prompt+output.
+        Токена вне алфавита у обрезанной модели нет — его log p очень мал."""
+        base, start = self.ids(prompt, output), len(self.prompt_ids(prompt))
+        index = {t: k for k, t in enumerate(self.to_id)} if self.to_id else None
+        scores = []
+        for text in continuations:
+            ids, seq, logp = answer_ids(self.tok, text), list(base), 0.0
+            for token in ids:
+                k = index.get(token) if index is not None else token
+                p = float(self.distribution(seq, start)[k]) if k is not None else 0.0
+                logp += math.log(max(p, 1e-45))
+                seq.append(token)
+            scores.append({"logp": logp, "tokens": len(ids)})
+        return scores
+
     def raw(self, prompt, max_new_tokens=512):
         """Сырой вывод модели без колец и маски: жадный, до конца реплики."""
         ids, out = list(self.prompt_ids(prompt)), []
@@ -241,10 +263,13 @@ def serve(engine, listen):
             self.reply(200, {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name})
 
         def do_POST(self):
-            if self.path != "/v1/next":
+            if self.path not in ("/v1/next", "/v1/score"):
                 return self.reply(404, {"error": "нет такого адреса"})
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                if self.path == "/v1/score":
+                    return self.reply(200, {"scores": engine.score(req["prompt"], req.get("output", ""),
+                                                                   req["continuations"])})
                 self.reply(200, engine.next(req["prompt"], req.get("output", ""), int(req.get("top", 2))))
             except Exception as e:  # ochan показывает текст ошибки движка как есть
                 self.reply(500, {"error": f"{type(e).__name__}: {e}"})
