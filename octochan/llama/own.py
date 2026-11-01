@@ -1,16 +1,28 @@
-"""Своя модель ℒ: архитектура Llama, веса с нуля, словарь — fpmtok.
+"""Своя модель ℒ — архитектурная: сеть, словарь, логика и кольца — одна вещь.
 
 Модель не дообучается из чужой: её веса и словарь — только ℒ. Протокол она
 не читает — язык у неё в весах; из prompt ochan берётся только задача (после
 TASK_MARKER) в канонической записи, имена частных случаев — переменные.
 
-Engine — тот же протокол движка v1, что у adapter.Engine, и тот же
-детерминированный счёт распределения. Кандидаты — текстом: переменная —
-имя частного случая из задачи, следующая свободная — новое имя cK.
-Переменная дальше следующей свободной и одиночный байт запасного хода
-текста не имеют, их в распределении нет.
+Всё, что в манифесте сказано о кольцах и выводе, у неё в коде, а не в
+протоколе вокруг (протокольный подход — для внешних моделей):
 
-    python adapter.py serve --model G:/fpm-llm/models/own-small --listen 127.0.0.1:8093
+- задачу без предпосылки (logic.missing) модель не решает: отказ —
+  её собственный ответ;
+- копию задачи и то, что следует из посылок, пишет её логика (logic.py);
+  кольцо 1 даёт поддержку выведенному по надёжности правил из журнала,
+  кольцо 2 не пропускает слабое — оно уходит вопросом оператору (rings.py);
+- сеть выбирает только среди допустимых: правилом выбора с весами и
+  калибровкой из журнала (rings.json рядом с весами);
+- её функция распределения переопределена: следующий токен вне допустимых
+  логикой утверждений имеет вероятность ноль, единственный допустимый —
+  единицу. Это видит и протокол движка v1 (/v1/next).
+
+generate — ответ модели целиком (/v1/generate); raw — сеть одна, без логики
+и колец: так меряется, что даёт архитектура. bare — модель без логики в
+распределении (для сравнений).
+
+    python adapter.py serve --model G:/fpm-llm/models/own-small-2 --listen 127.0.0.1:8093
 """
 
 import math
@@ -20,6 +32,8 @@ import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
 import fpmtok
+import logic
+import rings
 from adapter import TASK_MARKER
 from adapter import Engine as Base
 
@@ -59,9 +73,12 @@ def task_of(prompt):
 
 
 class Engine(Base):
-    def __init__(self, model, device="cuda", dtype="float32"):
+    def __init__(self, model, device="cuda", dtype="float32", arch=True):
         self.name = model
         self.device = device
+        self.arch = arch
+        self.params = rings.Params.load(model)
+        self._plans, self._copies = {}, {}
         self.tok = fpmtok.Tokenizer.load(model)
         self.model = load_model(model, getattr(torch, dtype)).to(device).eval()
         self.chat = False
@@ -114,7 +131,172 @@ class Engine(Base):
         rest[self.bytes] = 0
         return rest
 
+    def plan(self, task):
+        """План ответа после колец 1 и 2: (план, недостающее, пакеты).
+        Пакет — выведенное решение с правилами, поддержкой и вердиктом."""
+        if task not in self._plans:
+            plan = logic.AnswerPlan(task)
+            packages, accepted = [], []
+            narrowed = self.narrowings(plan)
+            spans = {(d.target, d.attr): span for d, span in narrowed}
+            plan.decisions = [d for d, _ in narrowed] + plan.decisions
+            for d in plan.decisions:
+                lower, upper = spans.get((d.target, d.attr)) or rings.support(self.params.rule(r) for r in d.rules)
+                ok = lower >= self.params.well_true
+                packages.append({"statement": d.line().strip(), "rules": d.rules, "l": lower, "u": upper,
+                                 "verdict": "well_true" if ok else "well_false"})
+                if ok:
+                    accepted.append(d)
+            plan.decisions = accepted
+            self._plans[task] = (plan, logic.missing(task), packages)
+        return self._plans[task]
+
+    def narrowings(self, plan):
+        """Сужения неточных предпосылок по истории из журнала (раздел 5.2):
+        прочтение — значение, которое оператор задавал атрибуту точно или
+        одобрил в сужении; поддержка — доля прочтения среди всех. Лидер
+        сужает, только если его нижняя граница выше верхних границ
+        остальных; иначе варианты сопоставимы, и решает оператор."""
+        derived = {(d.target, d.attr) for d in plan.decisions}
+        decided = {d.attr: d.value for d in plan.decisions}
+        out = []
+        for (target, attr), vague in plan.task.inexact.items():
+            counts = self.params.history.get(attr, {})
+            total = sum(counts.values())
+            if (target, attr) in derived or not total:
+                continue
+            candidates = vague.variants if vague.variants is not None else [v for v in counts if vague.admits(v)]
+            if not candidates:
+                continue
+            spans = {v: rings.share(counts.get(v, 0), total) for v in candidates}
+            leader = max(candidates, key=lambda v: spans[v][0])
+            rest = [spans[v][1] for v in candidates if v != leader]
+            if vague.variants is None:
+                # Другие числа диапазона — всё, что не лидер.
+                rest.append(rings.share(total - counts.get(leader, 0), total)[1])
+            if rest and spans[leader][0] <= max(rest) or decided.get(attr, leader) != leader:
+                continue
+            names = vague.variants if vague.variants and all(logic.NAME.match(v) for v in vague.variants) else None
+            out.append((logic.Decision(target, attr, leader, f"history({attr})", ["fp.history"], names), spans[leader]))
+        return out
+
+    def questions(self, plan, packages):
+        """Вопросы оператору: что посылки не закрывают, что кольцо 2 не
+        приняло и какую неточную предпосылку сузить не по чему."""
+        out = [{"attr": q.attr, "targets": q.targets, "values": q.values, "why": "посылки не выбирают между значениями"}
+               for q in plan.open]
+        narrowed = {(d.target, d.attr) for d in plan.decisions}
+        for (target, attr), vague in plan.task.inexact.items():
+            if (target, attr) not in narrowed and not any(target in q.targets and q.attr == attr for q in plan.open):
+                out.append({"statement": f"set {target}.{attr} = {vague.text}",
+                            "why": "неточная предпосылка: сузить её нечем — ни посылки, ни истории"})
+        for p in packages:
+            if p["verdict"] == "well_false":
+                out.append({"statement": p["statement"], "rules": p["rules"],
+                            "why": f"правила {', '.join(p['rules'])} проверены мало: нижняя граница поддержки "
+                                   f"{p['l']:.2f} ниже порога {self.params.well_true:.2f}"})
+        return out
+
+    def generate(self, prompt):
+        """Ответ модели целиком: отказ без предпосылки, копия, пакеты логики
+        после колец, выбор сети правилом выбора среди допустимых."""
+        plan, missing, packages = self.plan(task_of(prompt))
+        if missing:
+            return {"answer": None, "refused": True, "missing": missing, "packages": [], "questions": [],
+                    "forced": 0, "chosen": 0, "choices": []}
+        by_line = {p["statement"]: p for p in packages}
+        output, forced, choices = plan.copy, 0, []
+        while True:
+            adm, ok = plan.next(output)
+            if not ok:
+                raise RuntimeError("логика модели не ведёт её же ответ")
+            if not adm:
+                break
+            if len(adm) == 1:
+                output += adm[0]
+                forced += 1
+                continue
+            ranked = []
+            for line, s in zip(adm, self.score(prompt, output, adm)):
+                p = by_line[line.strip()]
+                mean = s["logp"] / max(1, s["tokens"])
+                # G = 1: выведенное логикой целиком привязано к посылкам.
+                ranked.append((self.params.score(mean, p["l"], p["u"], 1.0), mean, line))
+            ranked.sort(key=lambda r: -r[0])
+            best = ranked[0]
+            by_line[best[2].strip()].update(chosen=True, score=best[0], logprob=best[1], options=len(adm),
+                                            gap=best[0] - ranked[1][0])
+            choices.append({"statement": best[2].strip(), "options": len(adm), "gap": best[0] - ranked[1][0]})
+            output += best[2]
+        return {"answer": output, "refused": False, "missing": [], "packages": packages,
+                "questions": self.questions(plan, packages), "forced": forced, "chosen": len(choices),
+                "choices": choices}
+
+    def admissible(self, task, output):
+        """Токены, которыми может продолжиться output по логике модели:
+        множество, "end" — ответ закончен, None — логика это место не ведёт."""
+        plan, missing, _ = self.plan(task)
+        if missing:
+            return "end"
+        if len(output) < len(plan.copy):
+            if not plan.copy.startswith(output):
+                return None
+            if task not in self._copies:
+                self._copies[task] = self.tok.encode(plan.copy, self.names.copy())
+            lines, head, partial, ids_of = [plan.copy], "", output, {plan.copy: self._copies[task]}
+        else:
+            cut = output.rfind("\n") + 1
+            head, partial = output[:cut], output[cut:]
+            adm, ok = plan.next(head)
+            if not ok:
+                return None
+            if not adm:
+                return "end" if partial == "" else None
+            lines = [line for line in adm if line.startswith(partial)]
+            names = self.names_after(self.path(head))
+            ids_of = {line: self.tok.encode(line, names.copy()) for line in lines}
+        names = self.names_after(self.path(head)) if head else self.names.copy()
+        tokens = set()
+        for line in lines:
+            ids, text, k = ids_of[line], "", 0
+            while len(text) < len(partial) and k < len(ids):
+                text += self.tok.piece(ids[k], names.copy())
+                k += 1
+            if text == partial and k < len(ids):
+                tokens.add(ids[k])
+        return tokens
+
     def next(self, prompt, output, top):
+        if not self.arch:
+            return self.net_next(prompt, output, top)
+        self.prompt_ids(prompt)
+        allowed = self.admissible(task_of(prompt), output)
+        if allowed is None:
+            return self.net_next(prompt, output, top)
+        if allowed == "end" or not allowed:
+            return {"candidates": [], "end": 1.0}
+        names = self.names_after(self.path(output))
+        proposed = self.proposed.setdefault(output, {})
+        if len(allowed) == 1:
+            token = next(iter(allowed))
+            text = self.tok.piece(token, names.copy())
+            proposed.setdefault(text, token)
+            return {"candidates": [{"text": text, "p": 1.0}], "end": 0.0}
+        probs = self.distribution(self.ids(prompt, output), len(self.prompt_ids(prompt)))
+        index = torch.tensor(sorted(allowed), device=self.device)
+        mass = probs[index]
+        mass = mass / mass.sum() if float(mass.sum()) > 0 else torch.full_like(mass, 1 / len(index))
+        order = torch.argsort(mass, descending=True)[:max(1, top)]
+        candidates = []
+        for k in order.tolist():
+            token = int(index[k])
+            text = self.tok.piece(token, names.copy())
+            proposed.setdefault(text, token)
+            candidates.append({"text": text, "p": float(mass[k])})
+        return {"candidates": candidates, "end": 0.0}
+
+    def net_next(self, prompt, output, top):
+        """Распределение сети одной, без логики модели."""
         probs = self.distribution(self.ids(prompt, output), len(self.prompt_ids(prompt)))
         names = self.names_after(self.path(output))
         rest = self.allowed(probs, names, end=False)

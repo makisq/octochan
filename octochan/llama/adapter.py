@@ -10,6 +10,8 @@ ochan сам ведёт генерацию во встроенном режим�
 
     POST /v1/score <- {"prompt": "...", "output": "...", "continuations": ["  set A.x = 1\\n", ...]}
                    -> {"scores": [{"logp": -0.21, "tokens": 7}, ...]}
+    POST /v1/generate <- {"prompt": "..."}       (архитектурная модель, own.py)
+                      -> {"answer": "...", "refused": false, "packages": [...], "questions": [...], ...}
 
 p — вероятность в полном распределении модели, после softmax и до любой
 выборки: температуры, top-p и штрафов здесь нет. end — вероятность конца
@@ -236,17 +238,20 @@ class Engine:
         return self.tok.decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
 
-def engine_for(model, device="cuda", dtype="bfloat16", chat=True):
-    """Движок по каталогу модели: своя модель ℒ (own.py) или модель Hugging Face."""
+def engine_for(model, device="cuda", dtype="bfloat16", chat=True, bare=False):
+    """Движок по каталогу модели: своя модель ℒ (own.py, архитектурная; bare —
+    без логики в распределении) или модель Hugging Face."""
     import own
 
     if own.is_own(model):
-        return own.Engine(model, device)
+        return own.Engine(model, device, arch=not bare)
     return Engine(model, device, dtype, chat)
 
 
 def serve(engine, listen):
     host, port = listen.rsplit(":", 1)
+    # Архитектурная модель отвечает целиком сама: логика и кольца — в ней.
+    architectural = bool(getattr(engine, "arch", False))
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, body):
@@ -260,13 +265,16 @@ def serve(engine, listen):
         def do_GET(self):
             if self.path != "/v1/info":
                 return self.reply(404, {"error": "нет такого адреса"})
-            self.reply(200, {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name})
+            self.reply(200, {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name,
+                             "generate": architectural})
 
         def do_POST(self):
-            if self.path not in ("/v1/next", "/v1/score"):
+            if self.path not in ("/v1/next", "/v1/score") and not (self.path == "/v1/generate" and architectural):
                 return self.reply(404, {"error": "нет такого адреса"})
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                if self.path == "/v1/generate":
+                    return self.reply(200, engine.generate(req["prompt"]))
                 if self.path == "/v1/score":
                     return self.reply(200, {"scores": engine.score(req["prompt"], req.get("output", ""),
                                                                    req["continuations"])})
@@ -291,12 +299,13 @@ def main():
         p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
         p.add_argument("--dtype", default="bfloat16")
         p.add_argument("--no-chat", action="store_true", help="не оборачивать prompt шаблоном чата")
+        p.add_argument("--bare", action="store_true", help="своя модель без логики в распределении — для сравнений")
     sub.choices["serve"].add_argument("--listen", default="127.0.0.1:8090")
     sub.choices["raw"].add_argument("--prompt-file", required=True)
     sub.choices["raw"].add_argument("--max-new-tokens", type=int, default=512)
     args = ap.parse_args()
 
-    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat)
+    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat, bare=args.bare)
     if args.cmd == "serve":
         serve(engine, args.listen)
         return
