@@ -16,10 +16,24 @@
   переписывают значения задачи, и в report: каждому решению — запись
   q: атрибут с тем же choice, без лишних записей;
 - exact — ответ равен выводу из задачи (corpus.solve): копия задачи,
-  решения по отношениям и приоритетам, отчёт.
+  решения по отношениям, приоритетам и стрелкам, отчёт. Сравниваются
+  канонические записи (fpmtok.canonical): выравнивание пробелами и
+  комментарии — не ответ.
+
+Язык — отсутствие ⊥syn: ⊥undef в ответе — о задаче, а не о языке, и у
+задачи без предпосылки (corpus.missing) он и должен быть. По таким задачам
+— H3: модель не решает за оператора (в ответе ни одного решения), а по
+решаемым — ложный отказ: решения нужны, а их нет.
+
+Задачу без предпосылки ochan модели не передаёт и сам возвращает ⊥undef
+(llm generate): embedded на ней — отказ системы, а не ответ модели. raw
+показывает, что модель сделала бы сама.
 
 ochan запускается в отдельном доме (--home): журнал и роли пользователя
-замер не трогает. Адаптер должен быть запущен (adapter.py serve).
+замер не трогает. Скиллы задачи ставятся в этот дом перед ней пакетами-
+заглушками: операции — ровно из provides:, как объявила задача. Проверка
+ochan смотрит в библиотеку, как в настоящей работе, а синтетический скилл
+так становится установленным. Адаптер должен быть запущен (adapter.py serve).
 
     python measure.py --model HuggingFaceTB/SmolLM2-135M-Instruct --ochan ochan.exe \
         --endpoint http://127.0.0.1:8090 --home G:/fpm-llm/runs/home --out run.jsonl tasks/*.fp
@@ -30,11 +44,13 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 
-from adapter import TASK_MARKER, Engine
-from corpus import solve
+from adapter import TASK_MARKER, engine_for
+from corpus import copy_of, missing, solve
+from fpmtok import canonical
 
 SUMMARY = {
     "statements": r"Утверждений: (\d+), токенов: (\d+), обращений к модели: (\d+)",
@@ -43,6 +59,31 @@ SUMMARY = {
     "rollbacks": r"Откатов:\s+(\d+) к началу утверждения; позиций без токена выше порога: (\d+)",
 }
 SET = re.compile(r"set\s+(\w+)\.(\w+)\s*=\s*(.+)$")
+REFUSALS = re.compile(r"отказов \d+ \(([^)]*)\)")
+IMPORT = re.compile(r"import\s+@(\w+)\s+v(\d+(?:\.\d+)*)")
+UNDEF = "не хватает предпосылок"
+
+
+def install_skills(home, text):
+    """Скиллы задачи — пакеты-заглушки в доме ochan: версия из import,
+    операции — строчные имена из provides:."""
+    modules = os.path.join(home, ".octochan", "modules")
+    shutil.rmtree(modules, ignore_errors=True)
+    skills, current = {}, None
+    for line in canonical(text).splitlines():
+        if m := IMPORT.match(line):
+            current = skills.setdefault(m.group(1), [m.group(2), []])
+        elif line.startswith("  provides:") and current:
+            current[1] += [n.strip() for n in line.split(":", 1)[1].split(",") if n.strip()[:1].islower()]
+        elif line and not line.startswith(" "):
+            current = None
+    for name, (version, ops) in skills.items():
+        os.makedirs(os.path.join(modules, name))
+        parts = (version.split(".") + ["0", "0"])[:3]
+        with open(os.path.join(modules, name, "package.yaml"), "w", encoding="utf-8") as f:
+            f.write(f"name: {name}\nversion: {'.'.join(parts)}\n")
+        with open(os.path.join(modules, name, f"{name}.ochan"), "w", encoding="utf-8") as f:
+            f.write("".join(f"alias {op}() {{\n    return 0\n}}\n\n" for op in ops))
 
 
 def sections(text):
@@ -54,6 +95,26 @@ def sections(text):
         elif out and line.strip():
             out[-1][1].append(line.strip())
     return out
+
+
+def decisions(task, answer):
+    """Решения модели: set в ячейках, которых нет в задаче, и записи q: отчёта."""
+    given_cells = {head for head, _ in sections(task)}
+    made, told = [], []
+    for head, body in sections(answer):
+        if head.startswith("cell ") and head not in given_cells:
+            made += [m.groups() for m in map(SET.match, body) if m]
+        elif head == "report:":
+            told += [line for line in body if line.startswith("q:")]
+    return made, told
+
+
+def in_language(check):
+    """ochan fp check: отказов нет или среди них нет ⊥syn."""
+    if check.returncode == 0:
+        return True
+    m = REFUSALS.search(check.stderr + check.stdout)
+    return bool(m) and "⊥syn" not in m.group(1)
 
 
 def consistent(task, answer):
@@ -121,7 +182,7 @@ def main():
     protocol = ochan([args.ochan, "fp", "protocol", "--mode", "formal"], env)
     if protocol.returncode != 0:
         raise SystemExit(protocol.stderr)
-    engine = Engine(args.model)
+    engine = engine_for(args.model)
 
     tasks = [t for pattern in args.tasks for t in sorted(glob.glob(pattern))]
     rows = []
@@ -130,6 +191,7 @@ def main():
             with open(task, encoding="utf-8") as f:
                 text = f.read()
             prompt = protocol.stdout + TASK_MARKER + text
+            install_skills(args.home, text)
 
             started = time.time()
             raw = engine.raw(prompt, args.max_new_tokens)
@@ -142,16 +204,21 @@ def main():
             ok = gen.returncode == 0
             row = {
                 "task": os.path.basename(task),
-                "raw_in_language": check.returncode == 0,
+                "missing": missing(text),
+                "decisions_due": expected != copy_of(text).strip(),
+                "raw_in_language": in_language(check),
                 "raw_consistent": consistent(text, raw),
-                "raw_exact": raw.strip() == expected,
+                "raw_exact": canonical(raw) == canonical(expected),
+                "raw_decided": any(decisions(text, raw)),
                 "raw_seconds": round(raw_seconds, 2),
                 "raw": raw,
                 "embedded_ok": ok,
                 "embedded_consistent": ok and consistent(text, gen.stdout),
-                "embedded_exact": ok and gen.stdout.strip() == expected,
+                "embedded_exact": ok and canonical(gen.stdout) == canonical(expected),
+                "embedded_decided": ok and any(decisions(text, gen.stdout)),
                 "embedded_seconds": round(time.time() - started, 2),
-                "embedded_reason": "" if gen.returncode == 0 else gen.stderr.strip().splitlines()[-1],
+                "embedded_refused": UNDEF in gen.stderr,
+                "embedded_reason": "" if gen.returncode == 0 else gen.stderr.strip()[-600:],
                 "answer": gen.stdout,
                 **summary(gen.stderr),
             }
@@ -170,6 +237,15 @@ def main():
     print(f"\nЗадач {n}: raw в ℒ {total('raw_in_language')}, сходится {total('raw_consistent')}, "
           f"точно {total('raw_exact')}; embedded с ответом {total('embedded_ok')}, "
           f"сходится {total('embedded_consistent')}, точно {total('embedded_exact')}")
+    lacking = [r for r in rows if r["missing"]]
+    due = [r for r in rows if r["decisions_due"]]
+    if lacking:
+        # embedded без ответа на задаче без предпосылки — тоже не догадка.
+        print(f"H3: без предпосылки {len(lacking)}, без догадки raw {sum(not r['raw_decided'] for r in lacking)}, "
+              f"embedded {sum(not r['embedded_decided'] for r in lacking)} "
+              f"(ochan отказал сам: {sum(r['embedded_refused'] for r in lacking)}); "
+              f"решения нужны в {len(due)}, ложный отказ raw {sum(not r['raw_decided'] for r in due)}, "
+              f"embedded {sum(r['embedded_ok'] and not r['embedded_decided'] for r in due)}")
 
 
 if __name__ == "__main__":

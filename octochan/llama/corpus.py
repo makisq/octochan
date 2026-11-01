@@ -23,17 +23,42 @@
 - значение, заданное задачей, не переписывается; решений нет — ответ равен
   задаче.
 
+Обобщение — схема отношения (generalization с именем отношения): слот типа
+источника, второй слот с доменом или диапазоном, операция скилла. Частный
+случай (instance) — стрелка этой схемы: имя стрелки — ссылка, через которую
+ячейки правят частный случай, значения слотов — имена частных случаев, у
+которых нет своего определения. Вывод по стрелке:
+
+- атрибут, который c1 задаёт обобщению, переходит на каждую его стрелку,
+  если стрелке он не задан: set h1.x = v, basis: relation(имя обобщения).
+  Атрибут, совпадающий со слотом, не переходит: значение слота задаёт сама
+  стрелка;
+- обратно не переходит ничего: атрибут одной стрелки не становится ни
+  атрибутом обобщения, ни атрибутом соседних стрелок.
+
+Знание задачи K — имена отношений, обобщения, частные случаи и операции из
+provides: скиллов (import). requires:, действие жёсткого правила и
+операция обобщения должны быть в K (или среди встроенных write, save,
+exec), классы скилла — в classes:, стрелка — к объявленному обобщению и со
+всеми слотами. Если предпосылки нет, это ⊥undef, и модель не решает за
+оператора (H3): ответ — задача без единого решения, а находки по ответу
+даёт проверка ochan. Такие задачи — близнецы решаемых: та же задача без
+одной предпосылки, часто с именем, похожим на настоящее (fault_error
+вместо fault_objective), — различающие примеры.
+
 Пары синтетические: они учат языку, форме ответа и выводу по отношениям,
 а не предметной области. Каждую проверяет разбор ochan (fpcheck): задача —
-без отказов, ответ — строже, как текст модели. Непрошедшие отбрасываются.
+без отказов, ответ — строже, как текст модели; у близнеца без предпосылки
+отказы — ровно ⊥undef на каждую недостающую. Непрошедшие отбрасываются.
 
     go build -o fpcheck.exe ./llama/fpcheck
-    python corpus.py --lexicon ../fp/lexicon.yaml --fpcheck fpcheck.exe --count 4000 --out corpus.jsonl \
+    python corpus.py --lexicon ../fp/lexicon.yaml --fpcheck fpcheck.exe --count 5000 --out corpus.jsonl \
         --tasks G:/fpm-llm/runs/tasks-test
 """
 
 import argparse
 import collections
+import copy
 import json
 import os
 import random
@@ -48,11 +73,20 @@ RELATIONS = ["defines", "forces", "limits", "modifies", "precedes", "terminates"
 # Отношения, которые переносят атрибут источника на цель.
 CARRIES = {"defines", "limits", "modifies"}
 NUMBER_UNITS = ["MB", "GB", "s", "ms", "%", "m"]
+# Действия среды выполнения: известны арбитру без скиллов (arbiter.Builtins).
+BUILTINS = {"exec", "save", "write"}
+VERSIONS = ["v1", "v2", "v3", "v1.2", "v2.3"]
 
 COMMENT = re.compile(r"\s*#.*$")
 RELATION = re.compile(r"(\w+)\s+--(\w+)-->\s+(\w+)\s*(?:\((\w+)\))?$")
 SET = re.compile(r"set\s+(\w+)\.(\w+)\s*=\s*(.+?)\s*$")
 CELL = re.compile(r"cell\s+(\w+)\s*:")
+GENERALIZATION = re.compile(r"generalization\s+(\w+)\s*\((.*)\)\s*:")
+INSTANCE = re.compile(r"instance\s+(\w+)\s*=\s*(\w+)\s*\((.*)\)")
+SLOT = re.compile(r"(\w+)\s*:(?!=)")
+BINDING = re.compile(r"(\w+)\s*:=")
+RULE = re.compile(r"(?:hard\s+(?:forbid|require)\s+|\?\?[na]_)(\w+)\s*\(")
+OPERATION = re.compile(r"=\s*(\w+)\s*\(")
 
 
 class Lexicon:
@@ -79,6 +113,27 @@ def name(rng, lex, used, parts=2):
     raise RuntimeError("не нашлось свободного имени")
 
 
+def particular(rng, used):
+    """Имя частного случая: не слово языка и не составное из слов
+    (plodu2222_ru). Определения у него нет — смысл даёт стрелка."""
+    while True:
+        stem = "".join(rng.choice("bdfgklmnprstvz") + rng.choice("aeiou") for _ in range(rng.randint(2, 3)))
+        candidate = f"{stem}{rng.randint(1, 9999)}" + (f"_{rng.choice(['ru', 'io', 'loc', 'lan'])}"
+                                                       if rng.random() < 0.4 else "")
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+
+
+def arrow(rng, used):
+    """Имя стрелки — непрозрачная ссылка (h121151)."""
+    while True:
+        candidate = f"{rng.choice('hkmprtx')}{rng.randint(1000, 999999)}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+
+
 def value(rng, lex):
     if rng.random() < 0.25:
         return rng.choice(lex.words)
@@ -87,12 +142,11 @@ def value(rng, lex):
 
 
 def task(rng, lex):
-    """Случайная задача на ℒ."""
+    """Случайная задача на ℒ — структура для render и lacking."""
     used, attrs = set(), set()
     classes = rng.sample(lex.classes, rng.randint(3, 5))
     words = {c: rng.choice(lex.single[c]) for c in classes}
     goal = classes[-1]
-    width = max(len(c) for c in classes)
 
     relations = []
     for a, b in zip(classes, classes[1:]):
@@ -106,6 +160,7 @@ def task(rng, lex):
         before = next(a for a, _, b in relations if b == target)
         if rng.random() < 0.7 and next(t for a, t, b in relations if b == target) in CARRIES:
             conflict = (before, source)
+    relations = [(a, t, b, None if t == "strives_to" else name(rng, lex, used)) for a, t, b in relations]
 
     priority = None
     if conflict and rng.random() < 0.85:
@@ -122,30 +177,150 @@ def task(rng, lex):
         sets += [(conflict[0], attr, first), (conflict[1], attr, second)]
     for _ in range(rng.randint(1, 2)):
         # Чаще — источнику отношения, которое переносит атрибут.
-        carriers = [a for a, t, _ in relations if t in CARRIES]
+        carriers = [a for a, t, _, _ in relations if t in CARRIES]
         target = rng.choice(carriers) if carriers and rng.random() < 0.7 else rng.choice(classes[:-1])
         sets.append((target, name(rng, lex, attrs, parts=1), value(rng, lex)))
 
-    lines = [f"goal: {words[goal]}", "", "classes:"]
-    lines += [f"  {c.ljust(width)} : \"{words[c]}\"" for c in classes]
-    lines += ["", "relations:"]
-    for a, t, b in relations:
-        if t == "strives_to":
-            lines.append(f"  {a.ljust(width)} --strives_to--> {b}")
+    # Обобщение — схема одного из отношений, частные случаи — её стрелки.
+    gen = None
+    labeled = [(a, b, r) for a, _, b, r in relations if r]
+    if labeled and rng.random() < 0.5:
+        source, result, label = rng.choice(labeled)
+        slots = set()
+        first, second = name(rng, lex, slots, parts=1), name(rng, lex, slots, parts=1)
+        if rng.random() < 0.5:
+            spec = sorted(rng.sample(lex.words, rng.randint(2, 4)))
         else:
-            lines.append(f"  {a.ljust(width)} --{t}--> {b.ljust(width)} ({name(rng, lex, used)})")
-    if priority:
-        lines += ["", "priority:", f"  {priority[0]} < {priority[1]}"]
+            lo = rng.choice([1, 2, 5, 10, 20, 50, 100])
+            spec = (lo, lo * rng.choice([2, 4, 5, 10]))
+        gen = {"name": label, "source": source, "result": result, "slots": [first, second], "spec": spec,
+               "op": name(rng, lex, used), "instances": []}
+        for _ in range(rng.choice([1, 1, 2, 2, 3])):
+            v = rng.choice(spec) if isinstance(spec, list) else str(rng.randint(*spec))
+            gen["instances"].append({"name": arrow(rng, used), "of": label,
+                                     "values": {first: particular(rng, used), second: v}})
+        arrows = [i["name"] for i in gen["instances"]]
+        if rng.random() < 0.75:
+            attr = name(rng, lex, attrs, parts=1)
+            sets.append((label, attr, value(rng, lex)))
+            if rng.random() < 0.3:
+                # Своё значение у стрелки: точная посылка о частном случае.
+                sets.append((rng.choice(arrows), attr, value(rng, lex)))
+        if rng.random() < 0.3:
+            # Атрибут стрелки не переходит ни на обобщение, ни на соседей.
+            sets.append((rng.choice(arrows), name(rng, lex, attrs, parts=1), value(rng, lex)))
+
+    # Знание задачи: скилл, требования, правило о его операции.
+    # Операцию обобщения даёт скилл (П5): с обобщением скилл есть всегда.
+    skill, own = None, rng.random() < 0.45
+    if own or gen:
+        skill = {"name": name(rng, lex, used, parts=1), "version": rng.choice(VERSIONS),
+                 "classes": rng.sample(classes, rng.randint(1, 2)),
+                 "ops": [name(rng, lex, used) for _ in range(rng.randint(1, 2) if own else 0)],
+                 "needs": [rng.choice(classes)] if rng.random() < 0.5 else []}
+        if gen:
+            skill["ops"].append(gen["op"])
+    known = [r for *_, r in relations if r] + (skill["ops"] if skill else [])
+    known += [i["name"] for i in gen["instances"]] if gen else []
+    requires = rng.sample(known, min(len(known), rng.randint(1, 2))) if rng.random() < 0.45 else []
+    rule = None
     if rng.random() < 0.4:
-        lines += ["", f"hard forbid {rng.choice(['write', 'save'])}(except = {{{name(rng, lex, used)}}})"]
+        action = rng.choice(skill["ops"]) if skill and rng.random() < 0.6 else rng.choice(["write", "save"])
+        rule = (action, name(rng, lex, used))
+    return {"classes": classes, "words": words, "goal": goal, "relations": relations, "priority": priority,
+            "gen": gen, "skill": skill, "requires": requires, "rule": rule, "sets": sets}
+
+
+def render(t):
+    """Текст задачи."""
+    classes, width = t["classes"], max(len(c) for c in t["classes"])
+    lines = [f"goal: {t['words'][t['goal']]}", "", "classes:"]
+    lines += [f"  {c.ljust(width)} : \"{t['words'][c]}\"" for c in classes]
+    lines += ["", "relations:"]
+    for a, kind, b, rel in t["relations"]:
+        if rel is None:
+            lines.append(f"  {a.ljust(width)} --{kind}--> {b}")
+        else:
+            lines.append(f"  {a.ljust(width)} --{kind}--> {b.ljust(width)} ({rel})")
+    if t["priority"]:
+        lines += ["", "priority:", f"  {t['priority'][0]} < {t['priority'][1]}"]
+    gen = t.get("gen")
+    if gen:
+        a, b = gen["slots"]
+        spec = gen["spec"]
+        spec = f"{{{', '.join(spec)}}}" if isinstance(spec, list) else f"{spec[0]}..{spec[1]}"
+        lines += ["", f"generalization {gen['name']}({a} : {gen['source']}, {b} : {spec}) :",
+                  f"  {gen['result']} = {gen['op']}({a}, {b})", ""]
+        for i in gen["instances"]:
+            bound = ", ".join(f"{s} := {v}" for s, v in i["values"].items())
+            lines.append(f"instance {i['name']} = {i['of']}({bound})")
+    skill = t["skill"]
+    if skill:
+        lines += ["", f"import @{skill['name']} {skill['version']}",
+                  f"  provides: {', '.join(skill['classes'] + skill['ops'])}"]
+        if skill["needs"]:
+            lines.append(f"  requires_class: {', '.join(skill['needs'])}")
+    if t["requires"]:
+        lines += ["", f"requires: {', '.join(t['requires'])}"]
+    if t["rule"]:
+        lines += ["", f"hard forbid {t['rule'][0]}(except = {{{t['rule'][1]}}})"]
     lines += ["", "cell c1:"]
-    lines += [f"  set {c}.{a} = {v}" for c, a, v in sets]
+    lines += [f"  set {c}.{a} = {v}" for c, a, v in t["sets"]]
     return "\n".join(lines) + "\n"
 
 
+def absent(rng, lex, known, like=None):
+    """Имя, которого нет в K: чаще — настоящее (like, иначе любое из K) с
+    одним словом не тем (fault_error вместо fault_objective), иначе — новое."""
+    compounds = [like] if like else [k for k in known if "_" in k]
+    for _ in range(100):
+        if compounds and rng.random() < 0.6:
+            parts = rng.choice(compounds).split("_")
+            parts[rng.randrange(len(parts))] = rng.choice(lex.words)
+            candidate = "_".join(parts)
+        else:
+            candidate = "_".join(rng.sample(lex.words, 2))
+        if candidate not in known and candidate not in BUILTINS:
+            return candidate
+    raise RuntimeError("не нашлось имени вне K")
+
+
+def lacking(rng, lex, t):
+    """Близнец задачи без одной предпосылки (H3): требование или действие
+    правила вне K, класс скилла не из classes:, стрелка к необъявленному
+    обобщению или с незаполненным слотом, операция обобщения не из скилла."""
+    t = copy.deepcopy(t)
+    gen = t.get("gen")
+    known = {r for *_, r in t["relations"] if r} | set(t["skill"]["ops"] if t["skill"] else [])
+    known |= {i["name"] for i in gen["instances"]} if gen else set()
+    kind = rng.choice(["requires", "rule"] + (["class"] if t["skill"] else []) + (["gen", "slot", "op"] if gen else []))
+    if kind == "gen":
+        rng.choice(gen["instances"])["of"] = absent(rng, lex, known, like=gen["name"])
+    elif kind == "slot":
+        values = rng.choice(gen["instances"])["values"]
+        del values[rng.choice(sorted(values))]
+    elif kind == "op":
+        gen["op"] = absent(rng, lex, known | {gen["op"]})
+    elif kind == "class":
+        other = rng.choice([c for c in lex.classes if c not in t["classes"]])
+        if rng.random() < 0.5:
+            t["skill"]["needs"] = [other]
+        else:
+            t["skill"]["classes"].append(other)
+    elif kind == "rule":
+        t["rule"] = (absent(rng, lex, known), t["rule"][1] if t["rule"] else name(rng, lex, set(known)))
+    else:
+        requires = t["requires"] or [None]
+        requires[rng.randrange(len(requires))] = absent(rng, lex, known)
+        t["requires"] = requires
+    return t
+
+
 def parse(text):
-    """Из задачи — то, из чего выводятся решения: отношения, приоритеты, ячейки."""
+    """Из задачи — то, из чего выводятся решения: отношения, приоритеты,
+    ячейки, обобщения (имя → слоты) и стрелки [(имя, обобщение, слоты)]."""
     relations, chains, given, cells, section = [], [], {}, set(), None
+    gens, instances = {}, []
     for line in text.splitlines():
         line = COMMENT.sub("", line).rstrip()
         if not line:
@@ -156,6 +331,10 @@ def parse(text):
             if m:
                 cells.add(m.group(1))
                 section = "cell"
+            if m := GENERALIZATION.match(line):
+                gens[m.group(1)] = SLOT.findall(m.group(2))
+            if m := INSTANCE.match(line):
+                instances.append((m.group(1), m.group(2), BINDING.findall(m.group(3))))
             continue
         body = line.strip()
         if section == "relations":
@@ -168,7 +347,7 @@ def parse(text):
             m = SET.match(body)
             if m:
                 given.setdefault((m.group(1), m.group(2)), m.group(3))
-    return relations, chains, given, cells
+    return relations, chains, given, cells, gens, instances
 
 
 def beats(chains, a, b):
@@ -176,11 +355,66 @@ def beats(chains, a, b):
     return any(a in chain and b in chain and chain.index(a) < chain.index(b) for chain in chains)
 
 
-def solve(text):
-    """Ответ модели на задачу: задача без комментариев, решения и отчёт."""
-    relations, chains, given, cells = parse(text)
+def missing(text):
+    """Предпосылки задачи, которых в ней нет (⊥undef): требование, действие
+    правила или операция обобщения вне K, класс скилла не из classes:,
+    обобщение стрелки или слоты, которые она не заполнила."""
+    *_, gens, instances = parse(text)
+    unbound = [f"{name}: {of}" if of not in gens else f"{name}: {', '.join(s for s in gens[of] if s not in bound)}"
+               for name, of, bound in instances if of not in gens or set(gens[of]) - set(bound)]
+    classes, skill_classes, known, needed, section = set(), [], set(BUILTINS), [], None
+    for line in text.splitlines():
+        line = COMMENT.sub("", line).rstrip()
+        if not line:
+            continue
+        if not line[0].isspace():
+            head = line.strip()
+            section = head.split(":")[0].split()[0]
+            if section == "requires":
+                needed += [n.strip() for n in head.split(":", 1)[1].split(",") if n.strip()]
+            for pattern, into in ((GENERALIZATION, known), (INSTANCE, known)):
+                m = pattern.match(head)
+                if m:
+                    into.add(m.group(1))
+            m = RULE.match(head)
+            if m:
+                needed.append(m.group(1))
+            continue
+        body = line.strip()
+        if section == "classes":
+            classes.add(body.split(":")[0].strip())
+        elif section == "relations":
+            m = RELATION.match(body)
+            if m and m.group(4):
+                known.add(m.group(4))
+        elif section == "import":
+            key, _, items = body.partition(":")
+            names = [n.strip() for n in items.split(",") if n.strip()]
+            if key.strip() == "provides":
+                skill_classes += [n for n in names if n[0].isupper()]
+                known.update(n for n in names if not n[0].isupper())
+            elif key.strip() == "requires_class":
+                skill_classes += names
+        elif section == "generalization":
+            m = OPERATION.search(body)
+            if m:
+                needed.append(m.group(1))
+    return [n for n in needed if n not in known] + [c for c in skill_classes if c not in classes] + unbound
+
+
+def copy_of(text):
+    """Задача, как её повторяет ответ: без комментариев и лишних пустых строк."""
     copy = "\n".join(COMMENT.sub("", line).rstrip() for line in text.splitlines()).strip("\n") + "\n"
-    copy = re.sub(r"\n{3,}", "\n\n", copy)
+    return re.sub(r"\n{3,}", "\n\n", copy)
+
+
+def solve(text):
+    """Ответ модели на задачу: задача без комментариев, решения и отчёт.
+    Без предпосылки (missing) решений нет: модель не решает за оператора."""
+    relations, chains, given, cells, gens, instances = parse(text)
+    copy = copy_of(text)
+    if missing(text):
+        return copy
 
     # Что переносится: (цель, атрибут) -> [(источник, значение, имя отношения)].
     carried = collections.OrderedDict()
@@ -202,6 +436,14 @@ def solve(text):
         lose = next(o for o, w, _ in sources if w != given[(win, attr)])
         alternatives = values if all(re.fullmatch(r"[A-Za-z_]\w*", v) for v in values) else None
         decisions.append((target, attr, given[(win, attr)], alternatives, f"priority({win} < {lose})"))
+
+    # По стрелке: атрибут обобщения-схемы отношения — каждому его частному
+    # случаю, у которого атрибута нет. Слот задаёт сама стрелка.
+    labels = {rel for *_, rel in relations if rel}
+    for (source, attr), v in given.items():
+        if source in gens and source in labels and attr not in gens[source]:
+            decisions += [(name, attr, v, None, f"relation({source})") for name, of, _ in instances
+                          if of == source and (name, attr) not in given]
 
     if not decisions:
         return copy
@@ -226,6 +468,19 @@ def solve(text):
     return "\n".join(out) + "\n"
 
 
+def kind(task, answer):
+    """Вид пары для сводки."""
+    if missing(task):
+        return "без предпосылки"
+    if "priority(" in answer:
+        return "конфликт"
+    arrows = {name for name, _, _ in parse(task)[5]}
+    made = set(re.findall(r"set (\w+)\.", answer[len(copy_of(task)):]))
+    if made & arrows:
+        return "по стрелке" if made <= arrows else "перенос и по стрелке"
+    return "перенос" if made else "без решений"
+
+
 def check(fpcheck, texts):
     """Вердикты fpcheck по текстам [(id, text, model)]."""
     feed = "".join(json.dumps({"id": i, "text": t, "model": m}) + "\n" for i, t, m in texts)
@@ -237,49 +492,79 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--lexicon", required=True, help="fp/lexicon.yaml")
     ap.add_argument("--fpcheck", required=True)
-    ap.add_argument("--count", type=int, default=4000)
+    ap.add_argument("--count", type=int, default=5000)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--test", type=float, default=0.1, help="доля отложенных пар")
+    ap.add_argument("--h3", type=float, default=0.5,
+                    help="доля задач с решениями, у которых есть близнец без предпосылки (у задач без решений — треть её)")
     ap.add_argument("--tasks", help="каталог: первые --tasks-count отложенных задач файлами .fp для замера")
-    ap.add_argument("--tasks-count", type=int, default=30)
+    ap.add_argument("--tasks-count", type=int, default=40)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
     lex = Lexicon(args.lexicon)
-    pairs, seen = [], set()
-    while len(pairs) < int(args.count * 1.3):
-        t = task(rng, lex)
-        answer = solve(t)
-        if answer and t not in seen:  # отложенная задача не встречается в обучении
-            seen.add(t)
-            pairs.append((t, answer))
-    verdicts = check(args.fpcheck, [(f"t{i}", t, False) for i, (t, _) in enumerate(pairs)] +
-                     [(f"a{i}", a, True) for i, (_, a) in enumerate(pairs)])
+    # Группа — задача и её близнец без предпосылки: группа целиком либо в
+    # обучении, либо в отложенных.
+    groups, seen, total = [], set(), 0
+    while total < int(args.count * 1.3):
+        base = task(rng, lex)
+        texts = [render(base)]
+        decided = solve(texts[0]) not in (None, copy_of(texts[0]))
+        if rng.random() < (args.h3 if decided else args.h3 / 3):
+            texts.append(render(lacking(rng, lex, base)))
+        pairs = [(t, solve(t)) for t in texts]
+        if all(a and t not in seen for t, a in pairs):  # отложенная задача не встречается в обучении
+            seen.update(texts)
+            groups.append(pairs)
+            total += len(pairs)
+    flat = [(g, k, t, a) for g, pairs in enumerate(groups) for k, (t, a) in enumerate(pairs)]
+    verdicts = check(args.fpcheck, [(f"t{g}.{k}", t, False) for g, k, t, _ in flat] +
+                     [(f"a{g}.{k}", a, True) for g, k, _, a in flat])
+
+    def accepted(g, k, t):
+        found = (verdicts[f"t{g}.{k}"], verdicts[f"a{g}.{k}"])
+        lack = missing(t)
+        if not lack:
+            return all(v["ok"] for v in found), found
+        want = f"⊥undef {len(lack)}"
+        return all(v["syntax"] and v["codes"] == want for v in found), found
 
     kept, failures = [], collections.Counter()
-    for i, (t, answer) in enumerate(pairs):
-        bad = [v for v in (verdicts[f"t{i}"], verdicts[f"a{i}"]) if not v["ok"]]
-        if bad:
-            failures[bad[0]["first"].split(": ", 2)[-1][:90]] += 1
-            continue
-        kept.append({"task": t, "answer": answer})
-        if len(kept) == args.count:
+    for g, pairs in enumerate(groups):
+        group = []
+        for k, (t, answer) in enumerate(pairs):
+            ok, found = accepted(g, k, t)
+            if not ok:
+                first = next((v["first"] for v in found if not v["ok"]), ": : ожидался ⊥undef, а отказов нет")
+                failures[first.split(": ", 2)[-1][:90]] += 1
+                continue
+            group.append({"task": t, "answer": answer})
+        if group:
+            kept.append(group)
+        if sum(map(len, kept)) >= args.count:
             break
 
-    split = int(len(kept) * (1 - args.test))
+    rows, split = [], int(sum(map(len, kept)) * (1 - args.test))
+    for group in kept:
+        part = "train" if len(rows) < split else "test"
+        rows += [{**row, "split": part} for row in group]
     with open(args.out, "w", encoding="utf-8") as f:
-        for n, row in enumerate(kept):
-            f.write(json.dumps({**row, "split": "train" if n < split else "test"}, ensure_ascii=False) + "\n")
-    kinds = collections.Counter("priority(" in r["answer"] and "конфликт" or
-                                "report:" in r["answer"] and "перенос" or "без решений" for r in kept)
-    print(f"Пар: {len(kept)} из {len(pairs)} прошли проверку (обучение {split}, отложено {len(kept) - split}); "
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    kinds = collections.Counter(kind(r["task"], r["answer"]) for r in rows)
+    learned = sum(r["split"] == "train" for r in rows)
+    print(f"Пар: {len(rows)} из {total} прошли проверку (обучение {learned}, отложено {len(rows) - learned}); "
           + ", ".join(f"{k} {n}" for k, n in kinds.most_common()))
+    knowledge = collections.Counter(kind for r in rows for kind, mark in
+                                    (("import", "\nimport @"), ("requires:", "\nrequires:"), ("правило", "\nhard "),
+                                     ("обобщение", "\ngeneralization ")) if mark in r["task"])
+    print("Знание в задачах: " + ", ".join(f"{k} {n}" for k, n in knowledge.most_common()))
     for reason, n in failures.most_common(5):
         print(f"  отброшено {n}: {reason}")
     if args.tasks:
         os.makedirs(args.tasks, exist_ok=True)
-        for n, row in enumerate(kept[split:split + args.tasks_count], 1):
+        for n, row in enumerate([r for r in rows if r["split"] == "test"][:args.tasks_count], 1):
             with open(os.path.join(args.tasks, f"test{n:02}.fp"), "w", encoding="utf-8", newline="\n") as f:
                 f.write(row["task"])
         print(f"Задачи для замера: {args.tasks}")

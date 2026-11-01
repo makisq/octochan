@@ -28,6 +28,9 @@ instruct-модели она раскладывается по шаблону ч
 модель сама написала: повторная токенизация на стыке даёт другие токены
 («\n\n» одним вместо двух «\n»), и модель видела бы чужой путь.
 
+Каталог своей модели ℒ (own.py: веса с нуля и fpmtok.json) адаптер узнаёт
+сам: у неё свой словарь, и протокол ей не нужен.
+
     python adapter.py serve --model HuggingFaceTB/SmolLM2-135M-Instruct --listen 127.0.0.1:8090
     python adapter.py raw --model ... --prompt-file prompt.txt   # сырой вывод, без колец
 """
@@ -211,6 +214,15 @@ class Engine:
         return self.tok.decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
 
+def engine_for(model, device="cuda", dtype="bfloat16", chat=True):
+    """Движок по каталогу модели: своя модель ℒ (own.py) или модель Hugging Face."""
+    import own
+
+    if own.is_own(model):
+        return own.Engine(model, device)
+    return Engine(model, device, dtype, chat)
+
+
 def serve(engine, listen):
     host, port = listen.rsplit(":", 1)
 
@@ -259,7 +271,7 @@ def main():
     sub.choices["raw"].add_argument("--max-new-tokens", type=int, default=512)
     args = ap.parse_args()
 
-    engine = Engine(args.model, args.device, args.dtype, chat=not args.no_chat)
+    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat)
     if args.cmd == "serve":
         serve(engine, args.listen)
         return
