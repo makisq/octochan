@@ -22,6 +22,8 @@ import (
 
 // ModelPackage — решение, которое вывела модель: правила, поддержка кольца
 // 1, вердикт кольца 2 и, если был выбор, его признаки для калибровки.
+// Cluster — кластер повторяющихся инцидентов, по исходам которого взята
+// надёжность правил: задача повторяет его структуру.
 type ModelPackage struct {
 	Statement string   `json:"statement"`
 	Rules     []string `json:"rules"`
@@ -33,6 +35,7 @@ type ModelPackage struct {
 	LogProb   float64  `json:"logprob,omitempty"`
 	Options   int      `json:"options,omitempty"`
 	Gap       float64  `json:"gap,omitempty"`
+	Cluster   string   `json:"cluster,omitempty"`
 }
 
 // ModelQuestion — вопрос оператору: то, что модель сама не решила.
@@ -42,7 +45,21 @@ type ModelQuestion struct {
 	Values    []string `json:"values,omitempty"`
 	Statement string   `json:"statement,omitempty"`
 	Rules     []string `json:"rules,omitempty"`
+	Cluster   string   `json:"cluster,omitempty"`
 	Why       string   `json:"why"`
+}
+
+// ModelCluster — кластер повторяющихся инцидентов, структуру которого
+// повторяет задача (ochan incident learn, llama/learn.py): частных случаев,
+// исходов с весом давности, из них решено моделью самой, и её надёжность на
+// этой структуре.
+type ModelCluster struct {
+	Key       string  `json:"key"`
+	Instances int     `json:"instances"`
+	Solved    float64 `json:"solved"`
+	Outcomes  float64 `json:"outcomes"`
+	L         float64 `json:"l"`
+	U         float64 `json:"u"`
 }
 
 // Answer — ответ архитектурной модели.
@@ -54,8 +71,9 @@ type Answer struct {
 	Questions []ModelQuestion `json:"questions,omitempty"`
 	// Forced — утверждений, которые написала её логика; Chosen — выбранных
 	// её сетью среди допустимых.
-	Forced int `json:"forced"`
-	Chosen int `json:"chosen"`
+	Forced  int           `json:"forced"`
+	Chosen  int           `json:"chosen"`
+	Cluster *ModelCluster `json:"cluster,omitempty"`
 }
 
 // Generator — архитектурная модель: отвечает целиком сама.

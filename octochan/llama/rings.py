@@ -10,18 +10,29 @@
 - правило выбора между допустимыми пакетами: z = β₀ + β₁·log p₀ + β₂·L +
   β₃·(U − L) + β₄·G, P = σ(z); веса и поправку «оценка → наблюдаемая доля»
   даёт калибровка по журналу (fit.py), до неё — веса автора;
-- калибровка: монотонная поправка по журналу (изотоническая регрессия).
+- калибровка: монотонная поправка по журналу (изотоническая регрессия);
+- кластеры повторяющихся инцидентов (learn.py): задача, структура которой
+  повторяет обобщение кластера, получает надёжность правил по исходам его
+  инцидентов — на этой структуре, а не в среднем по журналу.
 
-Числа — параметры модели, файл rings.json рядом с весами: их пересчитывает
-fit.py из журнала решений ochan, как обучение пересчитывает веса.
+Числа — параметры модели, файл rings.json рядом с весами: их пересчитывают
+fit.py из журнала решений ochan и learn.py из созревших кластеров, как
+обучение пересчитывает веса. Каждая запись — новая версия в rings.versions/:
+прежние остаются, к любой можно откатиться (rollback).
 """
 
 import json
 import math
 import os
+import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+
+import logic
 
 FILE = "rings.json"
+VERSIONS = "rings.versions"
+LOG = "log.json"
 
 
 def beta_cdf(x, a, b):
@@ -100,6 +111,12 @@ class Params:
     # История прочтений (раздел 5.2): атрибут -> {значение: сколько раз
     # оператор задал его точно или одобрил такое сужение}.
     history: dict = field(default_factory=dict)
+    # Кластеры повторяющихся инцидентов (learn.py): ключ -> {"shape":
+    # обобщение — структура без частных имён, "similarity": порог похожести,
+    # "instances": инциденты — его частные случаи, "outcomes": [решила модель
+    # сама, исходов всего], "rules": правило -> [успехов, применений] на этой
+    # структуре}.
+    clusters: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls, path):
@@ -107,25 +124,86 @@ class Params:
         if not os.path.isfile(file):
             return cls()
         with open(file, encoding="utf-8") as f:
-            data = json.load(f)
+            return cls.of(json.load(f))
+
+    @classmethod
+    def of(cls, data):
         p = cls()
         for key, value in data.items():
             setattr(p, key, tuple(value) if key == "prior" else value)
         return p
 
-    def save(self, path):
-        with open(os.path.join(path, FILE), "w", encoding="utf-8") as f:
-            json.dump(self.__dict__, f, ensure_ascii=False, indent=1)
+    def save(self, path, note):
+        """Пишет rings.json и его версию в rings.versions/ с заметкой, откуда
+        она: прежние версии остаются. rings.json без версий — версия 0."""
+        folder = os.path.join(path, VERSIONS)
+        log = versions(path)
+        os.makedirs(folder, exist_ok=True)
+        if not log and os.path.isfile(os.path.join(path, FILE)):
+            shutil.copyfile(os.path.join(path, FILE), os.path.join(folder, "0.json"))
+            log.append({"version": 0, "time": None, "note": "до версий"})
+        n = log[-1]["version"] + 1 if log else 1
+        text = json.dumps(self.__dict__, ensure_ascii=False, indent=1)
+        for file in (os.path.join(folder, f"{n}.json"), os.path.join(path, FILE)):
+            with open(file, "w", encoding="utf-8") as f:
+                f.write(text)
+        log.append({"version": n, "time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "note": note})
+        with open(os.path.join(folder, LOG), "w", encoding="utf-8") as f:
+            json.dump(log, f, ensure_ascii=False, indent=1)
+        return n
 
-    def rule(self, name):
-        successes, uses = self.rules.get(name, (0, 0))
+    def rule(self, name, cluster=None):
+        """Надёжность правила: на структуре кластера — по исходам его
+        инцидентов, если правило там применялось, иначе по журналу."""
+        successes, uses = (cluster or {}).get("rules", {}).get(name) or self.rules.get(name, (0, 0))
         return reliability(successes, uses, self.prior)
+
+    def cluster_of(self, shape):
+        """Кластер, обобщение которого повторяет структура задачи: самый
+        похожий из тех, на которые она похожа не меньше их порога; иначе
+        (None, None)."""
+        best, found = -1.0, (None, None)
+        for key, c in sorted(self.clusters.items()):
+            s = logic.similarity(shape, c["shape"])
+            if s >= c["similarity"] and s > best:
+                best, found = s, (key, c)
+        return found
+
+    def outcomes(self, cluster):
+        """Надёжность модели на структуре кластера: сколько его инцидентов
+        она решила сама — тот же интервал, что у правила."""
+        return reliability(*cluster["outcomes"], self.prior)
 
     def score(self, logprob, lower, upper, binding):
         """Итоговая оценка пакета: σ(z), затем поправка калибровки."""
         b0, b1, b2, b3, b4 = self.weights
         z = b0 + b1 * logprob + b2 * lower + b3 * (upper - lower) + b4 * binding
         return calibrated(1 / (1 + math.exp(-max(-60.0, min(60.0, z)))), self.calibration)
+
+
+def versions(path):
+    """Версии параметров модели: [{"version", "time", "note"}], от старых."""
+    file = os.path.join(path, VERSIONS, LOG)
+    if not os.path.isfile(file):
+        return []
+    with open(file, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def rollback(path, version=None):
+    """Откат к версии (по умолчанию — предыдущей): она записывается новой
+    версией, так что откат тоже откатывается. Возвращает (к какой, новая)."""
+    log = versions(path)
+    if version is None:
+        if len(log) < 2:
+            raise ValueError("откатываться не к чему: версия одна")
+        version = log[-2]["version"]
+    file = os.path.join(path, VERSIONS, f"{version}.json")
+    if not os.path.isfile(file):
+        raise ValueError(f"версии {version} нет: {', '.join(str(v['version']) for v in log) or 'версий нет'}")
+    with open(file, encoding="utf-8") as f:
+        params = Params.of(json.load(f))
+    return version, params.save(path, f"откат к версии {version}")
 
 
 def calibrated(score, points):

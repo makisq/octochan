@@ -16,6 +16,14 @@
 
 Каждые --save-every шагов out — рабочая модель и состояние обучения;
 --resume продолжает с последнего сохранения.
+
+--init — дообучение: веса и словарь — готовой модели (например, на парах
+кластера инцидентов с примесью базового корпуса, learn.py --pairs). Новые
+веса пишутся в --out, прежний каталог остаётся — откат к нему; параметры
+колец (rings.json и его версии) переходят с весами.
+
+    python train_own.py --init G:/fpm-llm/models/own-small-2 --corpus pairs.jsonl \\
+        --out G:/fpm-llm/models/own-small-3 --epochs 1 --lr 1e-4
 """
 
 import argparse
@@ -23,6 +31,7 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 
 import torch
@@ -30,6 +39,8 @@ from transformers import LlamaForCausalLM
 
 import fpmtok
 import own
+import quantize
+import rings
 
 STATE = "train_state.pt"
 
@@ -92,7 +103,8 @@ def losses(model, ids, labels, answer):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--alphabet", required=True, help="ochan fp alphabet")
+    ap.add_argument("--alphabet", help="ochan fp alphabet: словарь новой модели")
+    ap.add_argument("--init", help="дообучение: начать с весов и словаря этой модели")
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--size", default="small", choices=sorted(own.SIZES))
@@ -110,11 +122,25 @@ def main():
     device = "cuda"
     state_path = os.path.join(args.out, STATE)
     resume = args.resume and os.path.isfile(state_path)
+    if args.init and os.path.abspath(args.init) == os.path.abspath(args.out):
+        raise SystemExit("--out должен быть новым каталогом: прежние веса остаются для отката")
+    if args.init and quantize.is_quantized(args.init):
+        raise SystemExit("дообучение — с полных весов, не квантованных")
     if resume:
         tok = fpmtok.Tokenizer.load(args.out)
-    else:
+    elif args.init:
+        tok = fpmtok.Tokenizer.load(args.init)
+        os.makedirs(args.out, exist_ok=True)
+        if os.path.isfile(os.path.join(args.init, rings.FILE)):
+            shutil.copyfile(os.path.join(args.init, rings.FILE), os.path.join(args.out, rings.FILE))
+        if os.path.isdir(os.path.join(args.init, rings.VERSIONS)):
+            shutil.copytree(os.path.join(args.init, rings.VERSIONS), os.path.join(args.out, rings.VERSIONS),
+                            dirs_exist_ok=True)
+    elif args.alphabet:
         with open(args.alphabet, encoding="utf-8") as f:
             tok = fpmtok.Tokenizer.build(f.read())
+    else:
+        raise SystemExit("нужно --alphabet (новая модель) или --init (дообучение)")
 
     train, skipped = examples(tok, args.corpus, "train", args.context)
     test, _ = examples(tok, args.corpus, "test", args.context)
@@ -122,6 +148,7 @@ def main():
           f"токенов в паре ~{sum(len(e[0]) for e in train) // max(1, len(train))}, словарь {len(tok)}", flush=True)
 
     model = (LlamaForCausalLM.from_pretrained(args.out) if resume
+             else LlamaForCausalLM.from_pretrained(args.init) if args.init
              else LlamaForCausalLM(own.config(tok, args.size, args.context))).to(device)
     model.train()
     print(f"Модель {args.size}: {sum(p.numel() for p in model.parameters()) / 1e6:.1f} млн параметров", flush=True)

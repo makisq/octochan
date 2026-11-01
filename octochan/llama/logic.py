@@ -302,6 +302,82 @@ class AnswerPlan:
             out += adm[0]
 
 
+CLASS_LINE = re.compile(r"(\w+)\s*:\s*(.*)$")
+WORD = re.compile(r'"([^"]*)"')
+
+
+def value_kind(value, is_word=None):
+    """Вид значения правки: неточное, число с единицей, слово языка или
+    частное имя — как fp.Shape."""
+    if (vague := inexact(value)) is not None:
+        return "{…}" if vague.variants is not None else ".." + vague.unit
+    # Число — как fp.ParseNumber: цифры и точки, дальше единица.
+    head, unit = re.match(r"([0-9.]*)(.*)$", value.strip(), re.S).groups()
+    try:
+        float(head)
+        return "#" + unit.strip()
+    except ValueError:
+        pass
+    if is_word is not None and is_word(value):
+        return value
+    return "_"
+
+
+def shape(text, is_word=None):
+    """Структура задачи без частных имён — те же факты, что fp.Shape у
+    ochan: цель, классы, отношения, приоритеты, жёсткие правила, обобщения,
+    частные случаи по обобщению и правки «Цель.атрибут» с видом значения.
+    Две записи одной структуры на разных хостах дают одни и те же факты:
+    по ним модель узнаёт кластер повторяющихся инцидентов (learn.py)."""
+    facts, class_of, goal, sets, particular, section = set(), {}, None, [], set(), None
+    for line in text.replace("\r", "").split("\n"):
+        line = COMMENT.sub(r"\1", line).rstrip()
+        if not line.strip():
+            continue
+        if not line[0].isspace():
+            head = line.strip()
+            section = head.split(":")[0].split()[0]
+            if section == "goal":
+                goal = head.split(":", 1)[1].strip()
+            elif m := CELL.match(head):
+                section = "cell"
+            elif GENERALIZATION.match(head):
+                section = "generalization"
+            elif m := INSTANCE.match(head):
+                particular.add(m.group(1))
+                facts.add("instance of " + m.group(2))
+            elif m := RULE.match(head):
+                kind = "forbid" if head.startswith(("hard forbid", "??n_")) else "require"
+                facts.add(f"rule {kind} {m.group(1)}")
+            continue
+        body = line.strip()
+        if section == "classes" and (m := CLASS_LINE.match(body)):
+            facts.add("class " + m.group(1))
+            for word in WORD.findall(m.group(2)):
+                class_of[word] = m.group(1)
+        elif section == "relations" and (m := RELATION.match(body)):
+            facts.add(f"relation {m.group(1)} {m.group(2)} {m.group(3)}")
+        elif section == "priority":
+            chain = [c.strip() for c in body.split("<")]
+            facts.update(f"priority {hi} < {lo}" for hi, lo in zip(chain, chain[1:]))
+        elif section == "generalization" and (m := OPERATION.search(body)):
+            facts.add(f"generalization {body.split('=')[0].strip()} = {m.group(1)}")
+        elif section == "cell" and (m := SET.match(body)):
+            sets.append(m.groups())
+    if goal is not None:
+        facts.add("goal " + class_of.get(goal, ""))
+    for root, attr, value in sets:
+        facts.add(f"set {'_' if root in particular else root}.{attr} {value_kind(re.sub(r' {2,}', ' ', value), is_word)}")
+    return sorted(facts)
+
+
+def similarity(a, b):
+    """Похожесть двух структур: 1 − δ, δ — расстояние Жаккара по фактам
+    (А.5 манифеста), как fp.Similarity. Пустые — одинаковы."""
+    a, b = set(a), set(b)
+    return len(a & b) / len(a | b) if a | b else 1.0
+
+
 def missing(text):
     """Недостающие предпосылки (⊥undef): требование, действие правила или
     операция обобщения вне K, класс скилла не из classes:, обобщение

@@ -7,7 +7,9 @@
 20 выборов с обоими исходами), веса и калибровка остаются прежними.
 
 Результат — rings.json рядом с весами: та же модель после журнала, как
-после обучения — новые веса.
+после обучения — новые веса. Каждый пересчёт — новая версия в
+rings.versions/, к прежней можно откатиться (learn.py --rollback).
+Кластеры инцидентов (learn.py) пересчёт по журналу не трогает.
 
     ochan fp journal export > journal.json
     python fit.py --model G:/fpm-llm/models/own-small-2 --journal journal.json
@@ -16,6 +18,7 @@
 import argparse
 import json
 import math
+import os
 
 import rings
 
@@ -43,8 +46,9 @@ def main():
         params.calibration = []
         raw = [params.score(*x) for x in features]
         params.calibration = rings.isotonic(raw, outcomes)
-    params.save(args.model)
+    version = params.save(args.model, f"журнал решений {os.path.basename(args.journal)}")
 
+    print(f"Версия параметров {version} (откат — learn.py --rollback)")
     print(f"Правил {len(params.rules)}, выборов с исходом {len(choices)}, порог well_True {params.well_true}, "
           f"условный счёт {params.prior[0]:g}/{params.prior[1]:g}")
     for rule, (successes, uses) in sorted(params.rules.items()):

@@ -97,12 +97,19 @@ func generateArchitectural(cmd *cobra.Command, gen embedded.Generator, info embe
 	cmd.PrintErrf("Утверждений: %d, токенов: 0, обращений к модели: 1\n", len(out.Statements))
 	cmd.PrintErrf("Логика:      утверждений %d — единственные допустимые; выбрано моделью среди допустимых: %d\n",
 		ans.Forced, ans.Chosen)
+	if c := ans.Cluster; c != nil {
+		cmd.PrintErrf("Кластер:     %s — задача повторяет структуру %d инцидентов; модель решила сама %.1f из %.1f, "+
+			"надёжность [%.2f; %.2f]\n", c.Key, c.Instances, c.Solved, c.Outcomes, c.L, c.U)
+	}
 	if len(omitted) > 0 {
 		cmd.PrintErrf("Кольцо 2:    не принято %d — вопросы оператору\n", len(omitted))
 	}
 	for _, q := range ans.Questions {
 		what := q.Statement
-		if what == "" {
+		switch {
+		case what == "" && q.Attr == "" && q.Cluster != "":
+			what = "задача целиком"
+		case what == "":
 			what = fmt.Sprintf("%s у %s — %s", q.Attr, strings.Join(q.Targets, ", "), strings.Join(q.Values, " или "))
 		}
 		cmd.PrintErrf("Вопрос оператору: %s; %s\n", what, q.Why)
@@ -153,7 +160,7 @@ func recordArchitectural(cmd *cobra.Command, info embedded.Info, task archTask, 
 	for _, p := range ans.Packages {
 		d.Packages = append(d.Packages, workspace.DecisionPackage{
 			Statement: p.Statement, Rules: p.Rules, L: p.L, U: p.U, Verdict: p.Verdict,
-			Chosen: p.Chosen, Score: p.Score, LogProb: p.LogProb, Options: p.Options, Gap: p.Gap,
+			Chosen: p.Chosen, Score: p.Score, LogProb: p.LogProb, Options: p.Options, Gap: p.Gap, Cluster: p.Cluster,
 		})
 		if p.Verdict == string(rings.WellTrue) {
 			accepted = append(accepted, &rings.Package{Rules: p.Rules, Support: rings.Interval{L: p.L, U: p.U}})
