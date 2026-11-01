@@ -25,15 +25,24 @@ import (
 //	  engine: llama.cpp         # что за адаптером: для отчёта и сверки
 //	  endpoint: http://127.0.0.1:8080
 //	  model: ./models/llama-3.1-8b-q4.gguf
-//	  rings:
+//	  decoder:                  # декодер ochan — для чужого локального движка
 //	    tau: 0.42               # кольцо 0
+//	    derive: true            # выводимое пишет логика ochan
 //
 // protocol — модель внешняя (по MCP), задачи — формальным промптом, кольца
 // 1–3 читают её готовый ответ. natural — та же внешняя модель, задачи и
 // письма на естественном языке (прежний fp.mode: natural). embedded —
-// своя локальная модель: ochan ведёт генерацию сам, кольцо 0 и маска языка
-// не дают ей напечатать токен ниже порога и утверждение вне ℒ. Эта модель
-// знает только формальный промпт: natural с ней несовместим.
+// локальная модель по протоколу движка v1, только формальный промпт:
+// natural с ней несовместим.
+//
+// Подходов два, и делятся они не по месту, а по тому, чья модель. Своя
+// модель ℒ (/v1/info: "generate": true) — архитектурная, и режим у неё
+// один: логика и кольца в её коде, ответ она пишет целиком сама, ochan
+// проверяет его снаружи. Её параметры — rings.json рядом с весами (fit.py,
+// learn.py); настройки декодера к ней не применяются. Чужой локальный
+// движок (только распределение следующего токена) ведёт декодер ochan —
+// это протокольный подход на своей машине: кольцо 0 и маска языка не дают
+// ему напечатать токен ниже порога и утверждение вне ℒ.
 
 type llmModeKind string
 
@@ -79,14 +88,46 @@ func protocolMode(mode llmModeKind) fp.Mode {
 	return fp.Formal
 }
 
-// llmTau — порог кольца 0.
+// Настройки декодера ochan — llm.decoder.*; прежние ключи читаются, пока
+// нового нет в конфиге.
+var decoderOld = map[string]string{
+	"tau": "llm.rings.tau", "max_tokens": "llm.max_tokens", "retries": "llm.retries", "derive": "llm.derive",
+}
+
+var decoderNames = []string{"tau", "derive", "max_tokens", "retries"}
+
+// decoderKey — ключ настройки декодера, который действует.
+func decoderKey(name string) string {
+	key := "llm.decoder." + name
+	if old := decoderOld[name]; !viper.InConfig(key) && viper.IsSet(old) {
+		return old
+	}
+	return key
+}
+
+// decoderInConfig — настройки декодера, заданные в конфиге, и прежние
+// ключи среди них.
+func decoderInConfig() (set, old []string) {
+	for _, name := range decoderNames {
+		switch key := decoderKey(name); {
+		case key != "llm.decoder."+name:
+			set, old = append(set, key), append(old, key)
+		case viper.InConfig(key):
+			set = append(set, key)
+		}
+	}
+	return set, old
+}
+
+// llmTau — порог кольца 0 декодера.
 func llmTau() (float64, error) {
-	tau, err := fraction(viper.Get("llm.rings.tau"))
+	key := decoderKey("tau")
+	tau, err := fraction(viper.Get(key))
 	if err != nil {
-		return 0, fmt.Errorf("llm.rings.tau: %w", err)
+		return 0, fmt.Errorf("%s: %w", key, err)
 	}
 	if tau == 0 {
-		return 0, errors.New("llm.rings.tau: 0 — порога нет, кольцо 0 пропускало бы всё")
+		return 0, fmt.Errorf("%s: 0 — порога нет, кольцо 0 пропускало бы всё", key)
 	}
 	return tau, nil
 }
@@ -99,11 +140,40 @@ func modeLine(mode llmModeKind) string {
 		if err != nil {
 			return "embedded (" + err.Error() + ")"
 		}
-		return fmt.Sprintf("embedded (кольцо 0 активно, τ=%g: на позицию проходит не больше %d токенов)", tau, rings.MaxPass(tau))
+		return fmt.Sprintf("embedded (своя модель — логика и кольца в её коде; чужой движок ведёт декодер ochan: "+
+			"кольцо 0, τ=%g — на позицию не больше %d токенов)", tau, rings.MaxPass(tau))
 	case llmNatural:
 		return "natural (задачи и письма на естественном языке; кольца 0 нет)"
 	}
 	return "protocol (модель внешняя: кольца 1–3 читают готовый ответ, кольца 0 нет)"
+}
+
+// printApproach — подход к модели по тому, что движок сказал о себе: своя
+// модель — архитектурная, чужой движок ведёт декодер ochan.
+func printApproach(cmd *cobra.Command, info embedded.Info) {
+	set, old := decoderInConfig()
+	if info.Generate {
+		cmd.Println("Подход:  архитектурный — своя модель ℒ: логика и кольца в её коде, ответ она пишет сама, ochan проверяет его снаружи")
+		cmd.Println("Кольца:  параметры модели — rings.json рядом с весами (llama/fit.py, llama/learn.py)")
+		if len(set) > 0 {
+			cmd.Printf("внимание: %s — настройки декодера ochan для чужого движка; своя модель их не читает\n", strings.Join(set, ", "))
+		}
+	} else if tau, err := llmTau(); err != nil {
+		cmd.Printf("Подход:  протокольный — чужой движок ведёт декодер ochan; %v\n", err)
+	} else {
+		derive := "пишет модель (llm.decoder.derive: false)"
+		if viper.GetBool(decoderKey("derive")) {
+			derive = "пишет логика ochan"
+		}
+		cmd.Printf("Подход:  протокольный — чужой движок ведёт декодер ochan: кольцо 0, τ=%g; выводимое из посылок %s\n", tau, derive)
+	}
+	for _, key := range old {
+		for name, was := range decoderOld {
+			if was == key {
+				cmd.Printf("внимание: %s — прежний ключ, теперь llm.decoder.%s\n", key, name)
+			}
+		}
+	}
 }
 
 func llmEngine() (*embedded.HTTP, error) {
@@ -129,9 +199,11 @@ var llmCmd = &cobra.Command{
 	Use:   "llm",
 	Short: "Модель: режим, движок встроенной модели, генерация",
 	Long: "Режим — llm.mode: protocol (модель внешняя, по MCP), natural (внешняя, на\n" +
-		"естественном языке) или embedded (своя локальная модель: ochan ведёт\n" +
-		"генерацию сам, кольцо 0 и маска языка внутри неё). Без аргументов —\n" +
-		"режим и, для embedded, движок: доступен ли и что о себе говорит.",
+		"естественном языке) или embedded (локальная модель по протоколу движка\n" +
+		"v1). Своя модель ℒ — архитектурная: логика и кольца в её коде, ответ она\n" +
+		"пишет сама. Чужой локальный движок ведёт декодер ochan (llm.decoder.*):\n" +
+		"кольцо 0 и маска языка внутри генерации. Без аргументов — режим и, для\n" +
+		"embedded, движок: доступен ли, что о себе говорит и какой подход у него.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		mode, err := llmMode()
@@ -157,6 +229,7 @@ var llmCmd = &cobra.Command{
 			if want := viper.GetString("llm.engine"); want != "" && !strings.EqualFold(want, info.Engine) {
 				cmd.Printf("внимание: llm.engine: %s, а по адресу отвечает %s\n", want, info.Engine)
 			}
+			printApproach(cmd, info)
 		}
 		if model := viper.GetString("llm.model"); model != "" {
 			cmd.Printf("Модель:  %s (её загружает адаптер)\n", model)
@@ -173,14 +246,19 @@ var (
 
 var llmGenerateCmd = &cobra.Command{
 	Use:   "generate [--prompt задача.fp] [--out файл]",
-	Short: "Встроенная модель пишет ответ на языке: кольцо 0 и маска языка внутри генерации",
+	Short: "Локальная модель пишет ответ на языке: своя — сама, чужую ведёт декодер ochan",
 	Long: "Модель получает протокол и задачу (--prompt — формальный промпт оператора)\n" +
-		"и пишет ответ. На каждом шаге ochan берёт у движка распределение\n" +
-		"следующего токена: токен ниже порога llm.rings.tau не берётся (кольцо 0),\n" +
-		"комментарий и символы вне ASCII — тоже. Собранная строка — утверждение —\n" +
-		"проверяется по языку; не в языке — откат к её началу, и путь, который\n" +
-		"увёл из языка, запрещён. Ответ — только принятые утверждения, и целиком он\n" +
-		"проходит проверку языка; иначе ответа нет.\n\n" +
+		"и пишет ответ. Сначала ochan сверяет протокол движка (/v1/info): без\n" +
+		"подтверждённого протокола генерации нет.\n\n" +
+		"Своя модель ℒ — архитектурная: логика и кольца в её коде, ответ на задачу\n" +
+		"она пишет целиком сама, а ochan проверяет его снаружи и пишет в журнал\n" +
+		"решений. Настройки декодера llm.decoder.* к ней не применяются.\n\n" +
+		"Чужой движок ведёт декодер ochan: на каждом шаге ochan берёт у движка\n" +
+		"распределение следующего токена, токен ниже порога llm.decoder.tau не\n" +
+		"берётся (кольцо 0), комментарий и символы вне ASCII — тоже. Собранная\n" +
+		"строка — утверждение — проверяется по языку; не в языке — откат к её\n" +
+		"началу, и путь, который увёл из языка, запрещён. Ответ — только принятые\n" +
+		"утверждения, и целиком он проходит проверку языка; иначе ответа нет.\n\n" +
 		"Задачу не на языке и задачу без предпосылки (⊥undef: требование,\n" +
 		"операция, скилл, обобщение, которых нет) модель не получает: ochan сам\n" +
 		"возвращает перечень недостающего — догадывать его модели нечем.\n\n" +
@@ -194,10 +272,6 @@ var llmGenerateCmd = &cobra.Command{
 		}
 		if mode != llmEmbedded {
 			return fmt.Errorf("llm generate — для своей модели: llm.mode: embedded (сейчас %s; внешняя модель пишет сама, через MCP)", mode)
-		}
-		tau, err := llmTau()
-		if err != nil {
-			return err
 		}
 		engine, err := llmEngine()
 		if err != nil {
@@ -239,17 +313,32 @@ var llmGenerateCmd = &cobra.Command{
 			plan = fp.PlanAnswer(src.Content, r.Program)
 			task = archTask{name: src.Name, text: src.Content, plan: plan, premises: premisesOf(r.Program)}
 		}
-		info, _ := engine.Info(cmd.Context())
-		// Архитектурная модель отвечает целиком сама: её логика и кольца в
-		// её коде, ochan только проверяет ответ.
-		if info.Generate && plan != nil {
+		// Протокол движка — строгий: не подтвердил его — генерации нет.
+		info, err := engine.Info(cmd.Context())
+		if err != nil {
+			return fmt.Errorf("%w — генерации нет: ochan говорит с движком только по подтверждённому протоколу", err)
+		}
+		// Своя модель — архитектурная, и режим у неё один: отвечает целиком
+		// сама, её логика и кольца в её коде, ochan только проверяет ответ.
+		if info.Generate {
+			if plan == nil {
+				return errors.New("своя модель отвечает на задачу: --prompt задача.fp — без задачи ей отвечать не на что")
+			}
+			if set, _ := decoderInConfig(); len(set) > 0 {
+				cmd.PrintErrf("внимание: %s — настройки декодера ochan для чужого движка; своя модель их не читает\n",
+					strings.Join(set, ", "))
+			}
 			return generateArchitectural(cmd, engine, info, prompt, task, opts)
 		}
 
+		tau, err := llmTau()
+		if err != nil {
+			return err
+		}
 		cfg := embedded.Config{
 			Tau:       tau,
-			MaxTokens: viper.GetInt("llm.max_tokens"),
-			Retries:   viper.GetInt("llm.retries"),
+			MaxTokens: viper.GetInt(decoderKey("max_tokens")),
+			Retries:   viper.GetInt(decoderKey("retries")),
 			Statement: func(prefix, statement string) []fp.Diagnostic {
 				return fp.StatementSyntax(prefix, statement, opts)
 			},
@@ -262,7 +351,7 @@ var llmGenerateCmd = &cobra.Command{
 		// где посылки оставляют выбор.
 		if plan != nil {
 			cfg.Prefix = plan.Copy
-			if viper.GetBool("llm.derive") {
+			if viper.GetBool(decoderKey("derive")) {
 				cfg.Packages = plan.Next
 			}
 		}

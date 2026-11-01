@@ -214,7 +214,7 @@ func (d *decoder) next(ctx context.Context, prefix string) (Step, error) {
 		return s, nil
 	}
 	if d.out.Calls >= d.cfg.MaxTokens {
-		return Step{}, d.fail("модель спрошена %d раз, а ответ не сложился: предел llm.max_tokens", d.out.Calls)
+		return Step{}, d.fail("модель спрошена %d раз, а ответ не сложился: предел llm.decoder.max_tokens", d.out.Calls)
 	}
 	d.out.Calls++
 	s, err := d.engine.Next(ctx, d.prompt, prefix, d.top)
@@ -369,7 +369,7 @@ func (d *decoder) packages(ctx context.Context, adm []string) (bool, error) {
 			return false, d.fail("логика оставила выбор из %d утверждений, а движок их не оценивает (нет /v1/score)", len(adm))
 		}
 		if d.out.Calls >= d.cfg.MaxTokens {
-			return false, d.fail("модель спрошена %d раз, а ответ не сложился: предел llm.max_tokens", d.out.Calls)
+			return false, d.fail("модель спрошена %d раз, а ответ не сложился: предел llm.decoder.max_tokens", d.out.Calls)
 		}
 		d.out.Calls++
 		scores, err := scorer.Score(ctx, d.prompt, d.accepted, adm)
