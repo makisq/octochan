@@ -975,6 +975,9 @@ func (p *parser) reportBlock(c *cursor) {
 			p.report(key.Pos, ErrSyn, "в записи отчёта поля q, choice, alternatives, basis, получено %q", key.Text)
 		}
 	}
+	if entry != nil && p.atEnd() {
+		entry.AtEnd = true
+	}
 	if len(p.prog.Report) == 0 {
 		p.report(Pos{c.ln.no, 1}, ErrSyn, "раздел report: пуст")
 		p.incomplete(p.atEnd())

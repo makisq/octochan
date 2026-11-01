@@ -1010,12 +1010,16 @@ func (c *checker) checkReport() {
 		}
 		seen[entry.Question] = entry.Pos.Line
 
+		// Запись в конце текста ещё может получить choice и basis
+		// следующими строками.
 		if entry.Choice == nil {
 			c.report(entry.Pos, ErrSyn, "в записи %s нет choice", entry.Question)
+			c.diags[len(c.diags)-1].Incomplete = entry.AtEnd
 			continue
 		}
 		if entry.Basis == nil {
 			c.report(entry.Pos, ErrSyn, "в записи %s нет basis: решение без основания не принимается", entry.Question)
+			c.diags[len(c.diags)-1].Incomplete = entry.AtEnd
 			continue
 		}
 		if len(entry.Alternatives) > 0 && !contains(entry.Alternatives, entry.Choice.Text) {

@@ -219,6 +219,9 @@ type ReportEntry struct {
 	Choice       *Value
 	Alternatives []string
 	Basis        *Basis
+	// AtEnd — запись последняя в тексте: недостающие поля ещё может
+	// дописать продолжение.
+	AtEnd bool
 }
 
 // Basis — основание решения.
