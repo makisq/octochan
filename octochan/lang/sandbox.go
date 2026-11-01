@@ -180,7 +180,10 @@ func realPath(path string) (string, error) {
 			}
 			return real, nil
 		}
-		if !errors.Is(err, os.ErrNotExist) {
+		// Имени, которого на этой системе быть не может (на Windows — с
+		// переводом строки, кавычкой и т. п.), нет так же, как просто
+		// отсутствующего: аргумент с текстом — путь в никуда, а не ошибка.
+		if !errors.Is(err, os.ErrNotExist) && !impossibleName(err) {
 			return "", err
 		}
 		// Ссылка, ведущая в никуда, раскрыться не может. Запись по ней

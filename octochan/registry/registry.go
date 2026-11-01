@@ -63,11 +63,12 @@ type Source struct {
 	Priority int
 }
 
-// InferKind — вид источника по адресу: file:// и путь — каталог, .git и
-// /scm/ (Bitbucket Server) — git, остальное — HTTP.
+// InferKind — вид источника по адресу: file:// и путь (на Windows и
+// C:\reg) — каталог, .git и /scm/ (Bitbucket Server) — git, остальное —
+// HTTP.
 func InferKind(raw string) string {
 	switch {
-	case strings.HasPrefix(raw, "file://") || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "."):
+	case strings.HasPrefix(raw, "file://") || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, ".") || filepath.IsAbs(raw):
 		return KindFile
 	case strings.HasPrefix(raw, "git+") || strings.HasSuffix(raw, ".git") || strings.Contains(raw, "/scm/"):
 		return KindGit
@@ -435,11 +436,26 @@ func redact(text string) string {
 	return regexp.MustCompile(`(://[^/@:\s]+:)[^@\s]+@`).ReplaceAllString(text, "${1}***@")
 }
 
+// filePath — каталог источника file:// (или сам путь). Диск Windows
+// приходит в трёх видах: file:///C:/reg (url.Parse отдаёт путь /C:/reg),
+// file://C:/reg (диск попадает в хост) и file://C:\reg (url.Parse его не
+// берёт вовсе) — везде это C:\reg. На Unix дисков нет, VolumeName там
+// пуст, и путь — ровно путь из адреса.
 func filePath(raw string) string {
-	if u, err := url.Parse(raw); err == nil && u.Scheme == "file" {
-		return filepath.FromSlash(u.Path)
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "file" {
+		if rest, ok := strings.CutPrefix(raw, "file://"); ok && filepath.VolumeName(rest) != "" {
+			return filepath.FromSlash(rest)
+		}
+		return raw
 	}
-	return raw
+	p := u.Path
+	if filepath.VolumeName(u.Host) != "" {
+		p = u.Host + p
+	} else if filepath.VolumeName(strings.TrimPrefix(p, "/")) != "" {
+		p = strings.TrimPrefix(p, "/")
+	}
+	return filepath.FromSlash(p)
 }
 
 // ---------------------------------------------------------------------------

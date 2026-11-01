@@ -10,7 +10,7 @@ import (
 // комментарий — нет.
 func TestStatementSyntax(t *testing.T) {
 	doc := "goal: count\n\nclasses:\n  Count : \"count\"\n  Period : \"period\"\n\ncell incidents:\n" +
-		"  set Count.total = 3\n  set Period.length = 7 d\n"
+		"  set Count.total = 3\n  set Period.length = 7 d\n\nreport:\n  q: total\n    choice: 3\n    basis: not_in_prompt\n"
 	prefix := ""
 	for _, line := range strings.SplitAfter(doc, "\n") {
 		if line == "" {
@@ -34,6 +34,9 @@ func TestStatementSyntax(t *testing.T) {
 		{"goal: count\n\nclasses:\n  Count : \"count\"\n\ncell c:\n", "  set Count.total = hello world\n", "лишнее"},
 		// Пустой раздел, за которым начат другой, — уже не «недописан».
 		{"goal: count\n\nclasses:\n", "cell c:\n", "раздел classes: пуст"},
+		// Запись отчёта, за которой начата следующая, — тоже.
+		{"goal: count\n\nclasses:\n  Count : \"count\"\n\ncell c:\n  set Count.total = 3\n\nreport:\n  q: total\n",
+			"  q: length\n", "нет choice"},
 	} {
 		bad := StatementSyntax(c.prefix, c.line, Options{})
 		if len(bad) == 0 || !strings.Contains(bad[0].Msg, c.want) {
@@ -44,5 +47,9 @@ func TestStatementSyntax(t *testing.T) {
 	// тексте — отказ.
 	if r := CheckModelText("m", "goal: count\n", Options{}); r.InLanguage() {
 		t.Fatal("цель без класса в готовом тексте прошла")
+	}
+	// Запись без basis в конце готового текста — отказ.
+	if r := CheckModelText("m", strings.TrimSuffix(doc, "    basis: not_in_prompt\n"), Options{}); r.InLanguage() {
+		t.Fatal("запись без basis в готовом тексте прошла")
 	}
 }

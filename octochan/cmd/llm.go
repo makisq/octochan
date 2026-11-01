@@ -181,6 +181,9 @@ var llmGenerateCmd = &cobra.Command{
 		"проверяется по языку; не в языке — откат к её началу, и путь, который\n" +
 		"увёл из языка, запрещён. Ответ — только принятые утверждения, и целиком он\n" +
 		"проходит проверку языка; иначе ответа нет.\n\n" +
+		"Задачу не на языке и задачу без предпосылки (⊥undef: требование,\n" +
+		"операция, скилл, обобщение, которых нет) модель не получает: ochan сам\n" +
+		"возвращает перечень недостающего — догадывать его модели нечем.\n\n" +
 		"Ответ — в stdout (или --out), сводка колец — в stderr: ответ можно сразу\n" +
 		"отправить, например ochan mail send --to operators -.",
 	Args: cobra.NoArgs,
@@ -210,8 +213,23 @@ var llmGenerateCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
-			if r := fp.CheckText(src.Name, src.Content, opts); !r.InLanguage() {
+			r := fp.CheckText(src.Name, src.Content, opts)
+			if !r.InLanguage() {
 				return fmt.Errorf("%s: задача не на языке (%s) — модель её не получит", src.Name, countCodes(r.Syntax()))
+			}
+			// Недостающую предпосылку модель не восполняет (П5, раздел 5.2
+			// манифеста): перечень недостающего возвращает сама система, и
+			// вопрос уходит оператору. Отказ не зависит от того, выучила ли
+			// модель H3.
+			var missing []string
+			for _, d := range r.Diagnostics {
+				if d.Code == fp.ErrUndef {
+					missing = append(missing, "  "+d.String())
+				}
+			}
+			if len(missing) > 0 {
+				return fmt.Errorf("%s: не хватает предпосылок (⊥undef %d) — модель задачу не получит, вопрос к оператору:\n%s",
+					src.Name, len(missing), strings.Join(missing, "\n"))
 			}
 			prompt += "\n\n# Task\n\n" + src.Content
 		}

@@ -16,7 +16,9 @@ func TestParsePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Scenario != filepath.Join("/srv/policies", "tune.yaml") || len(p.Sum) != 64 {
+	// На Windows /srv — путь без диска: Abs дописывает текущий.
+	scenario, _ := filepath.Abs(filepath.Join("/srv/policies", "tune.yaml"))
+	if p.Scenario != scenario || len(p.Sum) != 64 {
 		t.Fatalf("сценарий %q, сумма %q", p.Scenario, p.Sum)
 	}
 	for _, tc := range []struct {

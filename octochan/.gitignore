@@ -29,3 +29,6 @@ snapshot_*.json
 ochan-mcp
 ochan-mcp.exe
 mcp/octochan-mcp
+
+# Python: кеш байт-кода адаптера Ламы
+__pycache__/
