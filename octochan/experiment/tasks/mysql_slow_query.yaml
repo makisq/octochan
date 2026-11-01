@@ -1,0 +1,25 @@
+id: mysql_slow_query
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  threshold: 2 s
+open: []
+weights:
+  threshold: 3
+natural:
+- 'Включи журнал медленных запросов MySQL: порог где-то от 1 до 5 секунд, а по задержке он 2 секунды.'
+- 'Slow query log: порог журнала неточно — 1..5 s; точный порог задержки — 2 s.'
+formal:
+- "goal: tuned\n\nclasses:\n  Query   : \"query\"\n  Latency : \"latency\"\n  Log     : \"log\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Latency --defines--> Log (latency_threshold)\n  Log --strives_to-->\
+  \ State\n\ncell c1:\n  set Latency.threshold = 2 s\n  set Log.threshold = 1..5 s\n"
+- "goal: tuned\n\nclasses:\n  Query   : \"query\"\n  Latency : \"delay\"\n  Log     : \"journal\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Latency --defines--> Log (latency_threshold)\n  Log --strives_to-->\
+  \ State\n\ncell c1:\n  set Log.threshold = 1..5 s\n  set Latency.threshold = 2 s\n"
+- "goal: tuned\n\nclasses:\n  Query   : \"query\"\n  Latency : \"delay\"\n  Log     : \"journal\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Latency --defines--> Log (latency_threshold)\n  Log --strives_to-->\
+  \ State\n\ncell c1:\n  set Latency.threshold = 2 s\n  set Log.threshold = 1..5 s\n"
+lacking:
+- "goal: tuned\n\nclasses:\n  Query   : \"query\"\n  Latency : \"latency\"\n  Log     : \"log\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Latency --defines--> Log (latency_threshold)\n  Log --strives_to-->\
+  \ State\n\ncell c1:\n  set Latency.threshold = 2 s\n  set Log.threshold = 1..5 s\n\nrequires: incident_history\n"

@@ -1,0 +1,31 @@
+id: docker_restart_policy
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  maximum: '5'
+  delay: 10 s
+open: []
+weights:
+  maximum: 3
+  delay: 3
+natural:
+- 'Политика перезапуска контейнера: при сбое не больше пяти раз, пауза 10 секунд.'
+- 'restart: on-failure:5 с задержкой 10 s.'
+formal:
+- "goal: running\n\nclasses:\n  Restart : \"restart\"\n  Failure : \"failure\"\n  Service : \"daemon\"\
+  \n  State   : \"running\"\n\nrelations:\n  Failure --defines--> Restart (failure_restart)\n  Restart\
+  \ --modifies--> Service (restart_policy)\n  Service --strives_to--> State\n\ncell c1:\n  set Failure.maximum\
+  \ = 5\n  set Restart.delay = 10 s\n"
+- "goal: running\n\nclasses:\n  Restart : \"reboot\"\n  Failure : \"fault\"\n  Service : \"application\"\
+  \n  State   : \"running\"\n\nrelations:\n  Restart --modifies--> Service (restart_policy)\n  Service\
+  \ --strives_to--> State\n  Failure --defines--> Restart (failure_restart)\n\ncell c1:\n  set Restart.delay\
+  \ = 10 s\n  set Failure.maximum = 5\n"
+- "goal: running\n\nclasses:\n  Restart : \"restart\"\n  Failure : \"fault\"\n  Service : \"application\"\
+  \n  State   : \"running\"\n\nrelations:\n  Service --strives_to--> State\n  Restart --modifies--> Service\
+  \ (restart_policy)\n  Failure --defines--> Restart (failure_restart)\n\ncell c1:\n  set Failure.maximum\
+  \ = 5\n  set Restart.delay = 10 s\n"
+lacking:
+- "goal: running\n\nclasses:\n  Restart : \"restart\"\n  Failure : \"failure\"\n  Service : \"daemon\"\
+  \n  State   : \"running\"\n\nrelations:\n  Failure --defines--> Restart (failure_restart)\n  Restart\
+  \ --modifies--> Service (restart_policy)\n  Service --strives_to--> State\n\ncell c1:\n  set Failure.maximum\
+  \ = 5\n  set Restart.delay = 10 s\n\nrequires: incident_history\n"

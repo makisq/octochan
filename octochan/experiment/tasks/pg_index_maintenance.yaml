@@ -1,0 +1,30 @@
+id: pg_index_maintenance
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  window: night
+open:
+- level
+weights:
+  window: 3
+natural:
+- Перестрой индексы ночью; уровень заполнения таблиц — низкий или средний, точно не знаю.
+- Обслуживание индексов в ночное окно; fillfactor таблиц — low или medium, решить не по чему.
+formal:
+- "goal: healthy\n\nclasses:\n  Index       : \"index\"\n  Table       : \"table\"\n  Maintenance : \"\
+  maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Maintenance --modifies--> Index (index_maintenance)\n\
+  \  Index --strives_to--> State\n\ncell c1:\n  set Maintenance.window = night\n  set Table.level = {low,\
+  \ medium}\n"
+- "goal: healthy\n\nclasses:\n  Index       : \"index\"\n  Table       : \"table\"\n  Maintenance : \"\
+  maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Maintenance --modifies--> Index (index_maintenance)\n\
+  \  Index --strives_to--> State\n\ncell c1:\n  set Table.level = {low, medium}\n  set Maintenance.window\
+  \ = night\n"
+- "goal: healthy\n\nclasses:\n  Index       : \"index\"\n  Table       : \"table\"\n  Maintenance : \"\
+  maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Maintenance --modifies--> Index (index_maintenance)\n\
+  \  Index --strives_to--> State\n\ncell c1:\n  set Table.level = {low, medium}\n  set Maintenance.window\
+  \ = night\n"
+lacking:
+- "goal: healthy\n\nclasses:\n  Index       : \"index\"\n  Table       : \"table\"\n  Maintenance : \"\
+  maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Maintenance --modifies--> Index (index_maintenance)\n\
+  \  Index --strives_to--> State\n\ncell c1:\n  set Maintenance.window = night\n  set Table.level = {low,\
+  \ medium}\n\nrequires: incident_history\n"

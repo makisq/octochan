@@ -1,8 +1,10 @@
 id: pg_memory
+domain: СУБД
 status: 'черновик: эталон и пересказы утверждает владелец'
 intended:
   buffers: 8 GB
   maximum: '400'
+open: []
 weights:
   buffers: 3
   maximum: 3

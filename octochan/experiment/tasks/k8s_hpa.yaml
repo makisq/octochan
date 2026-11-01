@@ -1,0 +1,31 @@
+id: k8s_hpa
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  threshold: 70 %
+  maximum: '10'
+open: []
+weights:
+  threshold: 4
+  maximum: 4
+natural:
+- 'Автомасштабирование: цель по CPU 70 %, не больше 10 реплик.'
+- HPA с targetCPUUtilization 70 % и maxReplicas 10.
+formal:
+- "goal: stable\n\nclasses:\n  Scaling : \"scale\"\n  Load    : \"load\"\n  Count   : \"count\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Load --defines--> Scaling (load_threshold)\n  Count --limits--> Scaling\
+  \ (replica_count)\n  Scaling --strives_to--> State\n\ncell c1:\n  set Load.threshold = 70 %\n  set Count.maximum\
+  \ = 10\n"
+- "goal: stable\n\nclasses:\n  Scaling : \"resize\"\n  Load    : \"traffic\"\n  Count   : \"count\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Scaling --strives_to--> State\n  Load --defines--> Scaling\
+  \ (load_threshold)\n  Count --limits--> Scaling (replica_count)\n\ncell c1:\n  set Count.maximum = 10\n\
+  \  set Load.threshold = 70 %\n"
+- "goal: stable\n\nclasses:\n  Scaling : \"resize\"\n  Load    : \"load\"\n  Count   : \"number\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Count --limits--> Scaling (replica_count)\n  Load --defines--> Scaling\
+  \ (load_threshold)\n  Scaling --strives_to--> State\n\ncell c1:\n  set Load.threshold = 70 %\n  set\
+  \ Count.maximum = 10\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Scaling : \"scale\"\n  Load    : \"load\"\n  Count   : \"count\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Load --defines--> Scaling (load_threshold)\n  Count --limits--> Scaling\
+  \ (replica_count)\n  Scaling --strives_to--> State\n\ncell c1:\n  set Load.threshold = 70 %\n  set Count.maximum\
+  \ = 10\n\nrequires: incident_history\n"

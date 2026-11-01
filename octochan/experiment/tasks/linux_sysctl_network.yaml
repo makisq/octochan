@@ -1,0 +1,30 @@
+id: linux_sysctl_network
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  maximum: '1024'
+open: []
+weights:
+  maximum: 4
+natural:
+- 'Очередь соединений ядра: соединениям нужно 4096, память разрешает 1024 — память важнее.'
+- 'net.core.somaxconn: 4096 против 1024 по памяти; приоритет у памяти.'
+formal:
+- "goal: tuned\n\nclasses:\n  Network    : \"network\"\n  Connection : \"connection\"\n  Memory     :\
+  \ \"memory\"\n  State      : \"tuned\"\n\nrelations:\n  Connection --defines--> Network (connection_queue)\n\
+  \  Memory --limits--> Network (memory_budget)\n  Network --strives_to--> State\n\npriority:\n  Memory\
+  \ < Connection\n\ncell c1:\n  set Connection.maximum = 4096\n  set Memory.maximum = 1024\n"
+- "goal: tuned\n\nclasses:\n  Network    : \"network\"\n  Connection : \"session\"\n  Memory     : \"\
+  ram\"\n  State      : \"tuned\"\n\nrelations:\n  Memory --limits--> Network (memory_budget)\n  Connection\
+  \ --defines--> Network (connection_queue)\n  Network --strives_to--> State\n\npriority:\n  Memory <\
+  \ Connection\n\ncell c1:\n  set Memory.maximum = 1024\n  set Connection.maximum = 4096\n"
+- "goal: tuned\n\nclasses:\n  Network    : \"network\"\n  Connection : \"session\"\n  Memory     : \"\
+  memory\"\n  State      : \"tuned\"\n\nrelations:\n  Network --strives_to--> State\n  Memory --limits-->\
+  \ Network (memory_budget)\n  Connection --defines--> Network (connection_queue)\n\npriority:\n  Memory\
+  \ < Connection\n\ncell c1:\n  set Connection.maximum = 4096\n  set Memory.maximum = 1024\n"
+lacking:
+- "goal: tuned\n\nclasses:\n  Network    : \"network\"\n  Connection : \"connection\"\n  Memory     :\
+  \ \"memory\"\n  State      : \"tuned\"\n\nrelations:\n  Connection --defines--> Network (connection_queue)\n\
+  \  Memory --limits--> Network (memory_budget)\n  Network --strives_to--> State\n\npriority:\n  Memory\
+  \ < Connection\n\ncell c1:\n  set Connection.maximum = 4096\n  set Memory.maximum = 1024\n\nrequires:\
+  \ incident_history\n"

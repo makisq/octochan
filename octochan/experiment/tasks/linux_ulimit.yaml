@@ -1,0 +1,25 @@
+id: linux_ulimit
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  maximum: '65536'
+open: []
+weights:
+  maximum: 3
+natural:
+- Подними предел открытых файлов процесса до 65536; файлов в системе около 100 тысяч.
+- ulimit -n 65536 для процесса.
+formal:
+- "goal: tuned\n\nclasses:\n  File    : \"file\"\n  Process : \"process\"\n  Limit   : \"limit\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Limit --limits--> Process (file_limit)\n  Process --strives_to--> State\n\
+  \ncell c1:\n  set Limit.maximum = 65536\n  set File.count = 100000\n"
+- "goal: tuned\n\nclasses:\n  File    : \"file\"\n  Process : \"worker\"\n  Limit   : \"limit\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Limit --limits--> Process (file_limit)\n  Process --strives_to--> State\n\
+  \ncell c1:\n  set File.count = 100000\n  set Limit.maximum = 65536\n"
+- "goal: tuned\n\nclasses:\n  File    : \"file\"\n  Process : \"worker\"\n  Limit   : \"limit\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Process --strives_to--> State\n  Limit --limits--> Process (file_limit)\n\
+  \ncell c1:\n  set File.count = 100000\n  set Limit.maximum = 65536\n"
+lacking:
+- "goal: tuned\n\nclasses:\n  File    : \"file\"\n  Process : \"process\"\n  Limit   : \"limit\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Limit --limits--> Process (file_limit)\n  Process --strives_to--> State\n\
+  \ncell c1:\n  set Limit.maximum = 65536\n  set File.count = 100000\n\nrequires: incident_history\n"

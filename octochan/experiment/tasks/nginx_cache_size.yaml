@@ -1,0 +1,30 @@
+id: nginx_cache_size
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  maximum: 10 GB
+  size: 100 MB
+open: []
+weights:
+  maximum: 4
+  size: 4
+natural:
+- 'Кеш nginx: на диске не больше 10 ГБ, зона ключей 100 МБ.'
+- 'proxy_cache: max_size 10 GB по квоте диска, keys_zone 100 MB.'
+formal:
+- "goal: fast\n\nclasses:\n  Cache   : \"cache\"\n  Storage : \"disk\"\n  Size    : \"size\"\n  Pace \
+  \   : \"fast\"\n\nrelations:\n  Storage --limits--> Cache (disk_quota)\n  Size --defines--> Cache (cache_size)\n\
+  \  Cache --strives_to--> Pace\n\ncell c1:\n  set Storage.maximum = 10 GB\n  set Size.size = 100 MB\n"
+- "goal: fast\n\nclasses:\n  Cache   : \"cache\"\n  Storage : \"storage\"\n  Size    : \"size\"\n  Pace\
+  \    : \"fast\"\n\nrelations:\n  Storage --limits--> Cache (disk_quota)\n  Cache --strives_to--> Pace\n\
+  \  Size --defines--> Cache (cache_size)\n\ncell c1:\n  set Size.size = 100 MB\n  set Storage.maximum\
+  \ = 10 GB\n"
+- "goal: fast\n\nclasses:\n  Cache   : \"cache\"\n  Storage : \"volume\"\n  Size    : \"capacity\"\n \
+  \ Pace    : \"fast\"\n\nrelations:\n  Size --defines--> Cache (cache_size)\n  Cache --strives_to-->\
+  \ Pace\n  Storage --limits--> Cache (disk_quota)\n\ncell c1:\n  set Storage.maximum = 10 GB\n  set Size.size\
+  \ = 100 MB\n"
+lacking:
+- "goal: fast\n\nclasses:\n  Cache   : \"cache\"\n  Storage : \"disk\"\n  Size    : \"size\"\n  Pace \
+  \   : \"fast\"\n\nrelations:\n  Storage --limits--> Cache (disk_quota)\n  Size --defines--> Cache (cache_size)\n\
+  \  Cache --strives_to--> Pace\n\ncell c1:\n  set Storage.maximum = 10 GB\n  set Size.size = 100 MB\n\
+  \nrequires: incident_history\n"

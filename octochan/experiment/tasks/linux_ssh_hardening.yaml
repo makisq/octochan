@@ -1,0 +1,31 @@
+id: linux_ssh_hardening
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  state: disabled
+  maximum: '3'
+open: []
+weights:
+  state: 3
+  maximum: 3
+natural:
+- 'Закрой SSH: вход по паролю выключить, не больше трёх попыток. Писать только sshd_config.'
+- 'sshd: PasswordAuthentication off, MaxAuthTries 3, запись только в sshd_config.'
+formal:
+- "goal: safe\n\nclasses:\n  Secret     : \"key\"\n  Permission : \"access\"\n  User       : \"user\"\n\
+  \  Safety     : \"safe\"\n\nrelations:\n  Secret --defines--> Permission (key_access)\n  Permission\
+  \ --limits--> User (user_access)\n  User --strives_to--> Safety\n\nhard forbid write(except = {sshd_config})\n\
+  \ncell c1:\n  set Secret.state = disabled\n  set Permission.maximum = 3\n"
+- "goal: safe\n\nclasses:\n  Secret     : \"certificate\"\n  Permission : \"permission\"\n  User     \
+  \  : \"account\"\n  Safety     : \"safe\"\n\nrelations:\n  User --strives_to--> Safety\n  Secret --defines-->\
+  \ Permission (key_access)\n  Permission --limits--> User (user_access)\n\nhard forbid write(except =\
+  \ {sshd_config})\n\ncell c1:\n  set Secret.state = disabled\n  set Permission.maximum = 3\n"
+- "goal: safe\n\nclasses:\n  Secret     : \"credential\"\n  Permission : \"permission\"\n  User      \
+  \ : \"user\"\n  Safety     : \"safe\"\n\nrelations:\n  Secret --defines--> Permission (key_access)\n\
+  \  Permission --limits--> User (user_access)\n  User --strives_to--> Safety\n\nhard forbid write(except\
+  \ = {sshd_config})\n\ncell c1:\n  set Secret.state = disabled\n  set Permission.maximum = 3\n"
+lacking:
+- "goal: safe\n\nclasses:\n  Secret     : \"key\"\n  Permission : \"access\"\n  User       : \"user\"\n\
+  \  Safety     : \"safe\"\n\nrelations:\n  Secret --defines--> Permission (key_access)\n  Permission\
+  \ --limits--> User (user_access)\n  User --strives_to--> Safety\n\nhard forbid write(except = {sshd_config})\n\
+  \ncell c1:\n  set Secret.state = disabled\n  set Permission.maximum = 3\n\nrequires: incident_history\n"

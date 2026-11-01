@@ -1,0 +1,31 @@
+id: k8s_drain_node
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  window: night
+  timeout: 30 s
+open: []
+weights:
+  window: 3
+  timeout: 3
+natural:
+- Выведи узел из работы ночью, подам на завершение 30 секунд. Писать можно только node_label.
+- kubectl drain в ночное окно, grace period 30 s; запись разрешена только в node_label.
+formal:
+- "goal: safe\n\nclasses:\n  Drain  : \"drain\"\n  Node   : \"node\"\n  Period : \"window\"\n  Safety\
+  \ : \"safe\"\n\nrelations:\n  Period --defines--> Drain (maintenance_window)\n  Drain --modifies-->\
+  \ Node (node_drain)\n  Node --strives_to--> Safety\n\nhard forbid write(except = {node_label})\n\ncell\
+  \ c1:\n  set Period.window = night\n  set Drain.timeout = 30 s\n"
+- "goal: safe\n\nclasses:\n  Drain  : \"drain\"\n  Node   : \"machine\"\n  Period : \"night\"\n  Safety\
+  \ : \"safe\"\n\nrelations:\n  Node --strives_to--> Safety\n  Drain --modifies--> Node (node_drain)\n\
+  \  Period --defines--> Drain (maintenance_window)\n\nhard forbid write(except = {node_label})\n\ncell\
+  \ c1:\n  set Period.window = night\n  set Drain.timeout = 30 s\n"
+- "goal: safe\n\nclasses:\n  Drain  : \"drain\"\n  Node   : \"host\"\n  Period : \"day\"\n  Safety : \"\
+  safe\"\n\nrelations:\n  Node --strives_to--> Safety\n  Period --defines--> Drain (maintenance_window)\n\
+  \  Drain --modifies--> Node (node_drain)\n\nhard forbid write(except = {node_label})\n\ncell c1:\n \
+  \ set Period.window = night\n  set Drain.timeout = 30 s\n"
+lacking:
+- "goal: safe\n\nclasses:\n  Drain  : \"drain\"\n  Node   : \"node\"\n  Period : \"window\"\n  Safety\
+  \ : \"safe\"\n\nrelations:\n  Period --defines--> Drain (maintenance_window)\n  Drain --modifies-->\
+  \ Node (node_drain)\n  Node --strives_to--> Safety\n\nhard forbid write(except = {node_label})\n\ncell\
+  \ c1:\n  set Period.window = night\n  set Drain.timeout = 30 s\n\nrequires: incident_history\n"

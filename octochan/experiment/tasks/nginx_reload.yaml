@@ -1,7 +1,9 @@
 id: nginx_reload
+domain: nginx
 status: 'черновик: эталон и пересказы утверждает владелец'
 intended:
   version: '42'
+open: []
 weights:
   version: 3
 natural:

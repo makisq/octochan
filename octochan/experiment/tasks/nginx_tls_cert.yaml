@@ -1,0 +1,29 @@
+id: nginx_tls_cert
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  deadline: 90 d
+open: []
+weights:
+  deadline: 3
+natural:
+- 'Обнови TLS-сертификат nginx: срок 90 дней, сервис на порту 443. Писать можно только tls_config.'
+- Новый сертификат на 90 d для сервиса на 443; конфиг меняется сертификатом, запись — только в tls_config.
+formal:
+- "goal: ready\n\nclasses:\n  Secret  : \"certificate\"\n  Service : \"service\"\n  Config  : \"configuration\"\
+  \n  State   : \"ready\"\n\nrelations:\n  Secret --modifies--> Config (certificate_change)\n  Config\
+  \ --strives_to--> State\n\nhard forbid write(except = {tls_config})\n\ncell c1:\n  set Secret.deadline\
+  \ = 90 d\n  set Service.port = 443\n"
+- "goal: ready\n\nclasses:\n  Secret  : \"secret\"\n  Service : \"service\"\n  Config  : \"config\"\n\
+  \  State   : \"ready\"\n\nrelations:\n  Config --strives_to--> State\n  Secret --modifies--> Config\
+  \ (certificate_change)\n\nhard forbid write(except = {tls_config})\n\ncell c1:\n  set Secret.deadline\
+  \ = 90 d\n  set Service.port = 443\n"
+- "goal: ready\n\nclasses:\n  Secret  : \"certificate\"\n  Service : \"service\"\n  Config  : \"config\"\
+  \n  State   : \"ready\"\n\nrelations:\n  Config --strives_to--> State\n  Secret --modifies--> Config\
+  \ (certificate_change)\n\nhard forbid write(except = {tls_config})\n\ncell c1:\n  set Secret.deadline\
+  \ = 90 d\n  set Service.port = 443\n"
+lacking:
+- "goal: ready\n\nclasses:\n  Secret  : \"certificate\"\n  Service : \"service\"\n  Config  : \"configuration\"\
+  \n  State   : \"ready\"\n\nrelations:\n  Secret --modifies--> Config (certificate_change)\n  Config\
+  \ --strives_to--> State\n\nhard forbid write(except = {tls_config})\n\ncell c1:\n  set Secret.deadline\
+  \ = 90 d\n  set Service.port = 443\n\nrequires: incident_history\n"

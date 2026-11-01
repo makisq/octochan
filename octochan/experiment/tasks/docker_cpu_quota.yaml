@@ -1,0 +1,28 @@
+id: docker_cpu_quota
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended: {}
+open:
+- limit
+weights: {}
+natural:
+- 'Процессоры контейнера: нагрузке нужно 2, квота даёт 1. Что главнее — не сказано.'
+- 'cpus: 2 по нагрузке против 1 по квоте, приоритета нет.'
+formal:
+- "goal: stable\n\nclasses:\n  Load    : \"workload\"\n  Limit   : \"quota\"\n  Service : \"application\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Load --defines--> Service (workload_level)\n  Limit --limits-->\
+  \ Service (quota_limit)\n  Service --strives_to--> State\n\ncell c1:\n  set Load.limit = 2\n  set Limit.limit\
+  \ = 1\n"
+- "goal: stable\n\nclasses:\n  Load    : \"traffic\"\n  Limit   : \"cap\"\n  Service : \"application\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Service --strives_to--> State\n  Load --defines--> Service\
+  \ (workload_level)\n  Limit --limits--> Service (quota_limit)\n\ncell c1:\n  set Load.limit = 2\n  set\
+  \ Limit.limit = 1\n"
+- "goal: stable\n\nclasses:\n  Load    : \"load\"\n  Limit   : \"cap\"\n  Service : \"application\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Load --defines--> Service (workload_level)\n  Limit --limits-->\
+  \ Service (quota_limit)\n  Service --strives_to--> State\n\ncell c1:\n  set Limit.limit = 1\n  set Load.limit\
+  \ = 2\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Load    : \"workload\"\n  Limit   : \"quota\"\n  Service : \"application\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Load --defines--> Service (workload_level)\n  Limit --limits-->\
+  \ Service (quota_limit)\n  Service --strives_to--> State\n\ncell c1:\n  set Load.limit = 2\n  set Limit.limit\
+  \ = 1\n\nrequires: incident_history\n"

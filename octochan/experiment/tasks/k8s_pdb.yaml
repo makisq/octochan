@@ -1,0 +1,30 @@
+id: k8s_pdb
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  minimum: '2'
+  batch: '1'
+open: []
+weights:
+  minimum: 3
+  batch: 3
+natural:
+- 'Не дай вывести слишком много подов разом: доступно не меньше двух, выводить по одному.'
+- 'PodDisruptionBudget: minAvailable 2, drain по одному.'
+formal:
+- "goal: available\n\nclasses:\n  Count : \"number\"\n  Group : \"pool\"\n  Drain : \"drain\"\n  State\
+  \ : \"available\"\n\nrelations:\n  Count --limits--> Drain (count_limit)\n  Drain --modifies--> Group\
+  \ (pool_drain)\n  Group --strives_to--> State\n\ncell c1:\n  set Count.minimum = 2\n  set Drain.batch\
+  \ = 1\n"
+- "goal: available\n\nclasses:\n  Count : \"average\"\n  Group : \"pool\"\n  Drain : \"drain\"\n  State\
+  \ : \"available\"\n\nrelations:\n  Drain --modifies--> Group (pool_drain)\n  Group --strives_to--> State\n\
+  \  Count --limits--> Drain (count_limit)\n\ncell c1:\n  set Drain.batch = 1\n  set Count.minimum = 2\n"
+- "goal: available\n\nclasses:\n  Count : \"average\"\n  Group : \"group\"\n  Drain : \"drain\"\n  State\
+  \ : \"available\"\n\nrelations:\n  Group --strives_to--> State\n  Count --limits--> Drain (count_limit)\n\
+  \  Drain --modifies--> Group (pool_drain)\n\ncell c1:\n  set Drain.batch = 1\n  set Count.minimum =\
+  \ 2\n"
+lacking:
+- "goal: available\n\nclasses:\n  Count : \"number\"\n  Group : \"pool\"\n  Drain : \"drain\"\n  State\
+  \ : \"available\"\n\nrelations:\n  Count --limits--> Drain (count_limit)\n  Drain --modifies--> Group\
+  \ (pool_drain)\n  Group --strives_to--> State\n\ncell c1:\n  set Count.minimum = 2\n  set Drain.batch\
+  \ = 1\n\nrequires: incident_history\n"

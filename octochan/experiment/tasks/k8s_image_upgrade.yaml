@@ -1,0 +1,30 @@
+id: k8s_image_upgrade
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  version: new
+open:
+- order
+weights:
+  version: 4
+natural:
+- Обнови образ сначала на staging на новую версию; способ — канарейкой или постепенно, не решили.
+- 'Upgrade образа: версия new со staging, стратегия canary или rolling — открыт вопрос; при сбое откат.'
+formal:
+- "goal: release\n\nclasses:\n  Upgrade     : \"upgrade\"\n  Rollback    : \"rollback\"\n  Version   \
+  \  : \"release\"\n  Environment : \"staging\"\n\nrelations:\n  Environment --defines--> Upgrade (staging_first)\n\
+  \  Rollback --terminates--> Upgrade (failure_rollback)\n  Upgrade --strives_to--> Version\n\ncell c1:\n\
+  \  set Environment.version = new\n  set Upgrade.order = {canary, rolling}\n"
+- "goal: release\n\nclasses:\n  Upgrade     : \"upgrade\"\n  Rollback    : \"revert\"\n  Version     :\
+  \ \"release\"\n  Environment : \"environment\"\n\nrelations:\n  Rollback --terminates--> Upgrade (failure_rollback)\n\
+  \  Environment --defines--> Upgrade (staging_first)\n  Upgrade --strives_to--> Version\n\ncell c1:\n\
+  \  set Environment.version = new\n  set Upgrade.order = {canary, rolling}\n"
+- "goal: release\n\nclasses:\n  Upgrade     : \"upgrade\"\n  Rollback    : \"undo\"\n  Version     : \"\
+  release\"\n  Environment : \"environment\"\n\nrelations:\n  Environment --defines--> Upgrade (staging_first)\n\
+  \  Upgrade --strives_to--> Version\n  Rollback --terminates--> Upgrade (failure_rollback)\n\ncell c1:\n\
+  \  set Upgrade.order = {canary, rolling}\n  set Environment.version = new\n"
+lacking:
+- "goal: release\n\nclasses:\n  Upgrade     : \"upgrade\"\n  Rollback    : \"rollback\"\n  Version   \
+  \  : \"release\"\n  Environment : \"staging\"\n\nrelations:\n  Environment --defines--> Upgrade (staging_first)\n\
+  \  Rollback --terminates--> Upgrade (failure_rollback)\n  Upgrade --strives_to--> Version\n\ncell c1:\n\
+  \  set Environment.version = new\n  set Upgrade.order = {canary, rolling}\n\nrequires: incident_history\n"

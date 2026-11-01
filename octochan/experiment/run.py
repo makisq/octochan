@@ -16,7 +16,7 @@
 X(I) из отчёта (А.5): по ним metrics.py считает согласованность и
 правильность.
 
-    python run.py prepare --from ../llama/tasks/*.fp --lexicon ../fp/lexicon.yaml   # черновики задач
+    python run.py prepare --from "sources/*.fp" --lexicon ../fp/lexicon.yaml   # задачи из промптов и natural.yaml
     python run.py run --condition architectural --model own-small-2 --endpoint http://127.0.0.1:8093 \
         --ochan ochan.exe --home G:/fpm-llm/runs/exp-home --out runs/architectural-own-small-2.jsonl
 """
@@ -134,6 +134,8 @@ def rewrite(text, lexicon, seed):
 def prepare(args):
     with open(args.lexicon, encoding="utf-8") as f:
         lexicon = yaml.safe_load(f)
+    with open(os.path.join(HERE, "natural.yaml"), encoding="utf-8") as f:
+        natural = yaml.safe_load(f)
     os.makedirs(os.path.join(HERE, "tasks"), exist_ok=True)
     for path in sorted(p for pattern in args.sources for p in glob.glob(pattern)):
         name = os.path.splitext(os.path.basename(path))[0]
@@ -143,12 +145,16 @@ def prepare(args):
             continue
         text = open(path, encoding="utf-8").read()
         plan = logic.AnswerPlan(text)
+        about = natural.get(name, {})
         task = {
             "id": name,
+            "domain": about.get("domain", ""),
             "status": "черновик: эталон и пересказы утверждает владелец",
             "intended": {d.attr: d.value for d in plan.decisions},
+            "open": sorted({q.attr for q in plan.open} | {a for _, a in plan.task.inexact if not any(
+                d.attr == a for d in plan.decisions)}),
             "weights": weights(text),
-            "natural": [],
+            "natural": about.get("natural", []),
             "formal": [text] + [rewrite(text, lexicon, f"{name}/{k}") for k in (1, 2)],
             "lacking": [text.rstrip("\n") + "\n\nrequires: incident_history\n"],
         }

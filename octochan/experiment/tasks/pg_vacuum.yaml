@@ -1,0 +1,31 @@
+id: pg_vacuum
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  period: nightly
+  threshold: 20 %
+open: []
+weights:
+  period: 3
+  threshold: 3
+natural:
+- 'Настрой ночное обслуживание таблиц: расписание — каждую ночь, порог запуска — 20 %.'
+- 'Vacuum по ночам: обслуживание идёт по расписанию nightly и срабатывает при 20 % мёртвых строк.'
+formal:
+- "goal: healthy\n\nclasses:\n  Table       : \"table\"\n  Schedule    : \"schedule\"\n  Maintenance :\
+  \ \"maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Schedule --defines--> Maintenance (nightly_window)\n\
+  \  Maintenance --modifies--> Table (table_maintenance)\n  Table --strives_to--> State\n\ncell c1:\n\
+  \  set Schedule.period = nightly\n  set Maintenance.threshold = 20 %\n"
+- "goal: healthy\n\nclasses:\n  Table       : \"table\"\n  Schedule    : \"schedule\"\n  Maintenance :\
+  \ \"maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Maintenance --modifies--> Table (table_maintenance)\n\
+  \  Schedule --defines--> Maintenance (nightly_window)\n  Table --strives_to--> State\n\ncell c1:\n \
+  \ set Schedule.period = nightly\n  set Maintenance.threshold = 20 %\n"
+- "goal: healthy\n\nclasses:\n  Table       : \"table\"\n  Schedule    : \"schedule\"\n  Maintenance :\
+  \ \"maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Maintenance --modifies--> Table (table_maintenance)\n\
+  \  Schedule --defines--> Maintenance (nightly_window)\n  Table --strives_to--> State\n\ncell c1:\n \
+  \ set Maintenance.threshold = 20 %\n  set Schedule.period = nightly\n"
+lacking:
+- "goal: healthy\n\nclasses:\n  Table       : \"table\"\n  Schedule    : \"schedule\"\n  Maintenance :\
+  \ \"maintenance\"\n  State       : \"healthy\"\n\nrelations:\n  Schedule --defines--> Maintenance (nightly_window)\n\
+  \  Maintenance --modifies--> Table (table_maintenance)\n  Table --strives_to--> State\n\ncell c1:\n\
+  \  set Schedule.period = nightly\n  set Maintenance.threshold = 20 %\n\nrequires: incident_history\n"
