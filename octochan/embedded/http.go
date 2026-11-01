@@ -47,11 +47,13 @@ import (
 // Protocol — версия протокола движка.
 const Protocol = 1
 
-// Info — что о себе говорит движок.
+// Info — что о себе говорит движок. Generate — модель архитектурная и
+// отвечает целиком сама (arch.go).
 type Info struct {
 	Protocol int    `json:"protocol"`
 	Engine   string `json:"engine"`
 	Model    string `json:"model"`
+	Generate bool   `json:"generate,omitempty"`
 }
 
 // NextRequest — тело POST /v1/next.
@@ -189,10 +191,31 @@ func Handler(info Info, engine Engine) http.Handler {
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(v)
 	}
+	generator, architectural := engine.(Generator)
 	mux.HandleFunc("/v1/info", func(w http.ResponseWriter, r *http.Request) {
 		info.Protocol = Protocol
+		info.Generate = architectural
 		reply(w, http.StatusOK, info)
 	})
+	if architectural {
+		mux.HandleFunc("/v1/generate", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				reply(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST"})
+				return
+			}
+			var req GenerateRequest
+			if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil {
+				reply(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			a, err := generator.Generate(r.Context(), req.Prompt)
+			if err != nil {
+				reply(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			reply(w, http.StatusOK, a)
+		})
+	}
 	mux.HandleFunc("/v1/next", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			reply(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST"})

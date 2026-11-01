@@ -237,6 +237,14 @@ cell c3:
 - A cell is a declarative edit: `set target.attribute = value`. A value is
   a name, a dotted reference or a number with a unit (`30 km/h`, `10 %`).
   There are no increments (`increase`, `add`).
+- A value may be inexact: given, but vague — a set of readings
+  `set Restart.window = {night, weekend}` or a range
+  `set Pool.size = 100..500`. You may narrow it to one value only inside
+  it and only from an explicit source: an exact premise carried by a
+  relation (`basis: relation(name)`) or the history of the operator's
+  readings of that attribute (`basis: history(attribute)`), with the
+  readings as `alternatives`. A value outside is `⊥conflict`. If no
+  source singles out one reading, do not narrow: the operator decides.
 - `binds_to:` binds the cell to code: a file and a line range.
 - Dependencies come from reads and writes: c3 reads `detour.side`, which
   c2 wrote, so c3 depends on c2.
@@ -256,7 +264,8 @@ report:
 - An entry is a question `q`, a choice `choice`, alternatives
   `alternatives` and a basis `basis`.
 - The basis is `not_in_prompt`, `priority(A < B)`, `relation(name)`,
-  `skill(@name)` or `rule(action)`, and it must exist in the prompt.
+  `skill(@name)`, `rule(action)` or `history(attribute)` (narrowing an
+  inexact value of that attribute), and it must exist in the prompt.
 - The report holds only what the prompt left open. If the prompt set a
   value and you chose another, that is `⊥conflict`: you do not override
   what was set.

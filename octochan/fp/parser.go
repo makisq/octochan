@@ -364,6 +364,38 @@ func (c *cursor) numberRange() (*Range, bool) {
 	return r, true
 }
 
+// setValue читает значение правки: точное (value) или неточное —
+// множество вариантов {a, b} или диапазон 100..500 (раздел 5.2).
+func (c *cursor) setValue() (Value, bool) {
+	pos := c.pos()
+	switch {
+	case c.is(tPunct, "{"):
+		variants, ok := c.domain()
+		if !ok {
+			return Value{}, false
+		}
+		return Value{Pos: pos, Text: "{" + strings.Join(variants, ", ") + "}", Variants: variants}, true
+	case c.rangeAhead():
+		r, ok := c.numberRange()
+		if !ok {
+			return Value{}, false
+		}
+		return Value{Pos: pos, Text: r.Text, Range: r}, true
+	}
+	return c.value("значение")
+}
+
+// rangeAhead — впереди диапазон: число, необязательная единица, затем «..».
+func (c *cursor) rangeAhead() bool {
+	toks, i := c.ln.toks, c.i
+	if i >= len(toks) || toks[i].kind != tNumber {
+		return false
+	}
+	for i++; i < len(toks) && (toks[i].kind == tIdent || toks[i].kind == tPunct && (toks[i].text == "/" || toks[i].text == "%")); i++ {
+	}
+	return i < len(toks) && toks[i].kind == tPunct && toks[i].text == ".."
+}
+
 // value читает значение: имя, ссылку через точку или число с единицей.
 func (c *cursor) value(what string) (Value, bool) {
 	if c.bad {
@@ -862,7 +894,7 @@ func (p *parser) cell(c *cursor) {
 			if !ok || !b.punct("=", "после цели правки") {
 				continue
 			}
-			value, ok := b.value("значение")
+			value, ok := b.setValue()
 			if ok && b.end("после значения") {
 				cell.Sets = append(cell.Sets, &Set{Pos: Pos{ln.no, t.col}, Target: target, Value: value})
 			}
@@ -1011,13 +1043,14 @@ func (p *parser) basis(b *cursor) (*Basis, bool) {
 		b.next()
 		b.punct(")", "после имени скилла")
 		basis.Args = []string{t.text}
-	case "relation", "rule":
+	case "relation", "rule", "history":
 		b.punct("(", "после "+kind.Text)
 		n, _ := b.name("имя")
 		b.punct(")", "после имени")
 		basis.Args = []string{n.Text}
 	default:
-		p.report(kind.Pos, ErrSyn, "основание — not_in_prompt, priority(A < B), relation(имя), skill(@имя) или rule(действие), получено %q", kind.Text)
+		p.report(kind.Pos, ErrSyn, "основание — not_in_prompt, priority(A < B), relation(имя), skill(@имя), rule(действие) "+
+			"или history(атрибут), получено %q", kind.Text)
 		return nil, false
 	}
 	if !b.end("после основания") {

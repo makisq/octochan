@@ -28,6 +28,7 @@ var Keywords = append([]string{
 	"goal", "classes", "relations", "priority", "generalization", "instance", "requires", "import",
 	"provides", "requires_class", "hard", "forbid", "require", "cell", "set", "binds_to", "report",
 	"q", "choice", "alternatives", "basis", "except", "scope", "not_in_prompt", "skill", "relation", "rule",
+	"history",
 }, RelationTypes...)
 
 var keywords = func() map[string]bool {

@@ -210,7 +210,16 @@ func (c *checker) checkVocabulary() {
 	}
 	for _, cell := range c.prog.Cells {
 		for _, set := range cell.Sets {
-			c.checkUnit(set.Value.Text, set.Value.Pos)
+			switch v := set.Value; {
+			case v.Range != nil && v.Range.Unit != "":
+				c.checkUnit("1 "+v.Range.Unit, v.Pos)
+			case len(v.Variants) > 0:
+				for _, variant := range v.Variants {
+					c.checkUnit(variant, v.Pos)
+				}
+			default:
+				c.checkUnit(v.Text, v.Pos)
+			}
 		}
 	}
 	c.checkReportNames()
@@ -334,7 +343,17 @@ func (c *checker) promptNames() map[string]bool {
 		add(cell.Name)
 		for _, set := range cell.Sets {
 			add(set.Target)
-			if !set.Value.Ref && isNumber(firstField(set.Value.Text)) {
+			switch {
+			case set.Value.Range != nil:
+				continue
+			case len(set.Value.Variants) > 0:
+				for _, variant := range set.Value.Variants {
+					if !isNumber(firstField(variant)) {
+						add(variant)
+					}
+				}
+				continue
+			case !set.Value.Ref && isNumber(firstField(set.Value.Text)):
 				continue
 			}
 			add(set.Value.Text)

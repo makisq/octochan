@@ -19,7 +19,13 @@ import (
 //     его стрелку-частный случай, у которой его нет; атрибут, совпадающий
 //     со слотом, — нет: значение слота задаёт сама стрелка. Обратно не
 //     переходит ничего;
-//   - значение, заданное промптом, не переписывается.
+//   - значение, заданное промптом, не переписывается;
+//   - неточная предпосылка (set T.a = {x, y} или 100..500, раздел 5.2)
+//     сама ничего не переносит. Её сужает точная посылка через отношение:
+//     перенос на T.a значения, которое лежит внутри неточного, — решение с
+//     альтернативами-вариантами; значение вне — вопрос оператору. Сузить
+//     её по истории может только модель, у которой есть журнал
+//     (AnswerPlan.Narrowings проверяет такое сужение).
 
 // carrying — типы отношений, которые переносят атрибут источника на цель.
 var carrying = map[string]bool{"defines": true, "limits": true, "modifies": true}
@@ -54,7 +60,7 @@ type Derivation struct {
 // первому заданию атрибута в ячейках, затем по отношениям и стрелкам.
 func Derive(prog *Program) Derivation {
 	type key struct{ target, attr string }
-	given := map[key]string{}
+	given := map[key]Value{}
 	var order []key
 	for _, cell := range prog.Cells {
 		for _, set := range cell.Sets {
@@ -67,27 +73,51 @@ func Derive(prog *Program) Derivation {
 				order = append(order, k)
 			}
 			// Действует последняя запись — как у ячеек.
-			given[k] = set.Value.Text
+			given[k] = set.Value
 		}
+	}
+	// exact — точная посылка: только она переносится и только её не
+	// переписывают; неточную можно сузить.
+	exact := func(k key) bool {
+		v, ok := given[k]
+		return ok && !v.Inexact()
 	}
 
 	type source struct{ from, value, label string }
 	carried := map[key][]source{}
 	var targets []key
 	for _, k := range order {
+		if !exact(k) {
+			continue
+		}
 		for _, rel := range prog.Relations {
 			if rel.From != k.target || !carrying[rel.Type] || rel.Label == "" {
 				continue
 			}
 			to := key{rel.To, k.attr}
-			if _, set := given[to]; set {
+			if exact(to) {
 				continue
 			}
 			if _, seen := carried[to]; !seen {
 				targets = append(targets, to)
 			}
-			carried[to] = append(carried[to], source{k.target, given[k], rel.Label})
+			carried[to] = append(carried[to], source{k.target, given[k].Text, rel.Label})
 		}
+	}
+	// narrow — решение о неточной цели: значение внутри неё, альтернативы —
+	// её варианты. Вне — нет решения.
+	narrow := func(to key, d Decision) (Decision, bool) {
+		premise, ok := given[to]
+		if !ok {
+			return d, true
+		}
+		if !premise.Admits(d.Value) {
+			return d, false
+		}
+		if len(premise.Variants) > 0 && allNames(premise.Variants) {
+			d.Alternatives = premise.Variants
+		}
+		return d, true
 	}
 
 	var out Derivation
@@ -100,8 +130,13 @@ func Derive(prog *Program) Derivation {
 			}
 		}
 		if len(values) == 1 {
-			out.Decisions = append(out.Decisions, Decision{Target: to.target, Attr: to.attr, Value: values[0],
-				Basis: "relation(" + sources[0].label + ")"})
+			d, ok := narrow(to, Decision{Target: to.target, Attr: to.attr, Value: values[0], Basis: "relation(" + sources[0].label + ")"})
+			if !ok {
+				out.Open = append(out.Open, OpenQuestion{Targets: []string{to.target}, Attr: to.attr,
+					Values: append(append([]string(nil), values...), given[to].Text)})
+				continue
+			}
+			out.Decisions = append(out.Decisions, d)
 			continue
 		}
 		var win *source
@@ -133,7 +168,12 @@ func Derive(prog *Program) Derivation {
 		if allNames(values) {
 			d.Alternatives = values
 		}
-		out.Decisions = append(out.Decisions, d)
+		if d, ok := narrow(to, d); ok {
+			out.Decisions = append(out.Decisions, d)
+		} else {
+			out.Open = append(out.Open, OpenQuestion{Targets: []string{to.target}, Attr: to.attr,
+				Values: append(append([]string(nil), values...), given[to].Text)})
+		}
 	}
 
 	// По стрелке: обобщение — схема отношения, частный случай — стрелка.
@@ -149,18 +189,18 @@ func Derive(prog *Program) Derivation {
 	}
 	for _, k := range order {
 		g, ok := gens[k.target]
-		if !ok || !labels[k.target] || isSlot(g, k.attr) {
+		if !ok || !labels[k.target] || isSlot(g, k.attr) || !exact(k) {
 			continue
 		}
 		for _, inst := range prog.Instances {
-			if inst.Of.Text != k.target {
+			to := key{inst.Name, k.attr}
+			if inst.Of.Text != k.target || exact(to) {
 				continue
 			}
-			if _, set := given[key{inst.Name, k.attr}]; set {
-				continue
+			if d, ok := narrow(to, Decision{Target: inst.Name, Attr: k.attr, Value: given[k].Text,
+				Basis: "relation(" + k.target + ")"}); ok {
+				out.Decisions = append(out.Decisions, d)
 			}
-			out.Decisions = append(out.Decisions, Decision{Target: inst.Name, Attr: k.attr, Value: given[k],
-				Basis: "relation(" + k.target + ")"})
 		}
 	}
 
@@ -283,6 +323,8 @@ type AnswerPlan struct {
 	Copy string
 	Cell string
 	Derivation
+	// Inexact — неточные предпосылки задачи: Цель.атрибут → значение.
+	Inexact map[string]Value
 }
 
 // PlanAnswer — план ответа на промпт src, разобранный в prog.
@@ -306,7 +348,54 @@ func PlanAnswer(src string, prog *Program) *AnswerPlan {
 			cell = name
 		}
 	}
-	return &AnswerPlan{Copy: Canonical(src), Cell: cell, Derivation: Derive(prog)}
+	inexact := map[string]Value{}
+	for _, c := range prog.Cells {
+		for _, set := range c.Sets {
+			if set.Value.Inexact() {
+				inexact[set.Target] = set.Value
+			} else {
+				delete(inexact, set.Target)
+			}
+		}
+	}
+	return &AnswerPlan{Copy: Canonical(src), Cell: cell, Derivation: Derive(prog), Inexact: inexact}
+}
+
+var setLine = regexp.MustCompile(`^set (\w+)\.(\w+) = (.+)$`)
+
+// Narrowings — сужения неточных предпосылок, которые архитектурная модель
+// сделала по своему источнику — истории из журнала (basis: history):
+// ochan проверяет только допустимость — цель задана неточно, значение
+// внутри, логика ochan её не сузила. Поддержку сужения считает модель.
+func (a *AnswerPlan) Narrowings(statements []string) ([]Decision, error) {
+	var out []Decision
+	for _, st := range statements {
+		m := setLine.FindStringSubmatch(strings.TrimSpace(st))
+		if m == nil {
+			return nil, fmt.Errorf("сужение %q — не утверждение set", st)
+		}
+		premise, ok := a.Inexact[m[1]+"."+m[2]]
+		switch {
+		case !ok:
+			return nil, fmt.Errorf("сужение %q: %s.%s в задаче не задан неточно", st, m[1], m[2])
+		case !premise.Admits(m[3]):
+			return nil, fmt.Errorf("сужение %q вне %s", st, premise.Text)
+		}
+		for _, d := range a.Decisions {
+			switch {
+			case d.Target == m[1] && d.Attr == m[2]:
+				return nil, fmt.Errorf("сужение %q: %s.%s уже сужен посылками — %s", st, m[1], m[2], d.Basis)
+			case d.Attr == m[2] && d.Value != m[3]:
+				return nil, fmt.Errorf("сужение %q: вопрос отчёта %s уже решён иначе — %s.%s = %s", st, m[2], d.Target, d.Attr, d.Value)
+			}
+		}
+		d := Decision{Target: m[1], Attr: m[2], Value: m[3], Basis: "history(" + m[2] + ")"}
+		if len(premise.Variants) > 0 && allNames(premise.Variants) {
+			d.Alternatives = premise.Variants
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 // Next — допустимые следующие утверждения (с переводом строки) после
@@ -360,6 +449,40 @@ func (a *AnswerPlan) Next(output string) (adm []string, ok bool) {
 		return nil, true
 	}
 	return []string{report[done]}, true
+}
+
+// Verify — ответ архитектурной модели допустим логикой ochan: начинается
+// копией задачи, каждое следующее утверждение — среди допустимых, ответ
+// кончается там, где кончается план. omitted — решения (утверждения set),
+// которые модель не записала, потому что её кольцо 2 их не приняло: их
+// план не ждёт. narrowed — её сужения по истории (Narrowings). Проверка
+// внешняя — логика модели своя, в её коде.
+func (a *AnswerPlan) Verify(answer string, omitted []string, narrowed []Decision) error {
+	plan := *a
+	plan.Decisions = append([]Decision(nil), narrowed...)
+	for _, d := range a.Decisions {
+		if !contains(omitted, strings.TrimSpace(d.Line())) {
+			plan.Decisions = append(plan.Decisions, d)
+		}
+	}
+	if !strings.HasPrefix(answer, plan.Copy) {
+		return fmt.Errorf("ответ не начинается копией задачи")
+	}
+	text := plan.Copy
+	for _, line := range strings.SplitAfter(answer[len(plan.Copy):], "\n") {
+		if line == "" {
+			continue
+		}
+		adm, ok := plan.Next(text)
+		if !ok || !contains(adm, line) {
+			return fmt.Errorf("утверждения %q логика не допускает", strings.TrimRight(line, "\n"))
+		}
+		text += line
+	}
+	if adm, ok := plan.Next(text); !ok || len(adm) > 0 {
+		return fmt.Errorf("ответ кончился раньше плана: дальше допустимо %q", adm)
+	}
+	return nil
 }
 
 // Text — ответ целиком, решения — в порядке вывода.

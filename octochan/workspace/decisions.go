@@ -64,6 +64,10 @@ type Decision struct {
 	// OperatorKind — почему оператор отказал: plan — план неверен, timing,
 	// scope, other — причина не в плане, и правилам это не исход.
 	OperatorKind string `json:"operator_kind,omitempty"`
+	// Premises — точные посылки промпта (Цель.атрибут = значение): из них
+	// архитектурная модель узнаёт, как оператор читает атрибут, когда
+	// сужает неточную предпосылку по истории (раздел 5.2).
+	Premises []string `json:"premises,omitempty"`
 	// Amendments — поздние поправки исхода: согласованный план привёл к
 	// инциденту, или отказ оказался ошибкой. Запись не переписывается,
 	// поправка ложится сверху; действует последняя.
@@ -139,6 +143,14 @@ type DecisionPackage struct {
 	Reason    string   `json:"reason,omitempty"`
 	// Trusted — пакет не прошёл кольцо 2, и оператор принял его сам.
 	Trusted bool `json:"trusted,omitempty"`
+	// Chosen — архитектурная модель выбрала пакет среди Options допустимых;
+	// Score — итоговая оценка правила выбора, LogProb — средний log p его
+	// токенов, Gap — разрыв со вторым. По ним калибруется выбор (7.2).
+	Chosen  bool    `json:"chosen,omitempty"`
+	Score   float64 `json:"score,omitempty"`
+	LogProb float64 `json:"logprob,omitempty"`
+	Options int     `json:"options,omitempty"`
+	Gap     float64 `json:"gap,omitempty"`
 }
 
 // Outcome — исход плана целиком: верен ли он и вынесен ли вердикт вообще.

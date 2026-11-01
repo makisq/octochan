@@ -138,6 +138,91 @@ func TestAnswerPlan(t *testing.T) {
 	}
 }
 
+const inexactTask = `goal: probe
+
+classes:
+  File     : "file"
+  Approval : "approve"
+  Restart  : "restart"
+  Probe    : "probe"
+
+relations:
+  File --defines--> Approval (database_quota)
+  Approval --strives_to--> Probe
+
+cell c1:
+  set File.window = night
+  set File.size = 900
+  set Approval.window = {night, weekend}
+  set Approval.size = 100..500
+  set Restart.window = {night, weekend}
+  set Restart.mode = {fast, slow}
+`
+
+// Неточная предпосылка (раздел 5.2): точная посылка через отношение
+// сужает её внутри множества, вне — вопрос оператору; по истории сужает
+// модель, ochan проверяет только допустимость.
+func TestInexactPremises(t *testing.T) {
+	prog, diags := Parse("task.fp", inexactTask)
+	if len(diags) > 0 {
+		t.Fatalf("разбор: %v", diags)
+	}
+	sets := prog.Cells[0].Sets
+	if v := sets[2].Value; !reflect.DeepEqual(v.Variants, []string{"night", "weekend"}) || v.Text != "{night, weekend}" {
+		t.Fatalf("варианты: %+v", v)
+	}
+	if v := sets[3].Value; v.Range == nil || v.Range.Lo != 100 || v.Range.Hi != 500 || !v.Admits("200") || v.Admits("900") {
+		t.Fatalf("диапазон: %+v", v)
+	}
+
+	plan := PlanAnswer(inexactTask, prog)
+	want := []Decision{{Target: "Approval", Attr: "window", Value: "night", Alternatives: []string{"night", "weekend"},
+		Basis: "relation(database_quota)"}}
+	if !reflect.DeepEqual(plan.Decisions, want) {
+		t.Fatalf("сужение: %+v", plan.Decisions)
+	}
+	if len(plan.Open) != 1 || plan.Open[0].Attr != "size" {
+		t.Fatalf("900 вне 100..500 — вопрос оператору: %+v", plan.Open)
+	}
+
+	// Сужение по истории — только неточного, внутри и без второго значения
+	// того же вопроса отчёта.
+	if _, err := plan.Narrowings([]string{"set Restart.mode = slow", "set Restart.window = night"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"set Restart.mode = noon", "set File.window = day", "set Approval.window = weekend",
+		"set Restart.window = weekend"} {
+		if _, err := plan.Narrowings([]string{bad}); err == nil {
+			t.Errorf("сужение %q принято", bad)
+		}
+	}
+	narrowed, _ := plan.Narrowings([]string{"set Restart.mode = slow"})
+	answer := plan.Copy + "\ncell c2:\n  set Restart.mode = slow\n  set Approval.window = night\n\nreport:\n" +
+		"  q: mode\n    choice: slow\n    alternatives: {fast, slow}\n    basis: history(mode)\n" +
+		"  q: window\n    choice: night\n    alternatives: {night, weekend}\n    basis: relation(database_quota)\n"
+	if err := plan.Verify(answer, nil, narrowed); err != nil {
+		t.Fatal(err)
+	}
+	if r := CheckModelText("answer", answer, Options{}); len(r.Syntax()) > 0 || r.Errors() > 0 {
+		t.Fatalf("ответ с сужением: %v", r.Diagnostics)
+	}
+
+	// Отчёт: выбор вне неточного — противоречие; history без неточного — нет основания.
+	for text, code := range map[string]string{
+		strings.Replace(answer, "choice: slow", "choice: noon", 1):                  "⊥conflict",
+		strings.Replace(answer, "basis: history(mode)", "basis: history(owner)", 1): "⊥undef",
+	} {
+		r := CheckModelText("answer", text, Options{})
+		found := false
+		for _, d := range r.Diagnostics {
+			found = found || string(d.Code) == code
+		}
+		if !found {
+			t.Errorf("ожидался %s: %v", code, r.Diagnostics)
+		}
+	}
+}
+
 func TestCanonical(t *testing.T) {
 	src := "# заголовок\ngoal: x   # цель\n\n\n\nclasses:\n  A    : \"a # не комментарий\"\n\n"
 	if got := Canonical(src); got != "goal: x\n\nclasses:\n  A : \"a # не комментарий\"\n" {

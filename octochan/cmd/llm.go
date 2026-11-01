@@ -208,7 +208,10 @@ var llmGenerateCmd = &cobra.Command{
 			return err
 		}
 		prompt := fp.ProtocolFor(fp.Formal)
-		var plan *fp.AnswerPlan
+		var (
+			plan *fp.AnswerPlan
+			task archTask
+		)
 		if llmPrompt != "" {
 			src, err := readSource(llmPrompt)
 			if err != nil {
@@ -234,6 +237,13 @@ var llmGenerateCmd = &cobra.Command{
 			}
 			prompt += "\n\n# Task\n\n" + src.Content
 			plan = fp.PlanAnswer(src.Content, r.Program)
+			task = archTask{name: src.Name, text: src.Content, plan: plan, premises: premisesOf(r.Program)}
+		}
+		info, _ := engine.Info(cmd.Context())
+		// Архитектурная модель отвечает целиком сама: её логика и кольца в
+		// её коде, ochan только проверяет ответ.
+		if info.Generate && plan != nil {
+			return generateArchitectural(cmd, engine, info, prompt, task, opts)
 		}
 
 		cfg := embedded.Config{
@@ -256,7 +266,6 @@ var llmGenerateCmd = &cobra.Command{
 				cfg.Packages = plan.Next
 			}
 		}
-		info, _ := engine.Info(cmd.Context())
 		out, genErr := embedded.Generate(cmd.Context(), engine, prompt, cfg)
 		var failure *embedded.Failure
 		if genErr != nil && !errors.As(genErr, &failure) {

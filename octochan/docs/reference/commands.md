@@ -47,6 +47,7 @@
 - [`ochan fp check`](#ochan-fp-check) — Проверить формальный промпт
 - [`ochan fp journal`](#ochan-fp-journal) — Журнал решений: надёжность правил и калибровка
 - [`ochan fp journal amend`](#ochan-fp-journal-amend) — Поздняя поправка исхода плана: инцидент после согласования, ошибочный отказ
+- [`ochan fp journal export`](#ochan-fp-journal-export) — Журнал решений в JSON — параметры колец архитектурной модели
 - [`ochan fp protocol`](#ochan-fp-protocol) — Показать протокол — то, что модель читает первым
 - [`ochan fp words`](#ochan-fp-words) — Словарь языка: слова, их смыслы и откуда они
 - [`ochan ha`](#ochan-ha) — Пара серверов primary/standby: настройка, состояние, переключение
@@ -858,7 +859,7 @@ fp.rings.prior.
 
 Право: `read`.
 
-Подкоманды: [`amend`](#ochan-fp-journal-amend).
+Подкоманды: [`amend`](#ochan-fp-journal-amend), [`export`](#ochan-fp-journal-export).
 
 ## ochan fp journal amend
 
@@ -888,6 +889,22 @@ ochan fp journal amend 7a8f --wrong --reason "INC-123: соединения ко
 | `--reason` | string | — | почему: инцидент, ошибка оператора |
 | `--right` | bool | — | план был верен |
 | `--wrong` | bool | — | план был неверен |
+
+## ochan fp journal export
+
+Журнал решений в JSON — параметры колец архитектурной модели.
+
+```
+ochan fp journal export
+```
+
+Надёжность правил по журналу (счёт с весом давности), условный счёт
+автора, порог well_True и исходы выборов архитектурной модели с
+признаками правила выбора. Из них модель пересчитывает свои кольца —
+rings.json рядом с весами (llama/fit.py). Исходы слепые к оценкам
+(раздел 7.3): отказ кольца 2 исходом не считается.
+
+Право: `read`.
 
 ## ochan fp protocol
 
