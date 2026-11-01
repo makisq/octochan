@@ -4,7 +4,9 @@
 // На stdin — JSON-строки {"id": "…", "text": "…", "model": true}, на
 // stdout — {"id": "…", "ok": true, "syntax": true, "codes": "…", "first": "…"}:
 // ok — отказов нет, syntax — текст в языке (⊥syn нет). model — текст
-// модели: строже, без комментариев и символов вне ASCII.
+// модели: строже, без комментариев и символов вне ASCII. answer — ответ,
+// который строит логика ochan (fp.PlanAnswer): копия задачи и решения,
+// выведенные из посылок; для текста не в языке — пусто.
 //
 //	go run ./llama/fpcheck < texts.jsonl > verdicts.jsonl
 package main
@@ -34,6 +36,7 @@ type verdict struct {
 	Syntax bool   `json:"syntax"`
 	Codes  string `json:"codes,omitempty"`
 	First  string `json:"first,omitempty"`
+	Answer string `json:"answer,omitempty"`
 }
 
 func main() {
@@ -57,6 +60,9 @@ func main() {
 			r = fp.CheckText(in.ID, in.Text, opts)
 		}
 		v := verdict{ID: in.ID, OK: r.Errors() == 0, Syntax: len(r.Syntax()) == 0}
+		if v.Syntax && !in.Model {
+			v.Answer = fp.PlanAnswer(in.Text, r.Program).Text()
+		}
 		counts := map[string]int{}
 		for _, d := range r.Diagnostics {
 			if !d.IsError() {

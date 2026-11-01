@@ -33,6 +33,10 @@ type Generation struct {
 	Dead          int `json:"dead"`
 	Rollbacks     int `json:"rollbacks"`
 	EarlyEnd      int `json:"early_end,omitempty"`
+	// Forced — утверждений, которые написала логика; Chosen — выбранных
+	// моделью среди допустимых.
+	Forced int `json:"forced,omitempty"`
+	Chosen int `json:"chosen,omitempty"`
 }
 
 // Generations — журнал генераций: строка JSON на генерацию.

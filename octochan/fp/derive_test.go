@@ -1,0 +1,146 @@
+package fp
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+const deriveTask = `goal: probe   # цель
+
+classes:
+  File     : "file"
+  Table    : "table"
+  Approval : "approve"
+  Probe    : "probe"
+
+relations:
+  File --defines--> Approval (database_quota)
+  Table --modifies--> Approval (low_nightly)
+  Approval --strives_to--> Probe
+
+priority:
+  Table < File
+
+generalization low_nightly(table : Table, mode : {fast, slow}) :
+  Approval = resize_table(table, mode)
+
+instance h121151 = low_nightly(table := plodu2222_ru, mode := fast)
+instance h7 = low_nightly(table := kavu17, mode := slow)
+
+import @retry v1
+  provides: Table, resize_table
+
+cell c1:
+  set File.size = 8 GB
+  set Table.size = 4 GB
+  set File.owner = root
+  set low_nightly.window = night
+  set low_nightly.mode = slow
+  set h7.window = day
+`
+
+func derivedPlan(t *testing.T, src string) *AnswerPlan {
+	t.Helper()
+	prog, diags := Parse("task.fp", src)
+	if len(diags) > 0 {
+		t.Fatalf("разбор: %v", diags)
+	}
+	return PlanAnswer(src, prog)
+}
+
+// Перенос по отношению, конфликт по приоритету, наследование по стрелке:
+// только у стрелки без своего значения и не на слот.
+func TestDerive(t *testing.T) {
+	plan := derivedPlan(t, deriveTask)
+	want := []Decision{
+		{Target: "Approval", Attr: "size", Value: "4 GB", Basis: "priority(Table < File)"},
+		{Target: "Approval", Attr: "owner", Value: "root", Basis: "relation(database_quota)"},
+		{Target: "h121151", Attr: "window", Value: "night", Basis: "relation(low_nightly)"},
+	}
+	if !reflect.DeepEqual(plan.Decisions, want) {
+		t.Fatalf("решения:\n%+v\nожидались:\n%+v", plan.Decisions, want)
+	}
+	if len(plan.Open) != 0 || plan.Cell != "c2" {
+		t.Fatalf("открытые %+v, ячейка %s", plan.Open, plan.Cell)
+	}
+
+	// Без приоритета конфликт — вопрос оператору, а не решение.
+	prog, _ := Parse("task.fp", strings.Replace(deriveTask, "priority:\n  Table < File\n", "", 1))
+	d := Derive(prog)
+	if len(d.Open) != 1 || d.Open[0].Attr != "size" || !reflect.DeepEqual(d.Open[0].Values, []string{"8 GB", "4 GB"}) {
+		t.Fatalf("конфликт без приоритета: %+v", d.Open)
+	}
+	for _, dec := range d.Decisions {
+		if dec.Attr == "size" {
+			t.Fatalf("конфликт без приоритета решён: %+v", dec)
+		}
+	}
+}
+
+// План: копия задачи — каноническая; порядок решений выбирают среди
+// допустимых, остальное следует из написанного.
+func TestAnswerPlan(t *testing.T) {
+	plan := derivedPlan(t, deriveTask)
+	if strings.Contains(plan.Copy, "#") || strings.Contains(plan.Copy, "File     :") || !strings.HasSuffix(plan.Copy, "c1:\n  set File.size = 8 GB\n  set Table.size = 4 GB\n  set File.owner = root\n  set low_nightly.window = night\n  set low_nightly.mode = slow\n  set h7.window = day\n") {
+		t.Fatalf("копия:\n%s", plan.Copy)
+	}
+
+	text := plan.Copy
+	steps := [][]string{{"\n"}, {"cell c2:\n"}}
+	for _, want := range steps {
+		adm, ok := plan.Next(text)
+		if !ok || !reflect.DeepEqual(adm, want) {
+			t.Fatalf("после %q: %q %v, ожидалось %q", text[len(plan.Copy):], adm, ok, want)
+		}
+		text += adm[0]
+	}
+	adm, _ := plan.Next(text)
+	if len(adm) != 3 {
+		t.Fatalf("решения ячейки: %q", adm)
+	}
+	// Модель выбрала решение о стрелке первым — отчёт идёт в этом порядке.
+	text += "  set h121151.window = night\n"
+	if adm, _ := plan.Next(text); len(adm) != 2 {
+		t.Fatalf("после одного решения: %q", adm)
+	}
+	text += "  set Approval.size = 4 GB\n  set Approval.owner = root\n"
+	for {
+		adm, ok := plan.Next(text)
+		if !ok {
+			t.Fatalf("план не ведёт ответ:\n%s", text)
+		}
+		if len(adm) == 0 {
+			break
+		}
+		if len(adm) != 1 {
+			t.Fatalf("после решений выбора нет: %q", adm)
+		}
+		text += adm[0]
+	}
+	wantTail := "\nreport:\n  q: window\n    choice: night\n    basis: relation(low_nightly)\n" +
+		"  q: size\n    choice: 4 GB\n    basis: priority(Table < File)\n  q: owner\n    choice: root\n    basis: relation(database_quota)\n"
+	if !strings.HasSuffix(text, wantTail) {
+		t.Fatalf("ответ:\n%s", text)
+	}
+	if r := CheckModelText("answer", text, Options{Builtins: []string{"write"}}); len(r.Syntax()) > 0 {
+		t.Fatalf("ответ не в языке: %v", r.Syntax())
+	}
+
+	// Ответ ушёл от плана — логика это место не ведёт.
+	if _, ok := plan.Next(plan.Copy + "\ncell c2:\n  set Probe.size = 1\n"); ok {
+		t.Fatal("чужое решение принято планом")
+	}
+	// Решений нет — ответ кончается копией.
+	empty := derivedPlan(t, "goal: probe\n\nclasses:\n  Probe : \"probe\"\n")
+	if adm, ok := empty.Next(empty.Copy); !ok || len(adm) != 0 || empty.Text() != empty.Copy {
+		t.Fatalf("без решений: %q %v", adm, ok)
+	}
+}
+
+func TestCanonical(t *testing.T) {
+	src := "# заголовок\ngoal: x   # цель\n\n\n\nclasses:\n  A    : \"a # не комментарий\"\n\n"
+	if got := Canonical(src); got != "goal: x\n\nclasses:\n  A : \"a # не комментарий\"\n" {
+		t.Fatalf("%q", got)
+	}
+}

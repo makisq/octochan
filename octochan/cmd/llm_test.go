@@ -84,6 +84,43 @@ func TestLLMGenerate(t *testing.T) {
 	}
 }
 
+// Копию задачи пишет ochan, выводимое — логика, модель выбирает только
+// порядок двух решений; с llm.derive: false решения пишет модель сама.
+func TestLLMGenerateDerives(t *testing.T) {
+	e := newScriptEnv(t)
+	task := "goal: probe\n\nclasses:\n  File     : \"file\"   # источник\n  Approval : \"approve\"\n  Probe    : \"probe\"\n\n" +
+		"relations:\n  File --defines--> Approval (database_quota)\n  Approval --strives_to--> Probe\n\n" +
+		"cell c1:\n  set File.size = 8 GB\n  set File.owner = root\n"
+	copied := "goal: probe\n\nclasses:\n  File : \"file\"\n  Approval : \"approve\"\n  Probe : \"probe\"\n\n" +
+		"relations:\n  File --defines--> Approval (database_quota)\n  Approval --strives_to--> Probe\n\n" +
+		"cell c1:\n  set File.size = 8 GB\n  set File.owner = root\n"
+	answer := copied + "\ncell c2:\n  set Approval.owner = root\n  set Approval.size = 8 GB\n\nreport:\n" +
+		"  q: owner\n    choice: root\n    basis: relation(database_quota)\n" +
+		"  q: size\n    choice: 8 GB\n    basis: relation(database_quota)\n"
+	srv := httptest.NewServer(embedded.Handler(embedded.Info{Engine: "ochan-demo", Model: "demo"}, &embedded.Demo{Answer: answer}))
+	defer srv.Close()
+	viper.Set("llm.endpoint", srv.URL)
+	viper.Set("llm.mode", "embedded")
+	t.Cleanup(func() {
+		viper.Set("llm.mode", "")
+		viper.Set("llm.endpoint", "http://127.0.0.1:8080")
+		viper.Set("llm.derive", true)
+	})
+	e.write(e.path("task.fp"), task)
+
+	out := e.must("llm", "generate", "--prompt", e.path("task.fp"), "--out", e.path("answer.fp"))
+	if e.read("answer.fp") != answer || !strings.Contains(out, "Логика:      утверждений 11 — единственные допустимые; выбрано моделью среди допустимых: 1") {
+		t.Fatalf("generate:\n%s\nответ:\n%s", out, e.read("answer.fp"))
+	}
+
+	// Без логики решения пишет модель; копию — всё равно ochan.
+	viper.Set("llm.derive", false)
+	out = e.must("llm", "generate", "--prompt", e.path("task.fp"), "--out", e.path("answer.fp"))
+	if e.read("answer.fp") != answer || strings.Contains(out, "Логика:") {
+		t.Fatalf("без логики:\n%s\nответ:\n%s", out, e.read("answer.fp"))
+	}
+}
+
 // Почта: агенту — только формальный промпт; людям — на языке режима; своя
 // модель — только формальный; модель адресов не выбирает.
 func TestMail(t *testing.T) {

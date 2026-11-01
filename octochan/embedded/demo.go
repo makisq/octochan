@@ -2,6 +2,7 @@ package embedded
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"strings"
 )
@@ -49,6 +50,21 @@ func (m *Demo) Next(_ context.Context, _, output string, top int) (Step, error) 
 	}
 	// Вне сценария модель ни в чём не уверена.
 	return Step{Candidates: []Candidate{{Text: "\n", P: 0.2}, {Text: " ok", P: 0.1}}, End: 0.1}, nil
+}
+
+// Score — оценки продолжений: то, что ведёт к ответу, — уверенно,
+// остальное — нет.
+func (m *Demo) Score(_ context.Context, _, output string, continuations []string) ([]Scored, error) {
+	scores := make([]Scored, len(continuations))
+	for i, c := range continuations {
+		p := 0.05
+		if strings.HasPrefix(m.Answer, output+c) {
+			p = 0.86
+		}
+		n := len(demoTokens(c))
+		scores[i] = Scored{LogP: float64(n) * math.Log(p), Tokens: n}
+	}
+	return scores, nil
 }
 
 func (m *Demo) onAnswer(answer []string, i int, output string) Step {

@@ -208,6 +208,7 @@ var llmGenerateCmd = &cobra.Command{
 			return err
 		}
 		prompt := fp.ProtocolFor(fp.Formal)
+		var plan *fp.AnswerPlan
 		if llmPrompt != "" {
 			src, err := readSource(llmPrompt)
 			if err != nil {
@@ -232,6 +233,7 @@ var llmGenerateCmd = &cobra.Command{
 					src.Name, len(missing), strings.Join(missing, "\n"))
 			}
 			prompt += "\n\n# Task\n\n" + src.Content
+			plan = fp.PlanAnswer(src.Content, r.Program)
 		}
 
 		cfg := embedded.Config{
@@ -245,6 +247,15 @@ var llmGenerateCmd = &cobra.Command{
 				return fp.CheckModelText("model", text, opts).Syntax()
 			},
 		}
+		// Копию задачи пишет ochan, а не модель: это текст оператора. То,
+		// что следует из посылок, пишет логика; модель выбирает только там,
+		// где посылки оставляют выбор.
+		if plan != nil {
+			cfg.Prefix = plan.Copy
+			if viper.GetBool("llm.derive") {
+				cfg.Packages = plan.Next
+			}
+		}
 		info, _ := engine.Info(cmd.Context())
 		out, genErr := embedded.Generate(cmd.Context(), engine, prompt, cfg)
 		var failure *embedded.Failure
@@ -256,6 +267,12 @@ var llmGenerateCmd = &cobra.Command{
 		}
 		recordGeneration(cmd, info, tau, out, genErr)
 		printGeneration(cmd, tau, out)
+		if plan != nil && cfg.Packages != nil {
+			for _, q := range plan.Open {
+				cmd.PrintErrf("Вопрос оператору: %s у %s — %s; посылки не выбирают между ними\n",
+					q.Attr, strings.Join(q.Targets, ", "), strings.Join(q.Values, " или "))
+			}
+		}
 		if genErr != nil {
 			return fmt.Errorf("ответа нет: %v", genErr)
 		}
@@ -276,7 +293,8 @@ func recordGeneration(cmd *cobra.Command, info embedded.Info, tau float64, out *
 	if err == nil {
 		rec := workspace.Generation{Time: time.Now().UTC(), Role: actor(), Engine: info.Engine, Model: info.Model, Tau: tau,
 			OK: genErr == nil, Statements: len(out.Statements), Tokens: out.Tokens, Calls: out.Calls, Ring0: out.Ring0,
-			Masked: out.Masked, OutOfLanguage: out.OutOfLanguage, Dead: out.Dead, Rollbacks: out.Rollbacks, EarlyEnd: out.EarlyEnd}
+			Masked: out.Masked, OutOfLanguage: out.OutOfLanguage, Dead: out.Dead, Rollbacks: out.Rollbacks, EarlyEnd: out.EarlyEnd,
+			Forced: out.Forced, Chosen: out.Chosen}
 		if genErr != nil {
 			rec.Reason = genErr.Error()
 		}
@@ -293,6 +311,10 @@ func printGeneration(cmd *cobra.Command, tau float64, out *embedded.Output) {
 	cmd.PrintErrf("Язык:        утверждений вне ℒ %d, токенов вне языка %d — в ответе их нет\n", out.OutOfLanguage, out.Masked)
 	if out.Rollbacks > 0 || out.Dead > 0 {
 		cmd.PrintErrf("Откатов:     %d к началу утверждения; позиций без токена выше порога: %d\n", out.Rollbacks, out.Dead)
+	}
+	if out.Forced > 0 || out.Chosen > 0 {
+		cmd.PrintErrf("Логика:      утверждений %d — единственные допустимые; выбрано моделью среди допустимых: %d\n",
+			out.Forced, out.Chosen)
 	}
 }
 
