@@ -71,6 +71,17 @@ func TestLLMGenerate(t *testing.T) {
 	// Задача не на языке модели не передаётся.
 	e.write(e.path("task.fp"), "please fix the database\n")
 	e.fails("задача не на языке", "llm", "generate", "--prompt", e.path("task.fp"))
+
+	// Задача без предпосылки — тоже: перечень недостающего возвращает
+	// ochan, модель её не получает, и генерации в журнале не прибавляется.
+	e.write(e.path("lacking.fp"), formalNote+"\nrequires: incident_history\n")
+	if _, err := e.ochan("llm", "generate", "--prompt", e.path("lacking.fp")); err == nil ||
+		!strings.Contains(err.Error(), "не хватает предпосылок (⊥undef 1)") || !strings.Contains(err.Error(), "incident_history") {
+		t.Fatalf("задача без предпосылки: %v", err)
+	}
+	if out := e.must("fp", "journal"); !strings.Contains(out, "генераций 1, с ответом 1") {
+		t.Fatalf("задача без предпосылки дошла до модели:\n%s", out)
+	}
 }
 
 // Почта: агенту — только формальный промпт; людям — на языке режима; своя
