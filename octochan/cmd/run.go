@@ -137,6 +137,7 @@ var runCmd = &cobra.Command{
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
 		interp.SetInventory(hosts, invErr)
+		interp.SetCommands(scriptCommands{})
 
 		if target == "-" || config.FileExists(target) {
 			src, err := runOpts.source(target)
@@ -254,6 +255,7 @@ var evalCmd = &cobra.Command{
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
+		interp.SetCommands(scriptCommands{})
 
 		// Одиночное выражение печатаем: иначе eval был бы бесполезен.
 		if len(file.Stmts) == 1 {

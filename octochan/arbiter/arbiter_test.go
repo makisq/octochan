@@ -173,3 +173,19 @@ func TestExecRules(t *testing.T) {
 		t.Fatal("запись засчитана запуском")
 	}
 }
+
+// Меняющая команда ochan из сценария — встроенное действие ochan: её цель
+// — ключ команды.
+func TestCommandRules(t *testing.T) {
+	prog, diags := fp.Parse("t.fp", "goal: g\nclasses:\n  G : \"g\"\nhard forbid ochan(except = {incident_note})\n")
+	if len(diags) > 0 {
+		t.Fatal(diags)
+	}
+	effects := []lang.Effect{
+		{Kind: lang.EffectCommand, Path: "incident.note", Args: []string{"incident", "note", "x", "проверено"}},
+		{Kind: lang.EffectCommand, Path: "role.create", Args: []string{"role", "create", "ops"}},
+	}
+	if got := strings.Join(Check(prog.Rules, effects, nil)[0].Violations, ";"); got != "ochan в role.create (role_create)" {
+		t.Fatalf("forbid: %q", got)
+	}
+}

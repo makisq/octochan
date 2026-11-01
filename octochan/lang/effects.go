@@ -28,6 +28,9 @@ const (
 	// имя, Args — аргументы. Не откатывается: что программа сделала, ochan
 	// не знает.
 	EffectExec EffectKind = "exec"
+	// EffectCommand — ochan(): выполнена меняющая команда ochan. Path — её
+	// ключ (incident.open), Args — аргументы. Не откатывается.
+	EffectCommand EffectKind = "command"
 )
 
 // Effect — одно действие сценария.
@@ -136,7 +139,7 @@ func (e Effect) Fingerprint() string {
 	switch e.Kind {
 	case EffectLive:
 		return string(e.Kind) + " " + e.Path
-	case EffectExec:
+	case EffectExec, EffectCommand:
 		return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256([]byte(strings.Join(e.Args, "\x00"))))
 	}
 	return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256(e.After))
@@ -490,6 +493,9 @@ func BuildPlan(source string, effects []Effect) *config.Plan {
 		case EffectExec:
 			plan.Add(config.Change{Kind: config.ChangeExec, Target: e.Path, Name: strings.Join(append([]string{e.Path}, e.Args...), " "),
 				Detail: "в плане не запускается; не откатывается"})
+		case EffectCommand:
+			plan.Add(config.Change{Kind: config.ChangeCommand, Target: e.Path, Name: "ochan " + strings.Join(e.Args, " "),
+				Detail: "в плане не выполняется; не откатывается"})
 		}
 	}
 	return plan

@@ -25,8 +25,9 @@ import (
 
 // Builtins — встроенные действия, которые видно в плане напрямую. exec —
 // запуск программы; его цель — имя программы: hard forbid exec(except =
-// {kubectl}).
-var Builtins = []string{"exec", "save", "write"}
+// {kubectl}). ochan — меняющая команда ochan из сценария; её цель — ключ
+// команды: hard forbid ochan(except = {incident_note}).
+var Builtins = []string{"exec", "ochan", "save", "write"}
 
 // Outcome — итог проверки одного правила.
 type Outcome struct {
@@ -150,6 +151,8 @@ func effectKind(action string) lang.EffectKind {
 		return lang.EffectSave
 	case "exec":
 		return lang.EffectExec
+	case "ochan":
+		return lang.EffectCommand
 	}
 	return lang.EffectWrite
 }

@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from fpmtok import canonical
 
 CARRYING = ("defines", "limits", "modifies")
-BUILTINS = {"exec", "save", "write"}
+BUILTINS = {"exec", "ochan", "save", "write"}
 
 COMMENT = re.compile(r'^((?:[^"#]|"[^"]*")*)#.*$')
 RELATION = re.compile(r"(\w+)\s+--(\w+)-->\s+(\w+)\s*(?:\((\w+)\))?$")
