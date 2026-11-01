@@ -6,6 +6,13 @@ rings.py) и множество допустимых утверждений от
 
 - отношение defines, limits или modifies переносит атрибут, который ячейка
   задаёт источнику, на цель, если цели он не задан (правило fp.<тип>);
+- перенос — цепочкой: выведенное — посылка для следующего шага (A → B → C),
+  правила решения — правила всего пути, и кольцо 1 перемножает их
+  надёжность. Цель решается на первом шаге, на котором до неё дошёл
+  перенос; другой путь — длиннее или по кругу — с другим значением, которое
+  приоритет не снимает, делает её вопросом оператору, и от вопроса дальше
+  ничего не переносится. Сужение по истории (own.py) — решение модели по
+  статистике, а не вывод: дальше оно не переносится;
 - два источника дают цели разные значения — решает приоритет (A < B:
   побеждает A); приоритет — точная посылка оператора, правило вывода то же
   — перенос; без приоритета — вопрос оператору;
@@ -162,18 +169,9 @@ def precedes(task, a, b):
 
 
 def derive(task):
-    """Решения и открытые вопросы задачи, в порядке fp.Derive."""
-    carried, targets = {}, []
-    for (source, attr), value in task.given.items():
-        if not task.exact((source, attr)):
-            continue
-        for frm, kind, to, label in task.relations:
-            if frm != source or kind not in CARRYING or not label or task.exact((to, attr)):
-                continue
-            if (to, attr) not in carried:
-                carried[(to, attr)] = []
-                targets.append((to, attr))
-            carried[(to, attr)].append((source, value, label, kind))
+    """Решения и открытые вопросы задачи, в порядке fp.Derive. Перенос —
+    цепочкой: выведенное — посылка для следующего шага, правила решения —
+    правила всего его пути (кольцо 1 перемножает их надёжность)."""
 
     def narrow(key, d):
         """Решение о неточной цели — внутри неё, альтернативы — её варианты."""
@@ -186,29 +184,83 @@ def derive(task):
             d.alternatives = vague.variants
         return d
 
-    decisions, opened = [], []
-    for target, attr in targets:
-        sources = carried[(target, attr)]
-        values = list(dict.fromkeys(v for _, v, _, _ in sources))
+    def resolve(key, sources):
+        """Решение цели по её источникам — (откуда, значение, отношение, тип,
+        правила пути) — или вопрос оператору."""
+        target, attr = key
+        values = list(dict.fromkeys(s[1] for s in sources))
+        outside = lambda: Open([target], attr, values + [task.given[key]])
         if len(values) == 1:
-            d = narrow((target, attr), Decision(target, attr, values[0], f"relation({sources[0][2]})", [f"fp.{sources[0][3]}"]))
-            if d is None:
-                opened.append(Open([target], attr, values + [task.given[(target, attr)]]))
-            else:
-                decisions.append(d)
-            continue
+            s = sources[0]
+            d = narrow(key, Decision(target, attr, values[0], f"relation({s[2]})", s[4] + [f"fp.{s[3]}"]))
+            return (d, None) if d is not None else (None, outside())
         win = next((s for s in sources if all(o[1] == s[1] or precedes(task, s[0], o[0]) for o in sources)), None)
         if win is None:
-            opened.append(Open([target], attr, values))
-            continue
+            return None, Open([target], attr, values)
         lose = next(o[0] for o in sources if o[1] != win[1])
-        # Приоритет — посылка оператора, точная: правило вывода одно — перенос.
-        d = narrow((target, attr), Decision(target, attr, win[1], f"priority({win[0]} < {lose})", [f"fp.{win[3]}"],
-                                            values if all(NAME.match(v) for v in values) else None))
-        if d is None:
-            opened.append(Open([target], attr, values + [task.given[(target, attr)]]))
-        else:
-            decisions.append(d)
+        # Приоритет — посылка оператора, точная: правило шага одно — перенос.
+        d = narrow(key, Decision(target, attr, win[1], f"priority({win[0]} < {lose})", win[4] + [f"fp.{win[3]}"],
+                                 values if all(NAME.match(v) for v in values) else None))
+        return (d, None) if d is not None else (None, outside())
+
+    # Перенос по шагам: шаг — посылки и решения прошлого шага. blocked —
+    # цели, которым разные пути дают разные значения: вопросы оператору, от
+    # них ничего не переносится. С каждым кругом blocked растёт, поэтому
+    # вывод кончается и на отношениях по кругу.
+    blocked = {}
+    while True:
+        decided, decisions, opened, visited = {}, [], [], set()
+
+        def value_of(key):
+            if task.exact(key):
+                return task.given[key], []
+            d = decided.get(key)
+            return (d.value, d.rules) if d else (None, None)
+
+        frontier = [k for k in task.given if task.exact(k)]
+        while frontier:
+            carried, targets = {}, []
+            for source, attr in frontier:
+                value, rules = value_of((source, attr))
+                for frm, kind, to, label in task.relations:
+                    key = (to, attr)
+                    if frm != source or kind not in CARRYING or not label or task.exact(key) or key in visited:
+                        continue
+                    if key not in carried:
+                        carried[key] = []
+                        targets.append(key)
+                    carried[key].append((source, value, label, kind, rules))
+            frontier = []
+            for key in targets:
+                visited.add(key)
+                if key in blocked:
+                    opened.append(Open([key[0]], key[1], blocked[key]))
+                    continue
+                d, q = resolve(key, carried[key])
+                if q is not None:
+                    opened.append(q)
+                    continue
+                decided[key] = d
+                decisions.append(d)
+                frontier.append(key)
+        # Другие пути: со всеми источниками — посылками и решениями всех
+        # шагов — цель решилась бы иначе или не решилась бы вовсе.
+        again = False
+        for d in decisions:
+            key, every = (d.target, d.attr), []
+            for frm, kind, to, label in task.relations:
+                if to != d.target or kind not in CARRYING or not label:
+                    continue
+                value, rules = value_of((frm, d.attr))
+                if value is not None:
+                    every.append((frm, value, label, kind, rules))
+            other, q = resolve(key, every)
+            if q is not None:
+                blocked[key], again = q.values, True
+            elif other.value != d.value:
+                blocked[key], again = list(dict.fromkeys(s[1] for s in every)), True
+        if not again:
+            break
 
     labels = {label for *_, label in task.relations if label}
     for (source, attr), value in task.given.items():

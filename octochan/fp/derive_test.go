@@ -78,6 +78,48 @@ func TestDerive(t *testing.T) {
 	}
 }
 
+// Перенос — цепочкой: выведенное — посылка для следующего шага; посылка
+// на середине не переписывается; путь по кругу кончается; другой путь с
+// другим значением — вопрос оператору, и от вопроса дальше не переносится.
+func TestDeriveChains(t *testing.T) {
+	derive := func(relations, cells string) Derivation {
+		t.Helper()
+		src := "goal: probe\n\nclasses:\n  File : \"file\"\n  Approval : \"approve\"\n  Probe : \"probe\"\n" +
+			"  Table : \"table\"\n  Storage : \"disk\"\n\nrelations:\n" + relations + "\ncell c1:\n" + cells
+		r := CheckText("task.fp", src, Options{Lexicon: BaseLexicon()})
+		if !r.InLanguage() {
+			t.Fatalf("задача не в языке: %v", r.Syntax())
+		}
+		return Derive(r.Program)
+	}
+	check := func(name string, got Derivation, decisions []Decision, open []OpenQuestion) {
+		t.Helper()
+		if !reflect.DeepEqual(got.Decisions, decisions) || !reflect.DeepEqual(got.Open, open) {
+			t.Fatalf("%s:\nрешения %+v\nвопросы %+v\nожидались %+v\n%+v", name, got.Decisions, got.Open, decisions, open)
+		}
+	}
+	line := "  File --defines--> Approval (database_quota)\n  Approval --modifies--> Probe (low_nightly)\n"
+
+	check("File → Approval → Probe", derive(line, "  set File.size = 8 GB\n"), []Decision{
+		{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)"},
+		{Target: "Probe", Attr: "size", Value: "8 GB", Basis: "relation(low_nightly)"},
+	}, nil)
+	check("посылка на середине", derive(line, "  set File.size = 8 GB\n  set Approval.size = 2 GB\n"), []Decision{
+		{Target: "Probe", Attr: "size", Value: "2 GB", Basis: "relation(low_nightly)"},
+	}, nil)
+	check("по кругу", derive(line+"  Probe --limits--> Approval (connection_limit)\n", "  set File.size = 8 GB\n"), []Decision{
+		{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)"},
+		{Target: "Probe", Attr: "size", Value: "8 GB", Basis: "relation(low_nightly)"},
+	}, nil)
+	// Table → Probe даёт 4 GB на первом шаге, File → Approval → Probe — 8 GB
+	// на втором: приоритета между Approval и Table нет — Probe вопрос
+	// оператору, и до Storage ничего не доходит.
+	check("два пути", derive(line+"  Table --limits--> Probe (log_size)\n  Probe --defines--> Storage (nightly_backup)\n",
+		"  set File.size = 8 GB\n  set Table.size = 4 GB\n"),
+		[]Decision{{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)"}},
+		[]OpenQuestion{{Targets: []string{"Probe"}, Attr: "size", Values: []string{"8 GB", "4 GB"}}})
+}
+
 // План: копия задачи — каноническая; порядок решений выбирают среди
 // допустимых, остальное следует из написанного.
 func TestAnswerPlan(t *testing.T) {
