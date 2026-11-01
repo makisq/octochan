@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -148,6 +149,29 @@ func modeLine(mode llmModeKind) string {
 	return "protocol (модель внешняя: кольца 1–3 читают готовый ответ, кольца 0 нет)"
 }
 
+// knowledgeImports — пакеты знаний, которые задача подключает: «имя
+// версия» установленной версии.
+func knowledgeImports(prog *fp.Program, opts fp.Options) []string {
+	var out []string
+	for _, imp := range prog.Imports {
+		if opts.Library == nil {
+			break
+		}
+		if skill, ok := opts.Library(imp.Skill); ok && skill.Knowledge != nil {
+			out = append(out, imp.Skill+" "+skill.Version)
+		}
+	}
+	return out
+}
+
+// modulesDir — каталог пакетов ochan: из него своя модель читает знания.
+func modulesDir() string {
+	if fm, err := mustFileManager(); err == nil {
+		return fm.ModulesDir()
+	}
+	return "~/.octochan/modules"
+}
+
 // printApproach — подход к модели по тому, что движок сказал о себе: своя
 // модель — архитектурная, чужой движок ведёт декодер ochan.
 func printApproach(cmd *cobra.Command, info embedded.Info) {
@@ -155,6 +179,11 @@ func printApproach(cmd *cobra.Command, info embedded.Info) {
 	if info.Generate {
 		cmd.Println("Подход:  архитектурный — своя модель ℒ: логика и кольца в её коде, ответ она пишет сама, ochan проверяет его снаружи")
 		cmd.Println("Кольца:  параметры модели — rings.json рядом с весами (llama/fit.py, llama/learn.py)")
+		if len(info.Knowledge) > 0 {
+			cmd.Printf("Знания:  @%s — пакеты знаний, которые видит модель (import в задаче)\n", strings.Join(info.Knowledge, ", @"))
+		} else {
+			cmd.Printf("Знания:  пакетов знаний модель не видит (adapter.py serve --modules %s)\n", modulesDir())
+		}
 		if len(set) > 0 {
 			cmd.Printf("внимание: %s — настройки декодера ochan для чужого движка; своя модель их не читает\n", strings.Join(set, ", "))
 		}
@@ -311,7 +340,8 @@ var llmGenerateCmd = &cobra.Command{
 			}
 			prompt += "\n\n# Task\n\n" + src.Content
 			plan = fp.PlanAnswer(src.Content, r.Program)
-			task = archTask{name: src.Name, text: src.Content, plan: plan, premises: premisesOf(r.Program)}
+			task = archTask{name: src.Name, text: src.Content, plan: plan, premises: premisesOf(r.Program),
+				knowledge: knowledgeImports(r.Program, opts)}
 		}
 		// Протокол движка — строгий: не подтвердил его — генерации нет.
 		info, err := engine.Info(cmd.Context())
@@ -328,7 +358,22 @@ var llmGenerateCmd = &cobra.Command{
 				cmd.PrintErrf("внимание: %s — настройки декодера ochan для чужого движка; своя модель их не читает\n",
 					strings.Join(set, ", "))
 			}
+			// Знания, которые задача подключает, модель должна видеть сама:
+			// иначе она ответила бы без них, как будто их нет.
+			var lacking []string
+			for _, k := range task.knowledge {
+				if !slices.Contains(info.Knowledge, k) {
+					lacking = append(lacking, "@"+k)
+				}
+			}
+			if len(lacking) > 0 {
+				return fmt.Errorf("задача подключает знания %s, а модель их не видит — генерации нет: она читает пакеты "+
+					"из каталога модулей ochan (adapter.py serve --modules %s)", strings.Join(lacking, ", "), modulesDir())
+			}
 			return generateArchitectural(cmd, engine, info, prompt, task, opts)
+		}
+		if len(task.knowledge) > 0 {
+			cmd.PrintErrf("внимание: знания @%s — для своей модели; чужой движок их не читает\n", strings.Join(task.knowledge, ", @"))
 		}
 
 		tau, err := llmTau()

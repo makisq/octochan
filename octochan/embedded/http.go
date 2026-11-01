@@ -48,12 +48,14 @@ import (
 const Protocol = 1
 
 // Info — что о себе говорит движок. Generate — модель архитектурная и
-// отвечает целиком сама (arch.go).
+// отвечает целиком сама (arch.go). Knowledge — пакеты знаний, которые она
+// видит: «имя версия».
 type Info struct {
-	Protocol int    `json:"protocol"`
-	Engine   string `json:"engine"`
-	Model    string `json:"model"`
-	Generate bool   `json:"generate,omitempty"`
+	Protocol  int      `json:"protocol"`
+	Engine    string   `json:"engine"`
+	Model     string   `json:"model"`
+	Generate  bool     `json:"generate,omitempty"`
+	Knowledge []string `json:"knowledge,omitempty"`
 }
 
 // NextRequest — тело POST /v1/next.

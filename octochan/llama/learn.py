@@ -27,10 +27,16 @@
 корпуса (--replay), чтобы сеть не забыла остальное. Дообучение —
 train_own.py --init: новые веса — в новый каталог, прежние остаются.
 
+--package — знания модели другим машинам: её кластеры пакетом реестра
+(knowledge.py) — обобщения и надёжность правил на них, без номеров
+инцидентов. Публикует его ochan '!!registry' publish с подписью, ставит
+ochan '!!rin', и модель там берёт его для задачи с import @пакет v….
+
     ochan incident learn --export ripe.jsonl
     python learn.py --model G:/fpm-llm/models/own-small-2 --clusters ripe.jsonl
     python learn.py --model G:/fpm-llm/models/own-small-2 --versions
     python learn.py --model G:/fpm-llm/models/own-small-2 --rollback
+    python learn.py --model G:/fpm-llm/models/own-small-2 --package pg_incidents --version 1.0
 """
 
 import argparse
@@ -41,6 +47,7 @@ import random
 from collections import Counter
 
 import fpmtok
+import knowledge
 import logic
 import own
 import rings
@@ -127,7 +134,22 @@ def main():
     ap.add_argument("--versions", action="store_true", help="версии параметров модели")
     ap.add_argument("--rollback", nargs="?", const=-1, type=int, metavar="N",
                     help="откатить параметры к версии N (без N — к предыдущей)")
+    ap.add_argument("--package", metavar="КАТАЛОГ", help="пакет знаний из кластеров модели; имя пакета — имя каталога")
+    ap.add_argument("--version", help="версия пакета знаний")
+    ap.add_argument("--description", default="", help="описание пакета знаний одной строкой")
     args = ap.parse_args()
+
+    if args.package:
+        if not args.version:
+            raise SystemExit("--package: нужна --version — версия часть знания, её просит import")
+        try:
+            name, count = knowledge.export(rings.Params.load(args.model).clusters, args.package, args.version,
+                                           args.description)
+        except ValueError as e:
+            raise SystemExit(str(e))
+        print(f"Пакет знаний @{name} v{args.version}: обобщений {count} — {args.package}")
+        print(f"Публикация с подписью: ochan '!!registry' publish {args.package} --registry <каталог> --key <ключ>")
+        return
 
     if args.versions:
         log = rings.versions(args.model)
@@ -144,7 +166,7 @@ def main():
         print(f"Параметры откачены к версии {to}: это версия {version}")
         return
     if not args.clusters:
-        raise SystemExit("нужно --clusters, --versions или --rollback")
+        raise SystemExit("нужно --clusters, --versions, --rollback или --package")
     if not 0 <= args.replay_share < 1 and args.pairs:
         raise SystemExit("--replay-share — доля от 0 до 1, не включая 1")
 

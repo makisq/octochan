@@ -14,7 +14,9 @@ TASK_MARKER) в канонической записи, имена частных
   кольцо 2 не пропускает слабое — оно уходит вопросом оператору (rings.py);
 - задачу, структура которой повторяет кластер инцидентов, модель узнаёт
   сама (logic.shape): надёжность правил на ней — по исходам его инцидентов
-  (learn.py), а плохо решённая структура — вопрос оператору;
+  (learn.py), а плохо решённая структура — вопрос оператору. Так же — по
+  обобщениям пакета знаний, который задача подключает import'ом
+  (knowledge.py: пакет реестра с подписью, каталог модулей ochan);
 - сеть выбирает только среди допустимых: правилом выбора с весами и
   калибровкой из журнала (rings.json рядом с весами);
 - её функция распределения переопределена: следующий токен вне допустимых
@@ -36,6 +38,7 @@ import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
 import fpmtok
+import knowledge
 import logic
 import rings
 from adapter import TASK_MARKER
@@ -110,10 +113,13 @@ class Engine(Base):
     # Ответ на задачу пишет целиком сама: адаптер отдаёт /v1/generate.
     architectural = True
 
-    def __init__(self, model, device="cuda", dtype="float32"):
+    def __init__(self, model, device="cuda", dtype="float32", modules=None):
         self.name = model
         self.device = device
         self.params = rings.Params.load(model)
+        # Пакеты знаний (knowledge.py): каталог модулей ochan, куда их ставит
+        # реестр с подписью.
+        self.library = knowledge.Library(modules)
         self._plans, self._copies = {}, {}
         self.tok = fpmtok.Tokenizer.load(model)
         self.model = load_model(model, getattr(torch, dtype)).to(device).eval()
@@ -170,12 +176,17 @@ class Engine(Base):
     def plan(self, task):
         """План ответа после колец 1 и 2: (план, недостающее, пакеты).
         Пакет — выведенное решение с правилами, поддержкой и вердиктом.
-        Задача, структура которой повторяет кластер инцидентов (learn.py),
+        Задача, структура которой повторяет кластер инцидентов (learn.py)
+        или обобщение пакета знаний, который она подключает (knowledge.py),
         берёт надёжность правил на этой структуре: plan.cluster — его ключ
-        и параметры."""
-        if task not in self._plans:
+        и параметры. Знаний той версии, которую задача просит, нет — это
+        недостающая предпосылка."""
+        self.library.refresh()
+        slot = (task, self.library.generation)
+        if slot not in self._plans:
             plan = logic.AnswerPlan(task)
-            plan.cluster = self.params.cluster_of(logic.shape(task, self.tok.closed.__contains__))
+            extra, lacking = self.library.for_task(task)
+            plan.cluster = self.params.cluster_of(logic.shape(task, self.tok.closed.__contains__), extra)
             key, cluster = plan.cluster
             packages, accepted = [], []
             narrowed = self.narrowings(plan)
@@ -192,8 +203,8 @@ class Engine(Base):
                 if ok:
                     accepted.append(d)
             plan.decisions = accepted
-            self._plans[task] = (plan, logic.missing(task), packages)
-        return self._plans[task]
+            self._plans[slot] = (plan, logic.missing(task) + lacking, packages)
+        return self._plans[slot]
 
     def narrowings(self, plan):
         return narrowings(self.params, plan)
@@ -237,7 +248,10 @@ class Engine(Base):
         if cluster is None:
             return None
         lower, upper = self.params.outcomes(cluster)
-        return {"key": key, "instances": len(cluster["instances"]), "solved": cluster["outcomes"][0],
+        # У своего кластера — номера инцидентов, у обобщения из пакета — их число.
+        instances = cluster["instances"]
+        return {"key": key, "instances": instances if isinstance(instances, int) else len(instances),
+                "solved": cluster["outcomes"][0],
                 "outcomes": cluster["outcomes"][1], "l": lower, "u": upper}
 
     def generate(self, prompt):

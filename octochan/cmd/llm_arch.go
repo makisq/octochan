@@ -34,6 +34,8 @@ type archTask struct {
 	// premises — точные посылки задачи «Цель.атрибут = значение»: история
 	// прочтений атрибутов для модели.
 	premises []string
+	// knowledge — пакеты знаний, которые задача подключает: «имя версия».
+	knowledge []string
 }
 
 func premisesOf(prog *fp.Program) []string {

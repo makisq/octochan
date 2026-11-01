@@ -41,7 +41,9 @@ instruct-модели она раскладывается по шаблону ч
 
 Каталог своей модели ℒ (own.py: веса с нуля и fpmtok.json) адаптер узнаёт
 сам: у неё свой словарь, и протокол ей не нужен. Сеть без логики и колец —
-только для замера (raw, measure.py), не режим работы.
+только для замера (raw, measure.py), не режим работы. --modules — каталог
+модулей ochan: пакеты знаний своей модели (knowledge.py), их /v1/info
+называет в "knowledge".
 
 Адаптер — для одной машины: аутентификации и TLS у него нет. Он слушает
 только локальный адрес; внешний — с --allow-remote и только за прокси с
@@ -57,6 +59,7 @@ import argparse
 import ipaddress
 import json
 import math
+import os
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -254,13 +257,14 @@ class Engine:
         return self.tok.decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
 
-def engine_for(model, device="cuda", dtype="bfloat16", chat=True):
-    """Движок по каталогу модели: своя модель ℒ (own.py, архитектурная) или
-    модель Hugging Face."""
+def engine_for(model, device="cuda", dtype="bfloat16", chat=True, modules=None):
+    """Движок по каталогу модели: своя модель ℒ (own.py, архитектурная;
+    modules — каталог модулей ochan с пакетами знаний) или модель Hugging
+    Face."""
     import own
 
     if own.is_own(model):
-        return own.Engine(model, device)
+        return own.Engine(model, device, modules=modules)
     return Engine(model, device, dtype, chat)
 
 
@@ -302,8 +306,12 @@ def serve(engine, listen, allow_remote=False):
         def do_GET(self):
             if self.path != "/v1/info":
                 return self.reply(404, {"error": "нет такого адреса"})
-            self.reply(200, {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name,
-                             "generate": architectural})
+            info = {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name, "generate": architectural}
+            if architectural:
+                # Пакеты знаний, которые видит модель: ochan сверяет с ними
+                # то, что задача подключает.
+                info["knowledge"] = engine.library.listed()
+            self.reply(200, info)
 
         def do_POST(self):
             if self.path not in ("/v1/next", "/v1/score") and not (self.path == "/v1/generate" and architectural):
@@ -349,6 +357,7 @@ def main():
         p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
         p.add_argument("--dtype", default="bfloat16")
         p.add_argument("--no-chat", action="store_true", help="не оборачивать prompt шаблоном чата")
+        p.add_argument("--modules", help="каталог модулей ochan (~/.octochan/modules): пакеты знаний своей модели")
     sub.choices["serve"].add_argument("--listen", default="127.0.0.1:8090")
     sub.choices["serve"].add_argument("--allow-remote", action="store_true",
                                       help="слушать не локальный адрес — только за прокси с TLS и аутентификацией")
@@ -358,7 +367,8 @@ def main():
 
     if args.cmd == "serve":
         check_listen(args.listen, args.allow_remote)  # до загрузки модели
-    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat)
+    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat,
+                        modules=os.path.expanduser(args.modules) if args.modules else None)
     if args.cmd == "serve":
         serve(engine, args.listen, args.allow_remote)
         return
