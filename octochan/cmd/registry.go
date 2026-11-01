@@ -833,6 +833,11 @@ var registryPublishCmd = &cobra.Command{
 				return fmt.Errorf("пакет %s не опубликован: %w", name, err)
 			}
 		}
+		if _, err := os.Stat(filepath.Join(dir, fp.KnowledgeName)); err == nil {
+			if _, err := fp.LoadKnowledge(filepath.Join(dir, fp.KnowledgeName)); err != nil {
+				return fmt.Errorf("пакет %s не опубликован: %w", name, err)
+			}
+		}
 		key, err := loadPrivateKey(publishKey)
 		if err != nil {
 			return fmt.Errorf("--key: %w", err)

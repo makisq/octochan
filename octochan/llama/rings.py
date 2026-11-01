@@ -158,12 +158,14 @@ class Params:
         successes, uses = (cluster or {}).get("rules", {}).get(name) or self.rules.get(name, (0, 0))
         return reliability(successes, uses, self.prior)
 
-    def cluster_of(self, shape):
+    def cluster_of(self, shape, extra=None):
         """Кластер, обобщение которого повторяет структура задачи: самый
         похожий из тех, на которые она похожа не меньше их порога; иначе
-        (None, None)."""
+        (None, None). extra — обобщения пакетов знаний, которые задача
+        подключает (knowledge.py); при равной похожести свой кластер —
+        раньше: свои исходы ближе к этой машине."""
         best, found = -1.0, (None, None)
-        for key, c in sorted(self.clusters.items()):
+        for key, c in sorted(self.clusters.items()) + sorted((extra or {}).items()):
             s = logic.similarity(shape, c["shape"])
             if s >= c["similarity"] and s > best:
                 best, found = s, (key, c)

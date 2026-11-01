@@ -160,10 +160,17 @@ func installDir(cmd *cobra.Command, dir string) error {
 			}
 		}
 	}
-	if len(aliases) == 0 && len(plugins) == 0 {
-		return fmt.Errorf("в %s нет ни алиасов (*%s), ни модулей (*%s)", dir, lang.AliasExtension, pluginhost.ModuleExtension)
+	// Пакет знаний для своей модели бывает и без алиасов.
+	_, statErr := os.Stat(filepath.Join(dir, fp.KnowledgeName))
+	knowledge := statErr == nil
+	if len(aliases) == 0 && len(plugins) == 0 && !knowledge {
+		return fmt.Errorf("в %s нет ни алиасов (*%s), ни модулей (*%s), ни знаний (%s)", dir, lang.AliasExtension,
+			pluginhost.ModuleExtension, fp.KnowledgeName)
 	}
-	if len(aliases) > 0 {
+	if len(aliases) > 0 || knowledge {
+		if aliases == nil {
+			aliases = []string{}
+		}
 		if err := installPackage(cmd, dir, aliases); err != nil {
 			return err
 		}
@@ -219,6 +226,20 @@ func installPackage(cmd *cobra.Command, src string, files []string) error {
 			files = append(files, fp.LexiconName)
 		}
 	}
+	// Знания пакета — для своей модели. Негодные сломали бы каждую задачу,
+	// которая их подключает; без версии их не подключить import'ом.
+	var knowledge *fp.Knowledge
+	if files != nil {
+		if _, statErr := os.Stat(filepath.Join(abs, fp.KnowledgeName)); statErr == nil {
+			if knowledge, err = fp.LoadKnowledge(filepath.Join(abs, fp.KnowledgeName)); err != nil {
+				return fmt.Errorf("пакет %s не установлен: %w", name, err)
+			}
+			if pkg, ok := check.Package(name); !ok || pkg.Version == "" {
+				return fmt.Errorf("пакет %s не установлен: у пакета знаний нужна версия — %s с version", name, lang.ManifestName)
+			}
+			files = append(files, fp.KnowledgeName)
+		}
+	}
 
 	target := filepath.Join(fm.ModulesDir(), name)
 	single := target + lang.AliasExtension
@@ -260,7 +281,13 @@ func installPackage(cmd *cobra.Command, src string, files []string) error {
 			count++
 		}
 	}
-	cmd.Printf("Пакет алиасов %s %s установлен: алиасов %d — ochan aliases %s\n", name, version, count, name)
+	if count > 0 || knowledge == nil {
+		cmd.Printf("Пакет алиасов %s %s установлен: алиасов %d — ochan aliases %s\n", name, version, count, name)
+	}
+	if knowledge != nil {
+		cmd.Printf("Пакет знаний %s %s установлен: обобщений %d — своя модель берёт их для задачи с import @%s %s\n",
+			name, version, len(knowledge.Generalizations), name, version)
+	}
 	if words > 0 {
 		cmd.Printf("Словарь пакета: слов %d — ochan fp words --skill %s\n", words, name)
 	}

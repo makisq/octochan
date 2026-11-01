@@ -53,6 +53,10 @@ type Skill struct {
 	// LexiconErr — словарь скилла есть, но негоден: промпт, который его
 	// подключает, не проверить.
 	LexiconErr error
+	// Knowledge — знания пакета для своей модели (knowledge.yaml); nil — не
+	// приносит. KnowledgeErr — знания есть, но негодны.
+	Knowledge    *Knowledge
+	KnowledgeErr error
 }
 
 // Result — итог разбора и проверки.
@@ -713,6 +717,10 @@ func (c *checker) checkImports() {
 			case !VersionMatches(imp.Version, skill.Version):
 				c.report(imp.Pos, ErrUndef, "промпт требует @%s %s, а в библиотеке версия %s", imp.Skill, imp.Version, skill.Version)
 				c.hint("версия — решение оператора: промпт с import @%s v%s или скилл нужной версии в библиотеке", imp.Skill, skill.Version)
+				continue
+			}
+			if skill.KnowledgeErr != nil {
+				c.report(imp.Pos, ErrUndef, "знания пакета @%s негодны: %v", imp.Skill, skill.KnowledgeErr)
 				continue
 			}
 		}

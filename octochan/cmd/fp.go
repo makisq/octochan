@@ -228,6 +228,28 @@ func fpOptions(cmd *cobra.Command, standalone bool) (fp.Options, error) {
 		}
 		skill.Ops = append(skill.Ops, info.Name)
 	}
+	// Знания пакета — для своей модели (knowledge.yaml): пакет знаний бывает
+	// и без алиасов, и подключает его тот же import.
+	if fm, err := mustFileManager(); err == nil {
+		entries, _ := os.ReadDir(fm.ModulesDir())
+		for _, e := range entries {
+			name := e.Name()
+			path := filepath.Join(fm.ModulesDir(), name, fp.KnowledgeName)
+			if _, err := os.Stat(path); !e.IsDir() || err != nil {
+				continue
+			}
+			skill, ok := packages[name]
+			if !ok {
+				skill = &fp.Skill{}
+				if pkg, ok := registry.Package(name); ok {
+					skill.Version = pkg.Version
+				}
+				skill.Lexicon, skill.LexiconErr = packageLexicon(name)
+				packages[name] = skill
+			}
+			skill.Knowledge, skill.KnowledgeErr = fp.LoadKnowledge(path)
+		}
+	}
 	opts.Library = func(name string) (*fp.Skill, bool) {
 		skill, ok := packages[name]
 		return skill, ok
