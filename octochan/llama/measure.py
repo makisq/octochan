@@ -10,9 +10,13 @@
   утверждения вне ℒ, отклонённые кольцом 0, позиции без токена.
 
 Разбор ochan проверяет язык, но не то, сходится ли ответ с задачей. Это
-отдельная метрика (consistent), у raw и у embedded: решения модели — set в
-ячейках, которых нет в задаче; они есть, не переписывают значения задачи, и
-в report: каждому решению — запись q с тем же choice, без лишних записей.
+отдельные метрики, у raw и у embedded:
+
+- consistent — решения модели (set в ячейках, которых нет в задаче) не
+  переписывают значения задачи, и в report: каждому решению — запись
+  q: атрибут с тем же choice, без лишних записей;
+- exact — ответ равен выводу из задачи (corpus.solve): копия задачи,
+  решения по отношениям и приоритетам, отчёт.
 
 ochan запускается в отдельном доме (--home): журнал и роли пользователя
 замер не трогает. Адаптер должен быть запущен (adapter.py serve).
@@ -30,6 +34,7 @@ import subprocess
 import time
 
 from adapter import TASK_MARKER, Engine
+from corpus import solve
 
 SUMMARY = {
     "statements": r"Утверждений: (\d+), токенов: (\d+), обращений к модели: (\d+)",
@@ -67,8 +72,9 @@ def consistent(task, answer):
                     q = val.strip()
                 elif key == "choice" and q is not None:
                     told.append((q, val.strip()))
-    return (bool(made) and not any((c, a) in given for c, a, _ in made)
-            and sorted((a, v.strip()) for _, a, v in made) == sorted(told))
+    # Вопрос — параметр: одна запись покрывает все цели с тем же значением.
+    return (not any((c, a) in given for c, a, _ in made) and len(told) == len(set(told))
+            and {(a, v.strip()) for _, a, v in made} == set(told))
 
 
 def ochan(args, env, stdin=None):
@@ -132,14 +138,18 @@ def main():
 
             started = time.time()
             gen = ochan([args.ochan, "llm", "generate", "--prompt", task], env)
+            expected = (solve(text) or "").strip()
+            ok = gen.returncode == 0
             row = {
                 "task": os.path.basename(task),
                 "raw_in_language": check.returncode == 0,
                 "raw_consistent": consistent(text, raw),
+                "raw_exact": raw.strip() == expected,
                 "raw_seconds": round(raw_seconds, 2),
                 "raw": raw,
-                "embedded_ok": gen.returncode == 0,
-                "embedded_consistent": gen.returncode == 0 and consistent(text, gen.stdout),
+                "embedded_ok": ok,
+                "embedded_consistent": ok and consistent(text, gen.stdout),
+                "embedded_exact": ok and gen.stdout.strip() == expected,
                 "embedded_seconds": round(time.time() - started, 2),
                 "embedded_reason": "" if gen.returncode == 0 else gen.stderr.strip().splitlines()[-1],
                 "answer": gen.stdout,
@@ -147,18 +157,19 @@ def main():
             }
             rows.append(row)
             out.write(json.dumps(row, ensure_ascii=False) + "\n")
-            print(f"{row['task']}: raw в ℒ — {'да' if row['raw_in_language'] else 'нет'}, "
-                  f"сходится — {'да' if row['raw_consistent'] else 'нет'}; embedded — "
-                  f"{'ответ' if row['embedded_ok'] else 'нет ответа'}, "
-                  f"сходится — {'да' if row['embedded_consistent'] else 'нет'}, утверждений {row['statements']}, "
+            yes = lambda key: "да" if row[key] else "нет"
+            print(f"{row['task']}: raw в ℒ — {yes('raw_in_language')}, сходится — {yes('raw_consistent')}, "
+                  f"точно — {yes('raw_exact')}; embedded — {'ответ' if ok else 'нет ответа'}, "
+                  f"сходится — {yes('embedded_consistent')}, точно — {yes('embedded_exact')}, "
+                  f"утверждений {row['statements']}, "
                   f"откатов {row['rollbacks']}, вне ℒ {row['out_of_language']}, кольцо 0 {row['ring0']}, "
                   f"без токена {row['dead']}, {row['embedded_seconds']} с", flush=True)
 
     n = len(rows)
-    print(f"\nЗадач {n}: raw в ℒ {sum(r['raw_in_language'] for r in rows)}/{n}, "
-          f"raw сходится {sum(r['raw_consistent'] for r in rows)}/{n}, "
-          f"embedded с ответом {sum(r['embedded_ok'] for r in rows)}/{n}, "
-          f"embedded сходится {sum(r['embedded_consistent'] for r in rows)}/{n}")
+    total = lambda key: f"{sum(r[key] for r in rows)}/{n}"
+    print(f"\nЗадач {n}: raw в ℒ {total('raw_in_language')}, сходится {total('raw_consistent')}, "
+          f"точно {total('raw_exact')}; embedded с ответом {total('embedded_ok')}, "
+          f"сходится {total('embedded_consistent')}, точно {total('embedded_exact')}")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,17 @@ p — вероятность в полном распределении моде
 prompt — неизменная часть: протокол, затем "\n\n# Task\n\n" и задача. У
 instruct-модели она раскладывается по шаблону чата: system — протокол, user —
 задача; output — начало ответа ассистента. Кеш KV держит общий префикс
-прошлого запроса, поэтому досчитываются только новые токены.
+прошлого запроса, поэтому досчитываются только новые токены. Распределение —
+функция prompt и output, а не порядка запросов: ответ всегда считается по
+токену (distribution), и сырой вывод совпадает с жадным путём декодера.
+
+Токен не переходит через перевод строки: декодер ochan проверяет язык по
+строкам и обрезает токен на \n, а BPE пишет «\n  set» как «\n », « set».
+Поэтому ответ токенизируется построчно (answer_ids) — так и при обучении, —
+а токенов с текстом после \n в алфавите нет (prune.py). output, который
+декодер продлил кандидатом этого же адаптера, кодируется путём, который
+модель сама написала: повторная токенизация на стыке даёт другие токены
+(«\n\n» одним вместо двух «\n»), и модель видела бы чужой путь.
 
     python adapter.py serve --model HuggingFaceTB/SmolLM2-135M-Instruct --listen 127.0.0.1:8090
     python adapter.py raw --model ... --prompt-file prompt.txt   # сырой вывод, без колец
@@ -38,6 +48,8 @@ TASK_MARKER = "\n\n# Task\n\n"
 # Дата в системной реплике шаблона Llama 3: без неё шаблон берёт сегодняшнюю,
 # и один и тот же промпт давал бы разные токены в разные дни.
 DATE_STRING = "26 Jul 2024"
+# Длиннее токена в символах не бывает: дальше кандидата по концу output не ищут.
+PIECE = 64
 
 
 def prompt_ids(tok, prompt, chat=True):
@@ -51,6 +63,17 @@ def prompt_ids(tok, prompt, chat=True):
         messages.append({"role": "user", "content": task})
     text = tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, date_string=DATE_STRING)
     return tok(text, add_special_tokens=False).input_ids
+
+
+def lines(text):
+    """Строки текста с их \\n; у последней \\n может не быть."""
+    parts = text.split("\n")
+    return [p + "\n" for p in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+
+
+def answer_ids(tok, text):
+    """Токены ответа построчно: ни один не переходит через перевод строки."""
+    return [i for line in lines(text) for i in tok(line, add_special_tokens=False).input_ids]
 
 
 def end_ids(model, tok):
@@ -90,6 +113,9 @@ class Engine:
         self._pieces = {}
         self._prompt = (None, None)
         self.cache, self.cache_ids = None, []
+        # По prompt: путь токенов модели для каждого output и кандидаты,
+        # предложенные после него ({текст: идентификатор}).
+        self.paths, self.proposed = {"": []}, {}
 
     def piece(self, token_id):
         if token_id not in self._pieces:
@@ -99,22 +125,44 @@ class Engine:
     def prompt_ids(self, prompt):
         if self._prompt[0] != prompt:
             self._prompt = (prompt, prompt_ids(self.tok, prompt, self.chat))
+            self.paths, self.proposed = {"": []}, {}
         return self._prompt[1]
 
+    def path(self, output):
+        """Токены output: прошлый путь и кандидат, которым декодер его продлил,
+        иначе построчная токенизация."""
+        if output in self.paths:
+            return self.paths[output]
+        for k in range(1, min(len(output), PIECE) + 1):
+            base, piece = output[:-k], output[-k:]
+            if base in self.paths and piece in self.proposed.get(base, {}):
+                path = self.paths[base] + [self.proposed[base][piece]]
+                break
+        else:
+            path = answer_ids(self.tok, output)
+        self.paths[output] = path
+        return path
+
     def ids(self, prompt, output):
-        ids = list(self.prompt_ids(prompt))
-        if output:
-            ids += self.tok(output, add_special_tokens=False).input_ids
-        return ids
+        return list(self.prompt_ids(prompt)) + self.path(output)
 
     @torch.inference_mode()
-    def distribution(self, ids):
-        """Распределение следующего токена после ids, с кешем общего префикса."""
+    def distribution(self, ids, start):
+        """Распределение следующего токена после ids (первые start — промпт),
+        с кешем общего префикса.
+
+        В bf16 итог зависит от того, как вход поделён на куски: тот же токен,
+        посчитанный в куске и отдельно, даёт разные логиты, а на развилке
+        p ≈ 0,5 это меняет выбор. Поэтому деление — функция ids, а не истории
+        кеша: промпт без последнего токена — одним куском, дальше — по токену."""
         common = 0
         for a, b in zip(self.cache_ids, ids):
             if a != b:
                 break
             common += 1
+        head = start - 1
+        if common < head:
+            common = 0
         # Хотя бы один токен считается заново: логиты нужны после последнего.
         common = min(common, len(ids) - 1)
         if self.cache is None or common == 0:
@@ -122,9 +170,13 @@ class Engine:
         elif self.cache.get_seq_length() > common:
             # transformers 5: crop снимает с конца столько токенов, сколько сказано.
             self.cache.crop(common - self.cache.get_seq_length())
-        out = self.model(input_ids=torch.tensor([ids[common:]], device=self.device),
-                         past_key_values=self.cache, use_cache=True)
-        self.cache, self.cache_ids = out.past_key_values, list(ids)
+        chunks = [ids[:head]] if common == 0 and head > 0 else []
+        chunks += [[t] for t in ids[max(common, head):]]
+        for chunk in chunks:
+            out = self.model(input_ids=torch.tensor([chunk], device=self.device),
+                             past_key_values=self.cache, use_cache=True)
+            self.cache = out.past_key_values
+        self.cache_ids = list(ids)
         return torch.softmax(out.logits[0, -1].float(), dim=-1)
 
     def token(self, output):
@@ -132,21 +184,26 @@ class Engine:
         return self.to_id[output] if self.to_id else output
 
     def next(self, prompt, output, top):
-        probs = self.distribution(self.ids(prompt, output))
+        probs = self.distribution(self.ids(prompt, output), len(self.prompt_ids(prompt)))
         end = float(probs[self.end_out].sum())
         rest = probs.clone()
         if self.special.numel():
             rest[self.special] = 0
         values, indices = torch.topk(rest, k=max(1, min(top, rest.numel())))
-        candidates = [{"text": self.piece(self.token(int(i))), "p": float(v)}
-                      for v, i in zip(values.tolist(), indices.tolist()) if v > 0]
+        candidates, proposed = [], self.proposed.setdefault(output, {})
+        for v, i in zip(values.tolist(), indices.tolist()):
+            if v > 0:
+                token = self.token(int(i))
+                proposed.setdefault(self.piece(token), token)
+                candidates.append({"text": self.piece(token), "p": float(v)})
         return {"candidates": candidates, "end": end}
 
     def raw(self, prompt, max_new_tokens=512):
         """Сырой вывод модели без колец и маски: жадный, до конца реплики."""
         ids, out = list(self.prompt_ids(prompt)), []
+        start = len(ids)
         for _ in range(max_new_tokens):
-            token = self.token(int(torch.argmax(self.distribution(ids))))
+            token = self.token(int(torch.argmax(self.distribution(ids, start))))
             if token in self.end_ids:
                 break
             ids.append(token)

@@ -30,7 +30,7 @@ from peft import LoraConfig, get_peft_model, set_peft_model_state_dict
 from safetensors.torch import load_file
 
 import fpm
-from adapter import TASK_MARKER, prompt_ids, turn_end
+from adapter import TASK_MARKER, answer_ids, prompt_ids, turn_end
 
 TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
 STATE = "train_state.pt"
@@ -43,7 +43,7 @@ def examples(tok, protocol, corpus, split, index, end):
             if row.get("split", "train") != split:
                 continue
             prompt = prompt_ids(tok, protocol + TASK_MARKER + row["task"])
-            answer = tok(row["answer"], add_special_tokens=False).input_ids + [end]
+            answer = answer_ids(tok, row["answer"]) + [end]
             if any(t not in index for t in answer):
                 skipped += 1  # токена ответа нет в алфавите: пересоберите prune.py с корпусом
                 continue

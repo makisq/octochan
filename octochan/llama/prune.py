@@ -21,6 +21,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import fpm
+from adapter import answer_ids
 
 # Знаки, которые встречаются в тексте ℒ: буквы, цифры, пробел, перевод
 # строки и знаки грамматики. '#' — комментарий, то есть естественный язык,
@@ -30,7 +31,9 @@ COMMENT = re.compile(r"#.*$", re.M)
 
 
 def allowed(text):
-    return text != "" and all(c in CHARS for c in text)
+    """Токен ℒ: знаки языка, и после \\n в токене ничего нет — утверждение
+    (строка) складывается из целых токенов (adapter.answer_ids)."""
+    return text != "" and all(c in CHARS for c in text) and "\n" not in text[:-1]
 
 
 def main():
@@ -72,7 +75,7 @@ def main():
 
     ids = set()
     for text in texts:
-        for i in tok(text, add_special_tokens=False).input_ids:
+        for i in answer_ids(tok, text):
             if allowed(tok.decode([i], clean_up_tokenization_spaces=False)):
                 ids.add(i)
     eos = model.generation_config.eos_token_id
