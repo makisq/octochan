@@ -345,8 +345,10 @@ func (h *HA) demote(epoch int64, why string) {
 	st := h.state
 	h.mu.Unlock()
 	stamp := time.Now().UTC().Format("20060102T150405")
-	dir := filepath.Join("ha", fmt.Sprintf("diverged-e%d-%s", st.Epoch, stamp))
-	if err := h.copyState(filepath.Join(h.cfg.Base, dir)); err != nil {
+	// В ha.json и в статусе путь — через «/», как в описи: его читает и
+	// второй узел, а система у него может быть другая.
+	dir := fmt.Sprintf("ha/diverged-e%d-%s", st.Epoch, stamp)
+	if err := h.copyState(filepath.Join(h.cfg.Base, filepath.FromSlash(dir))); err != nil {
 		h.cfg.Logger.Printf("пара: отложить состояние перед отступлением не удалось: %v — остаюсь primary", err)
 		return
 	}

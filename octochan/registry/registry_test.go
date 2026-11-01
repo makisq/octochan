@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,31 @@ func TestVersions(t *testing.T) {
 	}
 	if CleanVersion("v1.4.0") != "1.4.0" || CleanVersion("latest") != "" {
 		t.Fatal("CleanVersion")
+	}
+}
+
+// Адрес file:// — каталог на диске этой системы; на Windows диск бывает
+// и в пути, и в «хосте», и без косых вовсе.
+func TestFilePath(t *testing.T) {
+	cases := map[string]string{
+		"file:///opt/reg":      filepath.FromSlash("/opt/reg"),
+		"file:///opt/my%20reg": filepath.FromSlash("/opt/my reg"),
+		"/opt/reg":             "/opt/reg",
+	}
+	if runtime.GOOS == "windows" {
+		cases["file:///C:/reg"] = `C:\reg`
+		cases["file://C:/reg"] = `C:\reg`
+		cases[`file://C:\reg`] = `C:\reg`
+		cases[`file://C:\Мои реестры\corp`] = `C:\Мои реестры\corp`
+		cases[`C:\reg`] = `C:\reg`
+	}
+	for raw, want := range cases {
+		if got := filePath(raw); got != want {
+			t.Errorf("filePath(%q) = %q, а не %q", raw, got, want)
+		}
+		if kind := InferKind(raw); kind != KindFile {
+			t.Errorf("InferKind(%q) = %s", raw, kind)
+		}
 	}
 }
 
