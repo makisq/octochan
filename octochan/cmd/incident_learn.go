@@ -47,9 +47,11 @@ func learnConfig() (learn.Config, error) {
 	return cfg, nil
 }
 
-// learnRecord — инцидент созревшего кластера в выгрузке для обучения.
+// learnRecord — инцидент созревшего кластера в выгрузке для обучения;
+// Weight — его вес с давностью.
 type learnRecord struct {
 	ID      string                   `json:"id"`
+	Weight  float64                  `json:"weight"`
 	Opened  time.Time                `json:"opened"`
 	State   string                   `json:"state"`
 	Outcome string                   `json:"outcome"`
@@ -57,10 +59,13 @@ type learnRecord struct {
 	Steps   []workspace.IncidentStep `json:"steps"`
 }
 
+// learnCluster — созревший кластер; Similarity — с какой похожестью задача
+// повторяет его структуру: так её узнаёт модель (llama/learn.py).
 type learnCluster struct {
-	Shape     []string      `json:"shape"`
-	Weight    float64       `json:"weight"`
-	Incidents []learnRecord `json:"incidents"`
+	Shape      []string      `json:"shape"`
+	Weight     float64       `json:"weight"`
+	Similarity float64       `json:"similarity"`
+	Incidents  []learnRecord `json:"incidents"`
 }
 
 var incidentLearnExport string
@@ -116,7 +121,8 @@ var incidentLearnCmd = &cobra.Command{
 			byID[inc.ID] = inc
 		}
 
-		j := learn.Judge(items, cfg, time.Now())
+		now := time.Now()
+		j := learn.Judge(items, cfg, now)
 		cmd.Printf("Инцидентов на ℒ: %d; на естественном языке: %d — в обучении не участвуют\n", len(items), natural)
 		cmd.Printf("Порог: больше %g + %g × %.1f = %.1f (incidents.learn.threshold + scale_factor × вес всех)\n",
 			cfg.Threshold, cfg.ScaleFactor, j.Total, j.Due)
@@ -130,10 +136,11 @@ var incidentLearnCmd = &cobra.Command{
 			}
 			cmd.Printf("  %-8s инцидентов %d, вес %.1f — %s\n", labels[c.Verdict], len(c.Items), c.Weight, shapeText(c.Shape))
 			if c.Verdict == learn.Ripe {
-				out := learnCluster{Shape: c.Shape, Weight: c.Weight}
+				out := learnCluster{Shape: c.Shape, Weight: c.Weight, Similarity: cfg.Similarity}
 				for _, it := range c.Items {
 					inc := byID[it.ID]
-					out.Incidents = append(out.Incidents, learnRecord{ID: inc.ID, Opened: inc.Opened, State: string(inc.State),
+					out.Incidents = append(out.Incidents, learnRecord{ID: inc.ID, Weight: learn.Weight(it.Time, now, cfg.HalfLife),
+						Opened: inc.Opened, State: string(inc.State),
 						Outcome: string(inc.Result(rbac.LLM)), Summary: inc.Summary, Steps: inc.Steps})
 				}
 				ripe = append(ripe, out)

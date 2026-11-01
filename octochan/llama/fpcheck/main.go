@@ -6,7 +6,8 @@
 // ok — отказов нет, syntax — текст в языке (⊥syn нет). model — текст
 // модели: строже, без комментариев и символов вне ASCII. answer — ответ,
 // который строит логика ochan (fp.PlanAnswer): копия задачи и решения,
-// выведенные из посылок; для текста не в языке — пусто.
+// выведенные из посылок; для текста не в языке — пусто. shape — структура
+// текста без частных имён (fp.Shape): с ней сверяется logic.shape модели.
 //
 //	go run ./llama/fpcheck < texts.jsonl > verdicts.jsonl
 package main
@@ -31,16 +32,18 @@ type input struct {
 }
 
 type verdict struct {
-	ID     string `json:"id"`
-	OK     bool   `json:"ok"`
-	Syntax bool   `json:"syntax"`
-	Codes  string `json:"codes,omitempty"`
-	First  string `json:"first,omitempty"`
-	Answer string `json:"answer,omitempty"`
+	ID     string   `json:"id"`
+	OK     bool     `json:"ok"`
+	Syntax bool     `json:"syntax"`
+	Codes  string   `json:"codes,omitempty"`
+	First  string   `json:"first,omitempty"`
+	Answer string   `json:"answer,omitempty"`
+	Shape  []string `json:"shape,omitempty"`
 }
 
 func main() {
 	opts := fp.Options{Lexicon: fp.BaseLexicon(), Builtins: arbiter.Builtins}
+	isWord := func(w string) bool { _, ok := opts.Lexicon.Lookup(w); return ok }
 	dec := json.NewDecoder(bufio.NewReader(os.Stdin))
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
@@ -62,6 +65,7 @@ func main() {
 		v := verdict{ID: in.ID, OK: r.Errors() == 0, Syntax: len(r.Syntax()) == 0}
 		if v.Syntax && !in.Model {
 			v.Answer = fp.PlanAnswer(in.Text, r.Program).Text()
+			v.Shape = fp.Shape(r.Program, isWord)
 		}
 		counts := map[string]int{}
 		for _, d := range r.Diagnostics {

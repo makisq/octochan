@@ -12,6 +12,9 @@ TASK_MARKER) в канонической записи, имена частных
 - копию задачи и то, что следует из посылок, пишет её логика (logic.py);
   кольцо 1 даёт поддержку выведенному по надёжности правил из журнала,
   кольцо 2 не пропускает слабое — оно уходит вопросом оператору (rings.py);
+- задачу, структура которой повторяет кластер инцидентов, модель узнаёт
+  сама (logic.shape): надёжность правил на ней — по исходам его инцидентов
+  (learn.py), а плохо решённая структура — вопрос оператору;
 - сеть выбирает только среди допустимых: правилом выбора с весами и
   калибровкой из журнала (rings.json рядом с весами);
 - её функция распределения переопределена: следующий токен вне допустимых
@@ -70,6 +73,36 @@ def task_of(prompt):
     """Задача из prompt ochan: протокол своей модели не нужен."""
     _, sep, task = prompt.partition(TASK_MARKER)
     return task if sep else prompt
+
+
+def narrowings(params, plan):
+    """Сужения неточных предпосылок по истории из журнала (раздел 5.2):
+    прочтение — значение, которое оператор задавал атрибуту точно или
+    одобрил в сужении; поддержка — доля прочтения среди всех. Лидер сужает,
+    только если его нижняя граница выше верхних границ остальных; иначе
+    варианты сопоставимы, и решает оператор."""
+    derived = {(d.target, d.attr) for d in plan.decisions}
+    decided = {d.attr: d.value for d in plan.decisions}
+    out = []
+    for (target, attr), vague in plan.task.inexact.items():
+        counts = params.history.get(attr, {})
+        total = sum(counts.values())
+        if (target, attr) in derived or not total:
+            continue
+        candidates = vague.variants if vague.variants is not None else [v for v in counts if vague.admits(v)]
+        if not candidates:
+            continue
+        spans = {v: rings.share(counts.get(v, 0), total) for v in candidates}
+        leader = max(candidates, key=lambda v: spans[v][0])
+        rest = [spans[v][1] for v in candidates if v != leader]
+        if vague.variants is None:
+            # Другие числа диапазона — всё, что не лидер.
+            rest.append(rings.share(total - counts.get(leader, 0), total)[1])
+        if rest and spans[leader][0] <= max(rest) or decided.get(attr, leader) != leader:
+            continue
+        names = vague.variants if vague.variants and all(logic.NAME.match(v) for v in vague.variants) else None
+        out.append((logic.Decision(target, attr, leader, f"history({attr})", ["fp.history"], names), spans[leader]))
+    return out
 
 
 class Engine(Base):
@@ -133,18 +166,26 @@ class Engine(Base):
 
     def plan(self, task):
         """План ответа после колец 1 и 2: (план, недостающее, пакеты).
-        Пакет — выведенное решение с правилами, поддержкой и вердиктом."""
+        Пакет — выведенное решение с правилами, поддержкой и вердиктом.
+        Задача, структура которой повторяет кластер инцидентов (learn.py),
+        берёт надёжность правил на этой структуре: plan.cluster — его ключ
+        и параметры."""
         if task not in self._plans:
             plan = logic.AnswerPlan(task)
+            plan.cluster = self.params.cluster_of(logic.shape(task, self.tok.closed.__contains__))
+            key, cluster = plan.cluster
             packages, accepted = [], []
             narrowed = self.narrowings(plan)
             spans = {(d.target, d.attr): span for d, span in narrowed}
             plan.decisions = [d for d, _ in narrowed] + plan.decisions
             for d in plan.decisions:
-                lower, upper = spans.get((d.target, d.attr)) or rings.support(self.params.rule(r) for r in d.rules)
+                lower, upper = spans.get((d.target, d.attr)) or rings.support(self.params.rule(r, cluster) for r in d.rules)
                 ok = lower >= self.params.well_true
-                packages.append({"statement": d.line().strip(), "rules": d.rules, "l": lower, "u": upper,
-                                 "verdict": "well_true" if ok else "well_false"})
+                package = {"statement": d.line().strip(), "rules": d.rules, "l": lower, "u": upper,
+                           "verdict": "well_true" if ok else "well_false"}
+                if cluster and any(r in cluster["rules"] for r in d.rules):
+                    package["cluster"] = key
+                packages.append(package)
                 if ok:
                     accepted.append(d)
             plan.decisions = accepted
@@ -152,33 +193,7 @@ class Engine(Base):
         return self._plans[task]
 
     def narrowings(self, plan):
-        """Сужения неточных предпосылок по истории из журнала (раздел 5.2):
-        прочтение — значение, которое оператор задавал атрибуту точно или
-        одобрил в сужении; поддержка — доля прочтения среди всех. Лидер
-        сужает, только если его нижняя граница выше верхних границ
-        остальных; иначе варианты сопоставимы, и решает оператор."""
-        derived = {(d.target, d.attr) for d in plan.decisions}
-        decided = {d.attr: d.value for d in plan.decisions}
-        out = []
-        for (target, attr), vague in plan.task.inexact.items():
-            counts = self.params.history.get(attr, {})
-            total = sum(counts.values())
-            if (target, attr) in derived or not total:
-                continue
-            candidates = vague.variants if vague.variants is not None else [v for v in counts if vague.admits(v)]
-            if not candidates:
-                continue
-            spans = {v: rings.share(counts.get(v, 0), total) for v in candidates}
-            leader = max(candidates, key=lambda v: spans[v][0])
-            rest = [spans[v][1] for v in candidates if v != leader]
-            if vague.variants is None:
-                # Другие числа диапазона — всё, что не лидер.
-                rest.append(rings.share(total - counts.get(leader, 0), total)[1])
-            if rest and spans[leader][0] <= max(rest) or decided.get(attr, leader) != leader:
-                continue
-            names = vague.variants if vague.variants and all(logic.NAME.match(v) for v in vague.variants) else None
-            out.append((logic.Decision(target, attr, leader, f"history({attr})", ["fp.history"], names), spans[leader]))
-        return out
+        return narrowings(self.params, plan)
 
     def questions(self, plan, packages):
         """Вопросы оператору: что посылки не закрывают, что кольцо 2 не
@@ -190,12 +205,37 @@ class Engine(Base):
             if (target, attr) not in narrowed and not any(target in q.targets and q.attr == attr for q in plan.open):
                 out.append({"statement": f"set {target}.{attr} = {vague.text}",
                             "why": "неточная предпосылка: сузить её нечем — ни посылки, ни истории"})
+        key, cluster = getattr(plan, "cluster", (None, None))
         for p in packages:
-            if p["verdict"] == "well_false":
-                out.append({"statement": p["statement"], "rules": p["rules"],
-                            "why": f"правила {', '.join(p['rules'])} проверены мало: нижняя граница поддержки "
-                                   f"{p['l']:.2f} ниже порога {self.params.well_true:.2f}"})
+            if p["verdict"] != "well_false":
+                continue
+            q = {"statement": p["statement"], "rules": p["rules"],
+                 "why": f"правила {', '.join(p['rules'])} проверены мало: нижняя граница поддержки "
+                        f"{p['l']:.2f} ниже порога {self.params.well_true:.2f}"}
+            if p.get("cluster"):
+                counts = "; ".join(f"{r} верно {cluster['rules'][r][0]:.1f} из {cluster['rules'][r][1]:.1f}"
+                                   for r in p["rules"] if r in cluster["rules"])
+                q.update(cluster=key, why=f"на инцидентах этой структуры (кластер {key}) {counts}: нижняя граница "
+                                         f"поддержки {p['l']:.2f} ниже порога {self.params.well_true:.2f}")
+            out.append(q)
+        if cluster and cluster["outcomes"][1]:
+            lower, _ = self.params.outcomes(cluster)
+            if lower < self.params.well_true:
+                solved, total = cluster["outcomes"]
+                out.append({"cluster": key, "why": f"инциденты этой структуры (кластер {key}) модель решила сама "
+                                                   f"{solved:.1f} из {total:.1f}: нижняя граница {lower:.2f} ниже порога "
+                                                   f"{self.params.well_true:.2f} — решает оператор"})
         return out
+
+    def cluster(self, plan):
+        """Кластер инцидентов, структуру которого повторяет задача, — для
+        ответа: ключ, частных случаев, исходы и надёжность модели на нём."""
+        key, cluster = getattr(plan, "cluster", (None, None))
+        if cluster is None:
+            return None
+        lower, upper = self.params.outcomes(cluster)
+        return {"key": key, "instances": len(cluster["instances"]), "solved": cluster["outcomes"][0],
+                "outcomes": cluster["outcomes"][1], "l": lower, "u": upper}
 
     def generate(self, prompt):
         """Ответ модели целиком: отказ без предпосылки, копия, пакеты логики
@@ -230,7 +270,7 @@ class Engine(Base):
             output += best[2]
         return {"answer": output, "refused": False, "missing": [], "packages": packages,
                 "questions": self.questions(plan, packages), "forced": forced, "chosen": len(choices),
-                "choices": choices}
+                "choices": choices, "cluster": self.cluster(plan)}
 
     def admissible(self, task, output):
         """Токены, которыми может продолжиться output по логике модели:

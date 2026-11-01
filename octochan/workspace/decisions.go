@@ -151,6 +151,9 @@ type DecisionPackage struct {
 	LogProb float64 `json:"logprob,omitempty"`
 	Options int     `json:"options,omitempty"`
 	Gap     float64 `json:"gap,omitempty"`
+	// Cluster — кластер повторяющихся инцидентов, по исходам которого
+	// модель взяла надёжность правил пакета.
+	Cluster string `json:"cluster,omitempty"`
 }
 
 // Outcome — исход плана целиком: верен ли он и вынесен ли вердикт вообще.

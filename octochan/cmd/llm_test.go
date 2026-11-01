@@ -191,6 +191,32 @@ func TestLLMGenerateArchitectural(t *testing.T) {
 		t.Fatalf("непринятое кольцом 2:\n%s", out)
 	}
 
+	// Задача повторяет кластер инцидентов, который модель решает плохо: её
+	// кольцо 2 по исходам кластера не приняло решение, и вся задача —
+	// вопрос оператору.
+	clustered := pkg(size, "well_false")
+	clustered.Cluster = "3fa2c1d4e5b6"
+	model.answer.Packages[1] = clustered
+	model.answer.Cluster = &embedded.ModelCluster{Key: "3fa2c1d4e5b6", Instances: 8, Solved: 1, Outcomes: 6, L: 0.22, U: 0.6}
+	model.answer.Questions = append(model.answer.Questions,
+		embedded.ModelQuestion{Cluster: "3fa2c1d4e5b6", Why: "инциденты этой структуры модель решила сама 1 из 6"})
+	if out := e.must("llm", "generate", "--prompt", e.path("task.fp")); !strings.Contains(out,
+		"Кластер:     3fa2c1d4e5b6 — задача повторяет структуру 8 инцидентов; модель решила сама 1.0 из 6.0, надёжность [0.22; 0.60]") ||
+		!strings.Contains(out, "Вопрос оператору: задача целиком; инциденты этой структуры модель решила сама 1 из 6") {
+		t.Fatalf("кластер инцидентов:\n%s", out)
+	}
+	journal, err := decisionStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := journal.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := all[len(all)-1]; last.Packages[1].Cluster != "3fa2c1d4e5b6" || last.Packages[0].Cluster != "" {
+		t.Fatalf("в журнале — на каком кластере решала модель: %+v", last.Packages)
+	}
+
 	model.answer = embedded.Answer{Refused: true, Missing: []string{"incident_history"}}
 	if _, err := e.ochan("llm", "generate", "--prompt", e.path("task.fp")); err == nil ||
 		!strings.Contains(err.Error(), "модель отказала: не хватает предпосылок — incident_history") {

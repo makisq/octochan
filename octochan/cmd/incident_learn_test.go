@@ -49,7 +49,10 @@ func TestIncidentLearn(t *testing.T) {
 			t.Fatalf("нет %q:\n%s", want, out)
 		}
 	}
-	if exported := e.read("ripe.jsonl"); strings.Count(exported, `"id":`) != 8 || !strings.Contains(exported, "set Connection.maximum #") {
+	// В выгрузке — порог похожести, по которому модель узнает структуру,
+	// и вес каждого инцидента: свежие — около 1.
+	if exported := e.read("ripe.jsonl"); strings.Count(exported, `"id":`) != 8 || !strings.Contains(exported, "set Connection.maximum #") ||
+		!strings.Contains(exported, `"similarity":0.8`) || !strings.Contains(exported, `"weight":0.99`) && !strings.Contains(exported, `"weight":1,`) {
 		t.Fatalf("выгрузка:\n%s", exported)
 	}
 
