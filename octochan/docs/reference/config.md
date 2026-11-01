@@ -184,6 +184,10 @@ secret`). Подробнее — [«Роли»](../guide/roles.md#по-собы�
 | `incidents.notify_resolved` | `true` | письмо о решённом инциденте тем же адресам: кто решил, за сколько, что сделано |
 | `incidents.report.every` | `""` | отчёт со статистикой инцидентов на почту: как часто и за какой срок (`24h`, `7d`); пусто — не слать |
 | `incidents.report.to` | `incidents.engineers` | кому отчёт |
+| `incidents.learn.scale_factor` | `0.2` | доля от веса всех инцидентов, с которой кластер похожих созревает для обучения своей модели — как `autovacuum_vacuum_scale_factor` в PostgreSQL |
+| `incidents.learn.threshold` | `5` | минимум сверх доли: кластер созрел, когда его вес больше `threshold + scale_factor × вес всех` — как `autovacuum_vacuum_threshold` |
+| `incidents.learn.similarity` | `0.8` | с какой похожестью структуры записи на ℒ (1 − расстояние Жаккара) инцидент входит в кластер |
+| `incidents.learn.half_life` | `180d` | за какой срок вес инцидента падает вдвое; `0` — не падает |
 
 Почта — `defaults.smtp_*`. Секрет вебхука мониторинга —
 `~/.octochan/incidents.secret` (`ochan incident secret`). Подробнее —

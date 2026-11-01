@@ -110,6 +110,11 @@ func initConfig() error {
 	viper.SetDefault("llm.max_tokens", 2048)
 	viper.SetDefault("llm.retries", 32)
 	viper.SetDefault("llm.derive", true)
+	// Обучение по инцидентам — порог как у autovacuum в PostgreSQL.
+	viper.SetDefault("incidents.learn.scale_factor", 0.2)
+	viper.SetDefault("incidents.learn.threshold", 5)
+	viper.SetDefault("incidents.learn.similarity", 0.8)
+	viper.SetDefault("incidents.learn.half_life", "180d")
 	viper.SetDefault("llm.timeout", "60s")
 
 	// Почта: язык писем людям — auto (по режиму), formal или natural.

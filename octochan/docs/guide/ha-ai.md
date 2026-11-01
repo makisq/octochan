@@ -392,6 +392,41 @@ $ curl -X POST -H "Authorization: Bearer $(cat incidents.secret)" \
 `log` прикладывается к инциденту как `monitoring.log`. Вебхук принимает
 только primary; standby отвечает 503 с адресом primary.
 
+### Обучение на повторяющихся инцидентах
+
+Своя модель учится на инцидентах, но не на каждом: одиночный — шум,
+запомнить его — значит запомнить случайность. Учиться стоит тому, что
+повторяется. `ochan incident learn` группирует инциденты по структуре
+записи на ℒ — без частных имён: «соединения ограничивают процесс» на db7 и
+на pg-3, с лимитом 200 и 500, — одна структура — и решает, какой кластер
+созрел.
+
+Порог — как у вакуума в PostgreSQL: таблица идёт в вакуум, когда мёртвых
+строк больше `autovacuum_vacuum_threshold +
+autovacuum_vacuum_scale_factor × строк`. Здесь кластер созрел, когда его
+вес больше
+
+```
+incidents.learn.threshold + incidents.learn.scale_factor × вес всех инцидентов
+```
+
+Вес инцидента падает вдвое за `incidents.learn.half_life`: старые не
+держат кластер вечно. Минимум `threshold` не даёт двум случаям из пяти
+назваться закономерностью.
+
+```
+$ ochan incident learn --export ripe.jsonl
+Инцидентов на ℒ: 9; на естественном языке: 1 — в обучении не участвуют
+Порог: больше 5 + 0.2 × 9.0 = 6.8 (incidents.learn.threshold + scale_factor × вес всех)
+  созрел   инцидентов 8, вес 8.0 — Connection limits Process
+Шум: одиночных инцидентов 1 — в обучение не идут
+Созревших кластеров в ripe.jsonl: 1
+```
+
+`--export` пишет созревшие кластеры — структуру и инциденты с шагами и
+исходом — материал для обучения своей модели. Инцидент на естественном
+языке структуры не даёт: в обучении он не участвует, только считается.
+
 ### Модель через MCP
 
 Инструменты `incidents`, `incident_stats`, `incident_open`, `incident_note`,
@@ -406,7 +441,7 @@ $ curl -X POST -H "Authorization: Bearer $(cat incidents.secret)" \
 |---|---|
 | `ha init --ai-contour`, `ha contour` | master |
 | `agents free`, `agents free --revoke` | master |
-| `incident`, карточка, `incident stats` | `read` |
+| `incident`, карточка, `incident stats`, `incident learn` | `read` |
 | `incident open`, `note`, `attach`, `resolve`, `escalate`, `check`, `report` | `request` |
 | `incident secret` | `admin` |
 

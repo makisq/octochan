@@ -62,6 +62,7 @@
 - [`ochan incident attach`](#ochan-incident-attach) — Приложить журнал к инциденту: он уйдёт инженерам при эскалации
 - [`ochan incident check`](#ochan-incident-check) — Эскалировать инциденты, срок которых вышел, и отправить отчёт по расписанию — для cron
 - [`ochan incident escalate`](#ochan-incident-escalate) — Эскалировать инцидент инженерам сейчас: модель не справится
+- [`ochan incident learn`](#ochan-incident-learn) — Обучение по инцидентам: какие повторяются и созрели для модели
 - [`ochan incident note`](#ochan-incident-note) — Заметка к инциденту: что модель нашла и сделала
 - [`ochan incident open`](#ochan-incident-open) — Открыть инцидент: модель идёт чинить, срок — по уровню
 - [`ochan incident report`](#ochan-incident-report) — Отправить статистику инцидентов на почту сейчас
@@ -1136,7 +1137,7 @@ ochan incident resolve 3f2a "поднят max_connections до 300, соедин
 ochan incident escalate 3f2a "причина не в конфиге: нужен человек"
 ```
 
-Подкоманды: [`attach`](#ochan-incident-attach), [`check`](#ochan-incident-check), [`escalate`](#ochan-incident-escalate), [`note`](#ochan-incident-note), [`open`](#ochan-incident-open), [`report`](#ochan-incident-report), [`resolve`](#ochan-incident-resolve), [`secret`](#ochan-incident-secret), [`stats`](#ochan-incident-stats).
+Подкоманды: [`attach`](#ochan-incident-attach), [`check`](#ochan-incident-check), [`escalate`](#ochan-incident-escalate), [`learn`](#ochan-incident-learn), [`note`](#ochan-incident-note), [`open`](#ochan-incident-open), [`report`](#ochan-incident-report), [`resolve`](#ochan-incident-resolve), [`secret`](#ochan-incident-secret), [`stats`](#ochan-incident-stats).
 
 ## ochan incident attach
 
@@ -1171,6 +1172,32 @@ ochan incident escalate <номер> <почему | ->
 ```
 
 Право: `read`.
+
+## ochan incident learn
+
+Обучение по инцидентам: какие повторяются и созрели для модели.
+
+```
+ochan incident learn [--export файл]
+```
+
+Одиночный инцидент — шум, учить на нём модель — значит запоминать
+случайность. Команда группирует инциденты по структуре записи на ℒ —
+без частных имён: разные хосты и числа дают одну структуру — и решает,
+какой кластер созрел. Порог — как у вакуума в PostgreSQL: кластер
+созрел, когда его вес больше incidents.learn.threshold +
+incidents.learn.scale_factor × вес всех инцидентов; вес инцидента падает
+вдвое за incidents.learn.half_life. Похожесть — incidents.learn.similarity.
+
+--export пишет созревшие кластеры в JSON Lines — материал для обучения
+своей модели. Инциденты на естественном языке структуры не дают и в
+обучении не участвуют.
+
+Право: `read`.
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--export` | string | — | записать созревшие кластеры в файл (JSON Lines) |
 
 ## ochan incident note
 

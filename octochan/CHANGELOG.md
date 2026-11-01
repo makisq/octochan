@@ -97,6 +97,13 @@
 - MCP: `incidents`, `incident_stats`, `incident_open`, `incident_note`,
   `incident_attach`, `incident_resolve`, `incident_escalate`, поле
   `incident` у заявок.
+- `ochan incident learn [--export файл]` — обучение своей модели на
+  повторяющихся инцидентах. Инциденты группируются по структуре записи на
+  ℒ без частных имён (`fp.Shape`, похожесть — 1 − расстояние Жаккара);
+  одиночный — шум. Кластер созревает, как таблица для вакуума в
+  PostgreSQL: вес больше `incidents.learn.threshold +
+  incidents.learn.scale_factor × вес всех`, вес падает вдвое за
+  `incidents.learn.half_life`. `--export` — созревшие кластеры для обучения.
 
 ### Своя модель: режим embedded
 
