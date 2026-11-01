@@ -35,7 +35,7 @@ import (
 // до которых он сам не дотягивается (security.md).
 
 // SystemPolicyPath — системная политика ролей. Меняется при сборке:
-// -ldflags "-X octochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml".
+// -ldflags "-X ochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml".
 var SystemPolicyPath = "/etc/octochan/roles.yaml"
 
 // SystemCheck проверяет, что файлу политики можно верить: владелец root,

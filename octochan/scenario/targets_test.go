@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/inventory"
+	"ochan/inventory"
 )
 
 // Цель — свободный набор полей: исполнитель получает их как есть.

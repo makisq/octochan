@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // Builtin — встроенная функция языка.

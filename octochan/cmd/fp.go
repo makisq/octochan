@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"octochan/arbiter"
-	"octochan/fp"
+	"ochan/arbiter"
+	"ochan/fp"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

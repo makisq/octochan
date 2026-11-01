@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/embedded"
-	"octochan/fp"
+	"ochan/embedded"
+	"ochan/fp"
 
 	"github.com/spf13/viper"
 )
@@ -53,6 +53,12 @@ func TestKnowledgePackage(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("apply: нет %q:\n%s", want, out)
 		}
+	}
+	// Пакет без алиасов тоже числится установленным: !!rin не ставит его
+	// заново.
+	if out := e.must("!!rin", "@pg_incidents"); !strings.Contains(out, "уже установлен — пропускается") ||
+		!strings.Contains(out, "Ставить нечего: всё уже установлено") {
+		t.Fatalf("повторная установка:\n%s", out)
 	}
 
 	// Задача подключает знания import'ом; версия — часть знания.

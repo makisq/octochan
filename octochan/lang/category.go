@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // Категория конфигураций.

@@ -20,8 +20,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"octochan/config"
-	"octochan/inventory"
+	"ochan/config"
+	"ochan/inventory"
 )
 
 // Target — цель сценария: свободный набор полей.

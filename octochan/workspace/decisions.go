@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"octochan/rings"
+	"ochan/rings"
 )
 
 // Вердикты арбитра и оператора в журнале решений.

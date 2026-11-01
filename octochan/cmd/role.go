@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"octochan/audit"
-	"octochan/rbac"
-	"octochan/workspace"
+	"ochan/audit"
+	"ochan/rbac"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"

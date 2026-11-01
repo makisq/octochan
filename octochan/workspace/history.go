@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // EntryKind — вид записи истории.

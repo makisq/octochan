@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	"octochan/lang"
+	"ochan/lang"
 
 	"github.com/spf13/cobra"
 )

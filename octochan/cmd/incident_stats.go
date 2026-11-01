@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"octochan/i18n"
-	"octochan/rbac"
-	"octochan/report"
-	"octochan/workspace"
+	"ochan/i18n"
+	"ochan/rbac"
+	"ochan/report"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

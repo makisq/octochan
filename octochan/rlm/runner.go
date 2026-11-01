@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"octochan/config"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/scenario"
 )
 
 // runner выполняет сценарий через RLM API.

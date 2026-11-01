@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/lang"
-	"octochan/rbac"
+	"ochan/lang"
+	"ochan/rbac"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

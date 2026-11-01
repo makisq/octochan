@@ -5,7 +5,7 @@
 // подключаются через go-plugin, см. pluginhost.ModuleManager.
 package module
 
-import "octochan/rlm"
+import "ochan/rlm"
 
 func init() {
 	rlm.RegisterScenarioModule("psqlse_tuningpgbouncer", NewPgBouncerTuningModule)

@@ -4,6 +4,17 @@
 
 Версия 0.3.0-alpha: `ochan --version` и `ochan-mcp --version` печатают её.
 
+### Имя команды — `ochan`
+
+- Модуль Go называется `ochan` (был `octochan`), сервер MCP — `ochan-mcp`:
+  голый `go build` в каталоге репозитория собирает `ochan`, а не
+  `octochan`, — как `make install` и установщики. Каталоги данных
+  (`~/.octochan`, `/etc/octochan`) и переменные `OCTOCHAN_*` прежние.
+  Внешнему модулю — импорты `ochan/pluginhost` вместо
+  `octochan/pluginhost`; `-X ochan/cmd.Version` в сборке.
+- `!!rin` видит установленными и пакеты без алиасов (пакет знаний): не
+  ставит их заново и учитывает в зависимостях.
+
 ### Синтаксис: `!!` и `!`
 
 - Встроенные команды пишутся с `!!`: `!!install`, `!!search`, `!!rin`,

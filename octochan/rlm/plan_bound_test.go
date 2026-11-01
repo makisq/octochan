@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/scenario"
 )
 
 // recordingAPI запоминает отправленные задачи.

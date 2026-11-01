@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/scenario"
 )
 
 // fakeExecutor — исполнитель с видом kind; statuses — что он ответит.

@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"octochan/audit"
-	"octochan/i18n"
-	"octochan/rbac"
-	"octochan/workspace"
+	"ochan/audit"
+	"ochan/i18n"
+	"ochan/rbac"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

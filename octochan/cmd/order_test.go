@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/scenario"
 )
 
 // brokenExecutor падает по заказу: partial — успев сделать первую задачу,

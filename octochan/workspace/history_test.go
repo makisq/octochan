@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 func TestHistoryAppendAndList(t *testing.T) {

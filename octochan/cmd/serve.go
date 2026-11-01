@@ -19,10 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"octochan/audit"
-	"octochan/i18n"
-	"octochan/rbac"
-	"octochan/remote"
+	"ochan/audit"
+	"ochan/i18n"
+	"ochan/rbac"
+	"ochan/remote"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

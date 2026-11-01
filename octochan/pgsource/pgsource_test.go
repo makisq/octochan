@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 func TestFormatSetting(t *testing.T) {

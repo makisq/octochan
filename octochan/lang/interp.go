@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
-	"octochan/inventory"
+	"ochan/inventory"
 	"os"
 	"sort"
 	"strings"

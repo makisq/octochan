@@ -37,8 +37,8 @@ import (
 	"strings"
 	"unicode"
 
-	"octochan/fp"
-	"octochan/rings"
+	"ochan/fp"
+	"ochan/rings"
 )
 
 // Candidate — токен-кандидат и его вероятность.

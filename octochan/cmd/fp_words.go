@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"octochan/fp"
+	"ochan/fp"
 
 	"github.com/spf13/cobra"
 )

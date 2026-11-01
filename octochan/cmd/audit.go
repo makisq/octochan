@@ -3,8 +3,8 @@ package cmd
 import (
 	"strings"
 
-	"octochan/audit"
-	"octochan/i18n"
+	"ochan/audit"
+	"ochan/i18n"
 
 	"github.com/spf13/cobra"
 )

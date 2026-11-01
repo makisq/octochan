@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // Value — значение языка.

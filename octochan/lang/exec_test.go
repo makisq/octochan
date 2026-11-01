@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 func TestLaunchersAreRefused(t *testing.T) {

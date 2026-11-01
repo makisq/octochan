@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // Прежняя схема конвейеров была двухслойной и нерабочей:

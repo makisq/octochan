@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/embedded"
-	"octochan/report"
-	"octochan/workspace"
+	"ochan/embedded"
+	"ochan/report"
+	"ochan/workspace"
 
 	"github.com/spf13/viper"
 )

@@ -16,7 +16,7 @@ package main
 import (
     "fmt"
 
-    "octochan/pluginhost"
+    "ochan/pluginhost"
 
     "github.com/spf13/cobra"
 )
@@ -66,8 +66,10 @@ func (t *TestModule) GetCommands() []*cobra.Command {
 func main() { pluginhost.ServeCommandModule(&TestModule{}) }
 ```
 
-Модуль импортирует `octochan/pluginhost`, поэтому собирается внутри модуля
-`octochan` (как `dwd/`) или с `replace` на него в своём `go.mod`.
+Модуль импортирует `ochan/pluginhost`, поэтому собирается внутри модуля
+`ochan` (как `dwd/`) или с `replace ochan => …` на него в своём `go.mod`.
+До 0.3.0 модуль назывался `octochan`: в старом модуле поправьте импорты
+`octochan/…` на `ochan/…`.
 
 ## Сборка и установка
 

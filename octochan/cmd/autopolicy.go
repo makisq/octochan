@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"octochan/inventory"
-	"octochan/scenario"
-	"octochan/workspace"
+	"ochan/inventory"
+	"ochan/scenario"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

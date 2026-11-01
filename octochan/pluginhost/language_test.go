@@ -22,7 +22,7 @@ func TestLanguageModuleOverGRPC(t *testing.T) {
 	}
 	dir := t.TempDir()
 	module := filepath.Join(dir, "lang-de"+ModuleExtension)
-	build := exec.Command("go", "build", "-o", module, "octochan/examples/langmodule")
+	build := exec.Command("go", "build", "-o", module, "ochan/examples/langmodule")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("сборка модуля: %v\n%s", err, out)
 	}

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"octochan/config"
-	"octochan/inventory"
-	"octochan/rbac"
-	"octochan/scenario"
-	"octochan/workspace"
+	"ochan/config"
+	"ochan/inventory"
+	"ochan/rbac"
+	"ochan/scenario"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

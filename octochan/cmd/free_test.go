@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"octochan/remote"
-	"octochan/scenario"
-	"octochan/workspace"
+	"ochan/remote"
+	"ochan/scenario"
+	"ochan/workspace"
 )
 
 // free: только master, только primary контура HA-AI. Заявка модели в

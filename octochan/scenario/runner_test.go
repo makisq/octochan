@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // fakeRunner — исполнитель, который ничего не делает, но помнит вызовы.

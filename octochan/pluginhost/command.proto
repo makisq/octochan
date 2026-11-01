@@ -2,12 +2,12 @@ syntax = "proto3";
 
 package pluginhost;
 
-// Путь совпадает с "module octochan" из go.mod. Прежнее значение
+// Путь совпадает с "module ochan" из go.mod. Прежнее значение
 // github.com/makisq/PACAL/octochan/core указывало на несуществующий
 // импорт-путь: код собирался только потому, что генерируется он прямо
 // в пакет core, но любой .proto, импортирующий этот файл, получил бы
 // нерабочую ссылку.
-option go_package = "octochan/pluginhost";
+option go_package = "ochan/pluginhost";
 
 message Flag {
     string name = 1;

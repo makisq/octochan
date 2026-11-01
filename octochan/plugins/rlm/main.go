@@ -27,12 +27,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"octochan/config"
-	_ "octochan/module" // сервисы RLM: pangolin_restart, psql_tuning_params_se…
-	"octochan/pluginhost"
-	"octochan/rlm"
-	"octochan/runnerhost"
-	"octochan/scenario"
+	"ochan/config"
+	_ "ochan/module" // сервисы RLM: pangolin_restart, psql_tuning_params_se…
+	"ochan/pluginhost"
+	"ochan/rlm"
+	"ochan/runnerhost"
+	"ochan/scenario"
 
 	"github.com/spf13/cobra"
 )

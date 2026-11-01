@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/scenario"
+	"ochan/scenario"
 )
 
 const testInventory = `groups:

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"octochan/fp"
-	"octochan/remote"
-	"octochan/report"
-	"octochan/scenario"
-	"octochan/workspace"
+	"ochan/fp"
+	"ochan/remote"
+	"ochan/report"
+	"ochan/scenario"
+	"ochan/workspace"
 
 	"github.com/spf13/viper"
 )

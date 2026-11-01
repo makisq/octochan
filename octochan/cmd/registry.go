@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"octochan/config"
-	"octochan/fp"
-	"octochan/i18n"
-	"octochan/lang"
-	"octochan/registry"
-	"octochan/workspace"
+	"ochan/config"
+	"ochan/fp"
+	"ochan/i18n"
+	"ochan/lang"
+	"ochan/registry"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -345,7 +345,9 @@ func resolvePackage(res fetchResult, sources []registry.Source, name, version st
 	return nil, fmt.Errorf("%s", msg)
 }
 
-// installedPackages — версии установленных пакетов алиасов.
+// installedPackages — версии установленных пакетов: с алиасами и без них
+// (пакет знаний своей модели). Иначе !!rin ставил бы такой пакет заново и
+// не видел бы его в зависимостях.
 func installedPackages() map[string]string {
 	lib, _ := aliases()
 	out := map[string]string{}
@@ -357,6 +359,11 @@ func installedPackages() map[string]string {
 			out[info.Module] = pkg.Version
 		} else if _, seen := out[info.Module]; !seen {
 			out[info.Module] = ""
+		}
+	}
+	for _, name := range lib.Packages() {
+		if pkg, ok := lib.Package(name); ok {
+			out[name] = pkg.Version
 		}
 	}
 	return out

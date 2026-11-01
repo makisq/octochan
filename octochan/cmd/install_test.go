@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/lang"
-	"octochan/pluginhost"
-	"octochan/scenario"
+	"ochan/lang"
+	"ochan/pluginhost"
+	"ochan/scenario"
 
 	"github.com/spf13/viper"
 )
@@ -70,7 +70,7 @@ func TestInstallAliasPackage(t *testing.T) {
 // Модуль-исполнитель ставится !!install и сразу выполняет сценарии своего
 // сервиса; токен ему выдаёт auth --executor.
 func TestInstallRunnerModule(t *testing.T) {
-	module := buildModule(t, "octochan/examples/runnermodule", "demo-runner")
+	module := buildModule(t, "ochan/examples/runnermodule", "demo-runner")
 	e := newScriptEnv(t)
 	t.Cleanup(func() {
 		pluginhost.GetModuleManager().Cleanup()
@@ -130,7 +130,7 @@ func buildModule(t *testing.T, pkg, name string) string {
 // apply и status идут в RLM API с токеном из auth и адресом из конфига
 // ochan — прежним defaults.api_url или своим executors.rlm.api_url.
 func TestRLMModule(t *testing.T) {
-	module := buildModule(t, "octochan/plugins/rlm", "rlm")
+	module := buildModule(t, "ochan/plugins/rlm", "rlm")
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Token секрет" {
 			w.WriteHeader(http.StatusUnauthorized)

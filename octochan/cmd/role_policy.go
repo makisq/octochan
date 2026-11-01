@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"octochan/lang"
-	"octochan/rbac"
-	"octochan/workspace"
+	"ochan/lang"
+	"ochan/rbac"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )

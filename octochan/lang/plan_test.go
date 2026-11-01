@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // planned выполняет исходник в режиме плана в каталоге dir.

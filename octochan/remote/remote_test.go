@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"octochan/rbac"
+	"ochan/rbac"
 )
 
 func init() {

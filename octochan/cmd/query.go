@@ -5,7 +5,7 @@ import (
 	"os"
 	"sort"
 
-	"octochan/config"
+	"ochan/config"
 
 	"github.com/spf13/cobra"
 )

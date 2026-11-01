@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"octochan/fp"
-	"octochan/i18n"
-	"octochan/rbac"
-	"octochan/report"
-	"octochan/workspace"
+	"ochan/fp"
+	"ochan/i18n"
+	"ochan/rbac"
+	"ochan/report"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

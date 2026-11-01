@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/rlm"
-	"octochan/scenario"
+	"ochan/rlm"
+	"ochan/scenario"
 )
 
 // buildScenario разбирает YAML-сценарий и создаёт модуль для его сервиса.

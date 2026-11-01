@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"octochan/audit"
-	"octochan/rbac"
+	"ochan/audit"
+	"ochan/rbac"
 )
 
 // Протокол — JSON поверх HTTP(S):

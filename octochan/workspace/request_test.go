@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 func newRequest(summary string) *Request {

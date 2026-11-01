@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
-	"octochan/pluginhost"
-	"octochan/scenario"
+	"ochan/config"
+	"ochan/pluginhost"
+	"ochan/scenario"
 )
 
 // Исполнитель модуля работает через реестр сценариев, как встроенный:
@@ -24,7 +24,7 @@ func TestRunnerModuleOverGRPC(t *testing.T) {
 		t.Skip("нет компилятора go для сборки модуля")
 	}
 	module := filepath.Join(t.TempDir(), "demo-runner"+pluginhost.ModuleExtension)
-	if out, err := exec.Command("go", "build", "-o", module, "octochan/examples/runnermodule").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", module, "ochan/examples/runnermodule").CombinedOutput(); err != nil {
 		t.Fatalf("сборка модуля: %v\n%s", err, out)
 	}
 	if err := pluginhost.WriteChecksum(module); err != nil {

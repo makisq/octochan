@@ -39,7 +39,7 @@ import (
 	"runtime"
 	"strings"
 
-	"octochan/i18n"
+	"ochan/i18n"
 )
 
 // Policy — до чего дотягивается изолированный процесс.

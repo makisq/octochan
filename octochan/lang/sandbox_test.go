@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"octochan/config"
+	"ochan/config"
 )
 
 // sandboxed выполняет исходник в песочнице с корнем root.

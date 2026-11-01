@@ -17,7 +17,7 @@ func TestCoreDoesNotImportRLM(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, pkg := range strings.Fields(string(out)) {
-		if pkg == "octochan/rlm" || pkg == "octochan/module" {
+		if pkg == "ochan/rlm" || pkg == "ochan/module" {
 			t.Errorf("ядро зависит от %s: RLM — модуль plugins/rlm, а не часть ядра", pkg)
 		}
 	}

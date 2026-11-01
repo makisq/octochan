@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"octochan/i18n"
+	"ochan/i18n"
 )
 
 // DefaultLevels — уровни по умолчанию, от наименее важного.
