@@ -241,7 +241,8 @@ cell c3:
   `set Restart.window = {night, weekend}` or a range
   `set Pool.size = 100..500`. You may narrow it to one value only inside
   it and only from an explicit source: an exact premise carried by a
-  relation (`basis: relation(name)`) or the history of the operator's
+  relation — directly or along a chain of relations, where a carried value
+  carries on (`basis: relation(name)`) — or the history of the operator's
   readings of that attribute (`basis: history(attribute)`), with the
   readings as `alternatives`. A value outside is `⊥conflict`. If no
   source singles out one reading, do not narrow: the operator decides.

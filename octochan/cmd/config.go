@@ -106,10 +106,13 @@ func initConfig() error {
 	viper.SetDefault("llm.engine", "")
 	viper.SetDefault("llm.endpoint", "http://127.0.0.1:8080")
 	viper.SetDefault("llm.model", "")
-	viper.SetDefault("llm.rings.tau", 0.42)
-	viper.SetDefault("llm.max_tokens", 2048)
-	viper.SetDefault("llm.retries", 32)
-	viper.SetDefault("llm.derive", true)
+	// Декодер ochan — для чужого локального движка; прежние ключи
+	// (llm.rings.tau, llm.max_tokens, llm.retries, llm.derive) читаются,
+	// пока нового нет (decoderKey).
+	viper.SetDefault("llm.decoder.tau", 0.42)
+	viper.SetDefault("llm.decoder.max_tokens", 2048)
+	viper.SetDefault("llm.decoder.retries", 32)
+	viper.SetDefault("llm.decoder.derive", true)
 	// Обучение по инцидентам — порог как у autovacuum в PostgreSQL.
 	viper.SetDefault("incidents.learn.scale_factor", 0.2)
 	viper.SetDefault("incidents.learn.threshold", 5)

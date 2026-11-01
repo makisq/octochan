@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -53,8 +54,9 @@ func TestLLMGenerate(t *testing.T) {
 	}
 
 	viper.Set("llm.mode", "embedded")
-	if out := e.must("llm"); !strings.Contains(out, "embedded (кольцо 0 активно, τ=0.42: на позицию проходит не больше 2 токенов)") ||
-		!strings.Contains(out, "протокол v1, ochan-demo, модель demo") {
+	if out := e.must("llm"); !strings.Contains(out, "embedded (своя модель — логика и кольца в её коде; чужой движок ведёт декодер ochan: "+
+		"кольцо 0, τ=0.42 — на позицию не больше 2 токенов)") || !strings.Contains(out, "протокол v1, ochan-demo, модель demo") ||
+		!strings.Contains(out, "Подход:  протокольный — чужой движок ведёт декодер ochan: кольцо 0, τ=0.42; выводимое из посылок пишет логика ochan") {
 		t.Fatalf("llm:\n%s", out)
 	}
 	out := e.must("llm", "generate", "--out", e.path("answer.fp"))
@@ -65,7 +67,7 @@ func TestLLMGenerate(t *testing.T) {
 		!strings.Contains(out, "генераций 1, с ответом 1") {
 		t.Fatalf("fp journal в embedded:\n%s", out)
 	}
-	if out := e.must("fp", "check", e.path("answer.fp")); !strings.Contains(out, "Режим:   embedded (кольцо 0 активно, τ=0.42") {
+	if out := e.must("fp", "check", e.path("answer.fp")); !strings.Contains(out, "Режим:   embedded (своя модель — логика и кольца в её коде; чужой движок ведёт декодер ochan: кольцо 0, τ=0.42") {
 		t.Fatalf("fp check:\n%s", out)
 	}
 
@@ -83,10 +85,30 @@ func TestLLMGenerate(t *testing.T) {
 	if out := e.must("fp", "journal"); !strings.Contains(out, "генераций 1, с ответом 1") {
 		t.Fatalf("задача без предпосылки дошла до модели:\n%s", out)
 	}
+
+	// Протокол движка строгий: не подтвердил /v1/info — генерации нет.
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"protocol": 2, "engine": "future", "model": "x"}`))
+	}))
+	defer other.Close()
+	viper.Set("llm.endpoint", other.URL)
+	if _, err := e.ochan("llm", "generate"); err == nil || !strings.Contains(err.Error(), "говорит по протоколу v2") ||
+		!strings.Contains(err.Error(), "генерации нет") {
+		t.Fatalf("чужой протокол: %v", err)
+	}
+	other.Close()
+	if _, err := e.ochan("llm", "generate"); err == nil || !strings.Contains(err.Error(), "недоступен") ||
+		!strings.Contains(err.Error(), "генерации нет") {
+		t.Fatalf("движок недоступен: %v", err)
+	}
+	if out := e.must("fp", "journal"); !strings.Contains(out, "генераций 1, с ответом 1") {
+		t.Fatalf("без подтверждённого протокола генерация дошла до журнала:\n%s", out)
+	}
 }
 
 // Копию задачи пишет ochan, выводимое — логика, модель выбирает только
-// порядок двух решений; с llm.derive: false решения пишет модель сама.
+// порядок двух решений; с llm.decoder.derive: false решения пишет модель
+// сама. Прежний ключ llm.derive читается, пока нового нет в конфиге.
 func TestLLMGenerateDerives(t *testing.T) {
 	e := newScriptEnv(t)
 	task := "goal: probe\n\nclasses:\n  File     : \"file\"   # источник\n  Approval : \"approve\"\n  Probe    : \"probe\"\n\n" +
@@ -105,7 +127,7 @@ func TestLLMGenerateDerives(t *testing.T) {
 	t.Cleanup(func() {
 		viper.Set("llm.mode", "")
 		viper.Set("llm.endpoint", "http://127.0.0.1:8080")
-		viper.Set("llm.derive", true)
+		viper.Set("llm.decoder.derive", true)
 	})
 	e.write(e.path("task.fp"), task)
 
@@ -115,10 +137,22 @@ func TestLLMGenerateDerives(t *testing.T) {
 	}
 
 	// Без логики решения пишет модель; копию — всё равно ochan.
-	viper.Set("llm.derive", false)
+	viper.Set("llm.decoder.derive", false)
 	out = e.must("llm", "generate", "--prompt", e.path("task.fp"), "--out", e.path("answer.fp"))
 	if e.read("answer.fp") != answer || strings.Contains(out, "Логика:") {
 		t.Fatalf("без логики:\n%s\nответ:\n%s", out, e.read("answer.fp"))
+	}
+
+	// Прежний ключ действует, и ochan llm говорит, как он называется теперь.
+	viper.Set("llm.decoder.derive", true)
+	setting(t, "llm.derive", false)
+	out = e.must("llm", "generate", "--prompt", e.path("task.fp"), "--out", e.path("answer.fp"))
+	if strings.Contains(out, "Логика:") {
+		t.Fatalf("прежний llm.derive: false не подействовал:\n%s", out)
+	}
+	if out := e.must("llm"); !strings.Contains(out, "выводимое из посылок пишет модель (llm.decoder.derive: false)") ||
+		!strings.Contains(out, "внимание: llm.derive — прежний ключ, теперь llm.decoder.derive") {
+		t.Fatalf("llm с прежним ключом:\n%s", out)
 	}
 }
 
@@ -165,6 +199,22 @@ func TestLLMGenerateArchitectural(t *testing.T) {
 	}
 	_, rest, _ := strings.Cut(out, "Журнал решений: запись ")
 	id, _, _ := strings.Cut(rest, ";")
+
+	// Режим у своей модели один — архитектурный: настройки декодера она не
+	// читает, и ochan говорит об этом, а не молча их обходит.
+	if out := e.must("llm"); !strings.Contains(out, "Подход:  архитектурный — своя модель ℒ") ||
+		strings.Contains(out, "внимание:") {
+		t.Fatalf("llm у своей модели:\n%s", out)
+	}
+	setting(t, "llm.rings.tau", 0.3)
+	if out := e.must("llm"); !strings.Contains(out, "внимание: llm.rings.tau — настройки декодера ochan для чужого движка; своя модель их не читает") {
+		t.Fatalf("настройка декодера у своей модели:\n%s", out)
+	}
+	if out := e.must("llm", "generate", "--prompt", e.path("task.fp")); !strings.Contains(out, "внимание: llm.rings.tau — настройки декодера") {
+		t.Fatalf("generate с настройкой декодера:\n%s", out)
+	}
+	viper.Set("llm.rings.tau", nil)
+	e.fails("своя модель отвечает на задачу: --prompt задача.fp", "llm", "generate")
 	if out := e.must("fp", "journal", "export"); !strings.Contains(out, `"plans": []`) {
 		t.Fatalf("исхода ещё нет, а выгрузка его знает:\n%s", out)
 	}

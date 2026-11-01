@@ -13,6 +13,11 @@ import (
 //
 //   - отношение defines, limits или modifies переносит атрибут, который
 //     ячейка задаёт источнику, на цель, если цели он не задан;
+//   - перенос — цепочкой: выведенное значение — посылка для следующего
+//     шага (A → B → C). Цель решается на первом шаге, на котором до неё
+//     дошёл перенос; другой путь — длиннее или по кругу — с другим
+//     значением, которое приоритет не снимает, делает её вопросом
+//     оператору, и от вопроса дальше ничего не переносится;
 //   - два источника дают цели разные значения — решает приоритет (A < B:
 //     побеждает A); без приоритета это открытый вопрос оператору (П5);
 //   - атрибут, заданный обобщению — схеме отношения, переходит на каждую
@@ -83,27 +88,6 @@ func Derive(prog *Program) Derivation {
 		return ok && !v.Inexact()
 	}
 
-	type source struct{ from, value, label string }
-	carried := map[key][]source{}
-	var targets []key
-	for _, k := range order {
-		if !exact(k) {
-			continue
-		}
-		for _, rel := range prog.Relations {
-			if rel.From != k.target || !carrying[rel.Type] || rel.Label == "" {
-				continue
-			}
-			to := key{rel.To, k.attr}
-			if exact(to) {
-				continue
-			}
-			if _, seen := carried[to]; !seen {
-				targets = append(targets, to)
-			}
-			carried[to] = append(carried[to], source{k.target, given[k].Text, rel.Label})
-		}
-	}
 	// narrow — решение о неточной цели: значение внутри неё, альтернативы —
 	// её варианты. Вне — нет решения.
 	narrow := func(to key, d Decision) (Decision, bool) {
@@ -120,24 +104,27 @@ func Derive(prog *Program) Derivation {
 		return d, true
 	}
 
-	var out Derivation
-	for _, to := range targets {
-		sources := carried[to]
+	type source struct{ from, value, label string }
+	distinct := func(sources []source) []string {
 		var values []string
 		for _, s := range sources {
 			if !contains(values, s.value) {
 				values = append(values, s.value)
 			}
 		}
+		return values
+	}
+	// resolve — решение цели по её источникам или вопрос оператору.
+	resolve := func(to key, sources []source) (Decision, *OpenQuestion) {
+		values := distinct(sources)
+		outside := &OpenQuestion{Targets: []string{to.target}, Attr: to.attr,
+			Values: append(append([]string(nil), values...), given[to].Text)}
 		if len(values) == 1 {
 			d, ok := narrow(to, Decision{Target: to.target, Attr: to.attr, Value: values[0], Basis: "relation(" + sources[0].label + ")"})
 			if !ok {
-				out.Open = append(out.Open, OpenQuestion{Targets: []string{to.target}, Attr: to.attr,
-					Values: append(append([]string(nil), values...), given[to].Text)})
-				continue
+				return Decision{}, outside
 			}
-			out.Decisions = append(out.Decisions, d)
-			continue
+			return d, nil
 		}
 		var win *source
 		for i := range sources {
@@ -154,8 +141,7 @@ func Derive(prog *Program) Derivation {
 			}
 		}
 		if win == nil {
-			out.Open = append(out.Open, OpenQuestion{Targets: []string{to.target}, Attr: to.attr, Values: values})
-			continue
+			return Decision{}, &OpenQuestion{Targets: []string{to.target}, Attr: to.attr, Values: values}
 		}
 		lose := ""
 		for _, o := range sources {
@@ -169,10 +155,96 @@ func Derive(prog *Program) Derivation {
 			d.Alternatives = values
 		}
 		if d, ok := narrow(to, d); ok {
-			out.Decisions = append(out.Decisions, d)
-		} else {
-			out.Open = append(out.Open, OpenQuestion{Targets: []string{to.target}, Attr: to.attr,
-				Values: append(append([]string(nil), values...), given[to].Text)})
+			return d, nil
+		}
+		return Decision{}, outside
+	}
+
+	// Перенос по шагам: шаг — посылки и решения прошлого шага. blocked —
+	// цели, которым разные пути дают разные значения: вопросы оператору, от
+	// них ничего не переносится. С каждым кругом blocked растёт, поэтому
+	// вывод кончается и на отношениях по кругу.
+	blocked := map[key][]string{}
+	var out Derivation
+	for {
+		decided := map[key]Decision{}
+		valueOf := func(k key) (string, bool) {
+			if exact(k) {
+				return given[k].Text, true
+			}
+			d, ok := decided[k]
+			return d.Value, ok
+		}
+		var decisions []Decision
+		var open []OpenQuestion
+		visited := map[key]bool{}
+		var frontier []key
+		for _, k := range order {
+			if exact(k) {
+				frontier = append(frontier, k)
+			}
+		}
+		for len(frontier) > 0 {
+			carried := map[key][]source{}
+			var targets []key
+			for _, k := range frontier {
+				value, _ := valueOf(k)
+				for _, rel := range prog.Relations {
+					if rel.From != k.target || !carrying[rel.Type] || rel.Label == "" {
+						continue
+					}
+					to := key{rel.To, k.attr}
+					if exact(to) || visited[to] {
+						continue
+					}
+					if _, seen := carried[to]; !seen {
+						targets = append(targets, to)
+					}
+					carried[to] = append(carried[to], source{k.target, value, rel.Label})
+				}
+			}
+			frontier = nil
+			for _, to := range targets {
+				visited[to] = true
+				if values, ok := blocked[to]; ok {
+					open = append(open, OpenQuestion{Targets: []string{to.target}, Attr: to.attr, Values: values})
+					continue
+				}
+				d, q := resolve(to, carried[to])
+				if q != nil {
+					open = append(open, *q)
+					continue
+				}
+				decided[to] = d
+				decisions = append(decisions, d)
+				frontier = append(frontier, to)
+			}
+		}
+		// Другие пути: со всеми источниками — посылками и решениями всех
+		// шагов — цель решилась бы иначе или не решилась бы вовсе.
+		again := false
+		for _, d := range decisions {
+			to := key{d.Target, d.Attr}
+			var all []source
+			for _, rel := range prog.Relations {
+				if rel.To != to.target || !carrying[rel.Type] || rel.Label == "" {
+					continue
+				}
+				if value, ok := valueOf(key{rel.From, to.attr}); ok {
+					all = append(all, source{rel.From, value, rel.Label})
+				}
+			}
+			other, q := resolve(to, all)
+			switch {
+			case q != nil:
+				blocked[to], again = q.Values, true
+			case other.Value != d.Value:
+				blocked[to], again = distinct(all), true
+			}
+		}
+		if !again {
+			out.Decisions, out.Open = decisions, open
+			break
 		}
 	}
 

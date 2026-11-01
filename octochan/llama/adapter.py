@@ -1,7 +1,11 @@
-"""Адаптер своей модели к протоколу движка ochan v1.
+"""Адаптер локальной модели к протоколу движка ochan v1.
 
-ochan сам ведёт генерацию во встроенном режиме (llm.mode: embedded): кольцо 0,
-маска языка, откаты к началу утверждения. Адаптеру остаётся одно — отдавать
+Своя модель ℒ (own.py) — архитектурная, и режим у неё один: ответ на задачу
+она пишет целиком сама (/v1/generate, в /v1/info — "generate": true), её
+логика и кольца в её коде, ochan проверяет ответ снаружи. Чужую модель
+(Hugging Face) ochan ведёт сам во встроенном режиме (llm.mode: embedded):
+кольцо 0, маска языка, откаты к началу утверждения — это протокольный
+подход на своей машине. Такому движку остаётся одно — отдавать
 распределение следующего токена:
 
     GET  /v1/info  -> {"protocol": 1, "engine": "transformers", "model": "..."}
@@ -36,13 +40,21 @@ instruct-модели она раскладывается по шаблону ч
 («\n\n» одним вместо двух «\n»), и модель видела бы чужой путь.
 
 Каталог своей модели ℒ (own.py: веса с нуля и fpmtok.json) адаптер узнаёт
-сам: у неё свой словарь, и протокол ей не нужен.
+сам: у неё свой словарь, и протокол ей не нужен. Сеть без логики и колец —
+только для замера (raw, measure.py), не режим работы.
+
+Адаптер — для одной машины: аутентификации и TLS у него нет. Он слушает
+только локальный адрес; внешний — с --allow-remote и только за прокси с
+TLS и аутентификацией. Тело запроса — не больше MAX_BODY, медленный
+клиент отключается через TIMEOUT секунд: сервер однопоточный, и один
+зависший запрос не должен держать модель.
 
     python adapter.py serve --model HuggingFaceTB/SmolLM2-135M-Instruct --listen 127.0.0.1:8090
     python adapter.py raw --model ... --prompt-file prompt.txt   # сырой вывод, без колец
 """
 
 import argparse
+import ipaddress
 import json
 import math
 import sys
@@ -56,6 +68,10 @@ import fpm
 
 PROTOCOL = 1
 TASK_MARKER = "\n\n# Task\n\n"
+# Предел тела запроса: протокол — около 16 КиБ, задача — единицы КиБ.
+MAX_BODY = 1 << 20
+# Сколько секунд ждать медленного клиента.
+TIMEOUT = 60
 # Дата в системной реплике шаблона Llama 3: без неё шаблон берёт сегодняшнюю,
 # и один и тот же промпт давал бы разные токены в разные дни.
 DATE_STRING = "26 Jul 2024"
@@ -238,22 +254,43 @@ class Engine:
         return self.tok.decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
 
-def engine_for(model, device="cuda", dtype="bfloat16", chat=True, bare=False):
-    """Движок по каталогу модели: своя модель ℒ (own.py, архитектурная; bare —
-    без логики в распределении) или модель Hugging Face."""
+def engine_for(model, device="cuda", dtype="bfloat16", chat=True):
+    """Движок по каталогу модели: своя модель ℒ (own.py, архитектурная) или
+    модель Hugging Face."""
     import own
 
     if own.is_own(model):
-        return own.Engine(model, device, arch=not bare)
+        return own.Engine(model, device)
     return Engine(model, device, dtype, chat)
 
 
-def serve(engine, listen):
+def local(host):
+    """Адрес только этой машины."""
+    host = host.strip("[]")
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def check_listen(listen, allow_remote):
+    """Не локальный адрес — только явно: у адаптера нет аутентификации и TLS."""
+    if not local(listen.rsplit(":", 1)[0]) and not allow_remote:
+        raise SystemExit(f"--listen {listen}: адрес не локальный, а у адаптера нет аутентификации и TLS. "
+                         "Для доступа с других машин — прокси с TLS и аутентификацией и --allow-remote")
+
+
+def serve(engine, listen, allow_remote=False):
+    check_listen(listen, allow_remote)
     host, port = listen.rsplit(":", 1)
-    # Архитектурная модель отвечает целиком сама: логика и кольца — в ней.
-    architectural = bool(getattr(engine, "arch", False))
+    # Своя модель отвечает целиком сама: логика и кольца — в ней.
+    architectural = bool(getattr(engine, "architectural", False))
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = TIMEOUT
+
         def reply(self, code, body):
             data = json.dumps(body, ensure_ascii=False).encode()
             self.send_response(code)
@@ -272,13 +309,23 @@ def serve(engine, listen):
             if self.path not in ("/v1/next", "/v1/score") and not (self.path == "/v1/generate" and architectural):
                 return self.reply(404, {"error": "нет такого адреса"})
             try:
-                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                size = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                return self.reply(411, {"error": "нужен Content-Length"})
+            if not 0 <= size <= MAX_BODY:
+                self.close_connection = True
+                return self.reply(413, {"error": f"тело запроса больше {MAX_BODY} байт"})
+            try:
+                req = json.loads(self.rfile.read(size))
                 if self.path == "/v1/generate":
                     return self.reply(200, engine.generate(req["prompt"]))
                 if self.path == "/v1/score":
                     return self.reply(200, {"scores": engine.score(req["prompt"], req.get("output", ""),
                                                                    req["continuations"])})
                 self.reply(200, engine.next(req["prompt"], req.get("output", ""), int(req.get("top", 2))))
+            except TimeoutError:
+                self.close_connection = True
+                self.reply(408, {"error": f"тело запроса не пришло за {TIMEOUT} с"})
             except Exception as e:  # ochan показывает текст ошибки движка как есть
                 self.reply(500, {"error": f"{type(e).__name__}: {e}"})
 
@@ -286,7 +333,10 @@ def serve(engine, listen):
             pass
 
     print(f"Адаптер: http://{listen}, протокол v{PROTOCOL}, модель {engine.name}, "
-          f"шаблон чата: {'да' if engine.chat else 'нет'}", flush=True)
+          f"{'своя, архитектурная' if architectural else 'шаблон чата: ' + ('да' if engine.chat else 'нет')}",
+          flush=True)
+    if not local(host):
+        print("внимание: адрес не локальный — без аутентификации и TLS; только за защищённым прокси", flush=True)
     HTTPServer((host, int(port)), Handler).serve_forever()
 
 
@@ -299,15 +349,18 @@ def main():
         p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
         p.add_argument("--dtype", default="bfloat16")
         p.add_argument("--no-chat", action="store_true", help="не оборачивать prompt шаблоном чата")
-        p.add_argument("--bare", action="store_true", help="своя модель без логики в распределении — для сравнений")
     sub.choices["serve"].add_argument("--listen", default="127.0.0.1:8090")
+    sub.choices["serve"].add_argument("--allow-remote", action="store_true",
+                                      help="слушать не локальный адрес — только за прокси с TLS и аутентификацией")
     sub.choices["raw"].add_argument("--prompt-file", required=True)
     sub.choices["raw"].add_argument("--max-new-tokens", type=int, default=512)
     args = ap.parse_args()
 
-    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat, bare=args.bare)
     if args.cmd == "serve":
-        serve(engine, args.listen)
+        check_listen(args.listen, args.allow_remote)  # до загрузки модели
+    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat)
+    if args.cmd == "serve":
+        serve(engine, args.listen, args.allow_remote)
         return
     with open(args.prompt_file, encoding="utf-8") as f:
         prompt = f.read()

@@ -21,9 +21,10 @@ TASK_MARKER) в канонической записи, имена частных
   логикой утверждений имеет вероятность ноль, единственный допустимый —
   единицу. Это видит и протокол движка v1 (/v1/next).
 
-generate — ответ модели целиком (/v1/generate); raw — сеть одна, без логики
-и колец: так меряется, что даёт архитектура. bare — модель без логики в
-распределении (для сравнений).
+Режим у модели один — этот: ochan её по токенам не ведёт (декодер ochan —
+для чужих моделей). generate — ответ модели целиком (/v1/generate); raw —
+сеть одна, без логики и колец: так меряется, что даёт архитектура, но это
+замер, а не режим работы.
 
     python adapter.py serve --model G:/fpm-llm/models/own-small-2 --listen 127.0.0.1:8093
 """
@@ -106,10 +107,12 @@ def narrowings(params, plan):
 
 
 class Engine(Base):
-    def __init__(self, model, device="cuda", dtype="float32", arch=True):
+    # Ответ на задачу пишет целиком сама: адаптер отдаёт /v1/generate.
+    architectural = True
+
+    def __init__(self, model, device="cuda", dtype="float32"):
         self.name = model
         self.device = device
-        self.arch = arch
         self.params = rings.Params.load(model)
         self._plans, self._copies = {}, {}
         self.tok = fpmtok.Tokenizer.load(model)
@@ -307,8 +310,6 @@ class Engine(Base):
         return tokens
 
     def next(self, prompt, output, top):
-        if not self.arch:
-            return self.net_next(prompt, output, top)
         self.prompt_ids(prompt)
         allowed = self.admissible(task_of(prompt), output)
         if allowed is None:
