@@ -1,0 +1,30 @@
+id: docker_image_cleanup
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  period: 7 d
+open:
+- threshold
+weights:
+  period: 3
+natural:
+- Почисти старые образы старше недели; порог заполнения диска где-то 70–90 %, точно не задан.
+- docker image prune старше 7 d; threshold диска — 70..90 %, сузить не по чему.
+formal:
+- "goal: available\n\nclasses:\n  Deletion : \"delete\"\n  Age      : \"old\"\n  Storage  : \"disk\"\n\
+  \  State    : \"available\"\n\nrelations:\n  Age --defines--> Deletion (old_limit)\n  Deletion --modifies-->\
+  \ Storage (delete_size)\n  Storage --strives_to--> State\n\ncell c1:\n  set Age.period = 7 d\n  set\
+  \ Storage.threshold = 70..90 %\n"
+- "goal: available\n\nclasses:\n  Deletion : \"delete\"\n  Age      : \"current\"\n  Storage  : \"storage\"\
+  \n  State    : \"available\"\n\nrelations:\n  Deletion --modifies--> Storage (delete_size)\n  Storage\
+  \ --strives_to--> State\n  Age --defines--> Deletion (old_limit)\n\ncell c1:\n  set Age.period = 7 d\n\
+  \  set Storage.threshold = 70..90 %\n"
+- "goal: available\n\nclasses:\n  Deletion : \"delete\"\n  Age      : \"current\"\n  Storage  : \"volume\"\
+  \n  State    : \"available\"\n\nrelations:\n  Storage --strives_to--> State\n  Deletion --modifies-->\
+  \ Storage (delete_size)\n  Age --defines--> Deletion (old_limit)\n\ncell c1:\n  set Age.period = 7 d\n\
+  \  set Storage.threshold = 70..90 %\n"
+lacking:
+- "goal: available\n\nclasses:\n  Deletion : \"delete\"\n  Age      : \"old\"\n  Storage  : \"disk\"\n\
+  \  State    : \"available\"\n\nrelations:\n  Age --defines--> Deletion (old_limit)\n  Deletion --modifies-->\
+  \ Storage (delete_size)\n  Storage --strives_to--> State\n\ncell c1:\n  set Age.period = 7 d\n  set\
+  \ Storage.threshold = 70..90 %\n\nrequires: incident_history\n"

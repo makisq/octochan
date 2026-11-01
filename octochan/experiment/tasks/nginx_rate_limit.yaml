@@ -1,0 +1,31 @@
+id: nginx_rate_limit
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  size: '20'
+  rate: 100 rps
+open: []
+weights:
+  size: 3
+  rate: 3
+natural:
+- 'Ограничь запросы в nginx: 100 запросов в секунду, всплеск до 20.'
+- 'limit_req: скорость 100 rps, burst 20 — лимит задаёт скорость, скорость ограничивает запросы.'
+formal:
+- "goal: stable\n\nclasses:\n  Request : \"request\"\n  Rate    : \"rate\"\n  Limit   : \"limit\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Rate --limits--> Request (request_rate)\n  Limit --defines--> Rate\
+  \ (rate_limit)\n  Request --strives_to--> State\n\ncell c1:\n  set Limit.size = 20\n  set Rate.rate\
+  \ = 100 rps\n"
+- "goal: stable\n\nclasses:\n  Request : \"request\"\n  Rate    : \"nightly\"\n  Limit   : \"maximum\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Request --strives_to--> State\n  Rate --limits--> Request\
+  \ (request_rate)\n  Limit --defines--> Rate (rate_limit)\n\ncell c1:\n  set Limit.size = 20\n  set Rate.rate\
+  \ = 100 rps\n"
+- "goal: stable\n\nclasses:\n  Request : \"request\"\n  Rate    : \"weekly\"\n  Limit   : \"minimum\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Request --strives_to--> State\n  Limit --defines--> Rate (rate_limit)\n\
+  \  Rate --limits--> Request (request_rate)\n\ncell c1:\n  set Rate.rate = 100 rps\n  set Limit.size\
+  \ = 20\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Request : \"request\"\n  Rate    : \"rate\"\n  Limit   : \"limit\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Rate --limits--> Request (request_rate)\n  Limit --defines--> Rate\
+  \ (rate_limit)\n  Request --strives_to--> State\n\ncell c1:\n  set Limit.size = 20\n  set Rate.rate\
+  \ = 100 rps\n\nrequires: incident_history\n"

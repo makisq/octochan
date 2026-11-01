@@ -1,0 +1,33 @@
+id: pg_connections
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  buffer_size: 64 MB
+  maximum: '300'
+open: []
+weights:
+  buffer_size: 3
+  maximum: 3
+natural:
+- Подними предел соединений PostgreSQL до 300 и дай каждому 64 МБ буфера; бюджет памяти ограничивает соединения.
+- 'Postgres: максимум соединений 300, буфер 64 MB; память задаёт рамки соединениям, соединения меняют
+  конфиг.'
+formal:
+- "goal: tuned\n\nclasses:\n  Connection : \"connection\"\n  Memory     : \"memory\"\n  Config     : \"\
+  config\"\n  State      : \"tuned\"\n\nrelations:\n  Memory --limits--> Connection (memory_budget)\n\
+  \  Connection --modifies--> Config (session_limit)\n  Config --strives_to--> State\n\npriority:\n  Memory\
+  \ < Connection\n\ncell c1:\n  set Memory.buffer_size = 64 MB\n  set Connection.maximum = 300\n"
+- "goal: tuned\n\nclasses:\n  Connection : \"session\"\n  Memory     : \"ram\"\n  Config     : \"configuration\"\
+  \n  State      : \"tuned\"\n\nrelations:\n  Connection --modifies--> Config (session_limit)\n  Config\
+  \ --strives_to--> State\n  Memory --limits--> Connection (memory_budget)\n\npriority:\n  Memory < Connection\n\
+  \ncell c1:\n  set Memory.buffer_size = 64 MB\n  set Connection.maximum = 300\n"
+- "goal: tuned\n\nclasses:\n  Connection : \"session\"\n  Memory     : \"ram\"\n  Config     : \"configuration\"\
+  \n  State      : \"tuned\"\n\nrelations:\n  Config --strives_to--> State\n  Connection --modifies-->\
+  \ Config (session_limit)\n  Memory --limits--> Connection (memory_budget)\n\npriority:\n  Memory < Connection\n\
+  \ncell c1:\n  set Memory.buffer_size = 64 MB\n  set Connection.maximum = 300\n"
+lacking:
+- "goal: tuned\n\nclasses:\n  Connection : \"connection\"\n  Memory     : \"memory\"\n  Config     : \"\
+  config\"\n  State      : \"tuned\"\n\nrelations:\n  Memory --limits--> Connection (memory_budget)\n\
+  \  Connection --modifies--> Config (session_limit)\n  Config --strives_to--> State\n\npriority:\n  Memory\
+  \ < Connection\n\ncell c1:\n  set Memory.buffer_size = 64 MB\n  set Connection.maximum = 300\n\nrequires:\
+  \ incident_history\n"

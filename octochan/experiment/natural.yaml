@@ -1,0 +1,265 @@
+# Пересказы задач на естественном языке (условие 1) и домены. Черновик:
+# утверждает владелец.
+backup_schedule:
+  domain: СУБД
+  natural:
+  - Настрой ежедневный бэкап базы данных. Расписание задаёт, как часто база бэкапится; на хранилище под
+    бэкапы — квота 500 ГБ.
+  - Нужно, чтобы база данных бэкапилась каждый день по расписанию. Хранилище для копий — не больше 500
+    GB.
+canary_deploy:
+  domain: Kubernetes
+  natural:
+  - 'Выкати новую версию канареечно: сначала 5 % трафика, деплой — ночью. Если что-то пойдёт не так, откат
+    прерывает деплой.'
+  - 'Релиз через canary: канареечная фаза идёт перед основным деплоем, её размер 5 %, окно деплоя — ночь.
+    Откат при сбое останавливает выкатку.'
+disk_cleanup:
+  domain: Linux
+  natural:
+  - 'Освободи место на диске: логи раздувают хранилище, порог — 80 %. Писать можно только старые логи,
+    бэкапов держим семь.'
+  - 'Диск забивается логами. Почисти так, чтобы он снова был доступен: порог заполнения 80 %, трогать
+    разрешено только old_log, количество бэкапов — 7.'
+docker_compose_order:
+  domain: Docker
+  natural:
+  - 'Запуск compose: база стартует первой, ждать её 30 секунд.'
+  - 'depends_on: база первая, таймаут готовности 30 s.'
+docker_cpu_quota:
+  domain: Docker
+  natural:
+  - 'Процессоры контейнера: нагрузке нужно 2, квота даёт 1. Что главнее — не сказано.'
+  - 'cpus: 2 по нагрузке против 1 по квоте, приоритета нет.'
+docker_healthcheck:
+  domain: Docker
+  natural:
+  - 'Healthcheck контейнера: три попытки, проверять каждые 30 секунд.'
+  - HEALTHCHECK --retries 3 --interval 30 s.
+docker_image_cleanup:
+  domain: Docker
+  natural:
+  - Почисти старые образы старше недели; порог заполнения диска где-то 70–90 %, точно не задан.
+  - docker image prune старше 7 d; threshold диска — 70..90 %, сузить не по чему.
+docker_log_driver:
+  domain: Docker
+  natural:
+  - 'Логи контейнера: размер файла где-то 50–200 МБ, потолок — 100; хранить три файла.'
+  - 'json-file: max-size неточно 50..200 MB, cap 100 MB, max-file 3.'
+docker_memory_limit:
+  domain: Docker
+  natural:
+  - 'Лимит памяти контейнера: по памяти 2 ГБ, по бюджету 1 ГБ — бюджет важнее.'
+  - 'mem_limit: 2 GB против 1 GB из бюджета; побеждает бюджет.'
+docker_network_ports:
+  domain: Docker
+  natural:
+  - 'Сеть контейнеров: опубликовать порт 8080, подсеть /24.'
+  - 'docker network: публикуем 8080, маска подсети 24.'
+docker_restart_policy:
+  domain: Docker
+  natural:
+  - 'Политика перезапуска контейнера: при сбое не больше пяти раз, пауза 10 секунд.'
+  - 'restart: on-failure:5 с задержкой 10 s.'
+docker_volume_backup:
+  domain: Docker
+  natural:
+  - Снимки тома раз в неделю, держать четыре. Писать только backup_volume.
+  - Еженедельный snapshot volume, хранить 4; запись — только в backup_volume.
+k8s_cronjob:
+  domain: Kubernetes
+  natural:
+  - Ночная задача по расписанию в Kubernetes, не больше трёх повторов.
+  - CronJob каждую ночь, backoffLimit 3.
+k8s_drain_node:
+  domain: Kubernetes
+  natural:
+  - Выведи узел из работы ночью, подам на завершение 30 секунд. Писать можно только node_label.
+  - kubectl drain в ночное окно, grace period 30 s; запись разрешена только в node_label.
+k8s_hpa:
+  domain: Kubernetes
+  natural:
+  - 'Автомасштабирование: цель по CPU 70 %, не больше 10 реплик.'
+  - HPA с targetCPUUtilization 70 % и maxReplicas 10.
+k8s_image_upgrade:
+  domain: Kubernetes
+  natural:
+  - Обнови образ сначала на staging на новую версию; способ — канарейкой или постепенно, не решили.
+  - 'Upgrade образа: версия new со staging, стратегия canary или rolling — открыт вопрос; при сбое откат.'
+k8s_networkpolicy:
+  domain: Kubernetes
+  natural:
+  - 'Сетевая политика: пускать только на порт 8080, уровень строгости высокий.'
+  - 'NetworkPolicy: доступ на 8080, строгий режим.'
+k8s_pdb:
+  domain: Kubernetes
+  natural:
+  - 'Не дай вывести слишком много подов разом: доступно не меньше двух, выводить по одному.'
+  - 'PodDisruptionBudget: minAvailable 2, drain по одному.'
+k8s_probe:
+  domain: Kubernetes
+  natural:
+  - 'Проверка живости сервиса: таймаут 5 секунд, проверять каждые 10.'
+  - 'livenessProbe: timeoutSeconds 5 s, periodSeconds 10 s.'
+k8s_resources:
+  domain: Kubernetes
+  natural:
+  - 'Лимит памяти приложения: ему нужно 512 МБ, а квота неймспейса даёт 256 — квота главнее.'
+  - 'resources.limits.memory: 512 MB по памяти против 256 MB по квоте; побеждает квота.'
+k8s_rollout:
+  domain: Kubernetes
+  natural:
+  - 'Выкати релиз в Kubernetes постепенно: maxSurge 25 %, недоступен не больше одного пода.'
+  - 'RollingUpdate: всплеск до 25 %, maxUnavailable 1.'
+k8s_secret_rotation:
+  domain: Kubernetes
+  natural:
+  - 'Ротация токенов сервиса: ежедневно или еженедельно; расписание говорит — раз в неделю.'
+  - Секрет крутим daily или weekly (неточно), по расписанию — weekly.
+linux_cron_backup:
+  domain: Linux
+  natural:
+  - Ночной cron-бэкап каталога, хранить 30 копий.
+  - Каждую ночь архив папки, ротация на 30.
+linux_disk_alert:
+  domain: Linux
+  natural:
+  - 'Алерт на заполнение диска: где-то между 80 и 90 %, порог — 85.'
+  - 'Оповещение о диске: неточно 80..90 %, точный порог 85 %.'
+linux_kernel_upgrade:
+  domain: Linux
+  natural:
+  - Обнови ядро до шестой версии на выходных, после — перезагрузка.
+  - Kernel upgrade до 6 в окно weekend, затем reboot.
+linux_logrotate:
+  domain: Linux
+  natural:
+  - Ротация системных логов по размеру 100 МБ; по времени — ежедневно или еженедельно, не решили.
+  - 'logrotate: size 100 MB, расписание daily или weekly — вопрос.'
+linux_ssh_hardening:
+  domain: Linux
+  natural:
+  - 'Закрой SSH: вход по паролю выключить, не больше трёх попыток. Писать только sshd_config.'
+  - 'sshd: PasswordAuthentication off, MaxAuthTries 3, запись только в sshd_config.'
+linux_swap:
+  domain: Linux
+  natural:
+  - 'Своп: swappiness 10, раздел подкачки 4 ГБ.'
+  - vm.swappiness=10 и swap на 4 GB.
+linux_sysctl_network:
+  domain: Linux
+  natural:
+  - 'Очередь соединений ядра: соединениям нужно 4096, память разрешает 1024 — память важнее.'
+  - 'net.core.somaxconn: 4096 против 1024 по памяти; приоритет у памяти.'
+linux_time_sync:
+  domain: Linux
+  natural:
+  - 'Синхронизация времени: три источника, опрос раз в 64 секунды.'
+  - 'chrony: 3 сервера, poll 64 s.'
+linux_ulimit:
+  domain: Linux
+  natural:
+  - Подними предел открытых файлов процесса до 65536; файлов в системе около 100 тысяч.
+  - ulimit -n 65536 для процесса.
+mysql_replication_lag:
+  domain: СУБД
+  natural:
+  - 'Реплики MySQL должны оставаться доступными: отставание не больше 30 секунд, репликация последовательная.'
+  - Ограничь лаг реплик 30 s и включи последовательный порядок применения репликации.
+mysql_slow_query:
+  domain: СУБД
+  natural:
+  - 'Включи журнал медленных запросов MySQL: порог где-то от 1 до 5 секунд, а по задержке он 2 секунды.'
+  - 'Slow query log: порог журнала неточно — 1..5 s; точный порог задержки — 2 s.'
+nginx_cache_size:
+  domain: nginx
+  natural:
+  - 'Кеш nginx: на диске не больше 10 ГБ, зона ключей 100 МБ.'
+  - 'proxy_cache: max_size 10 GB по квоте диска, keys_zone 100 MB.'
+nginx_gzip:
+  domain: nginx
+  natural:
+  - 'Включи gzip в nginx: сжимать ответы от 1 КБ, уровень 5.'
+  - gzip_min_length 1 KB от трафика в конфиг, gzip_comp_level 5.
+nginx_log_rotation:
+  domain: nginx
+  natural:
+  - 'Ротация логов nginx: раз в день или в неделю — по расписанию ежедневно; хранить семь файлов.'
+  - 'logrotate для nginx: частота неточно (daily или weekly), расписание говорит daily, rotate 7.'
+nginx_rate_limit:
+  domain: nginx
+  natural:
+  - 'Ограничь запросы в nginx: 100 запросов в секунду, всплеск до 20.'
+  - 'limit_req: скорость 100 rps, burst 20 — лимит задаёт скорость, скорость ограничивает запросы.'
+nginx_reload:
+  domain: nginx
+  natural:
+  - 'Перечитай конфигурацию nginx на узлах группы web: версия конфига 42, в группе 10 узлов. Записывать
+    можно только web_config.'
+  - Примени конфиг версии 42 к nginx на всех десяти узлах web и перезагрузи его; запись разрешена только
+    в web_config.
+nginx_reload_window:
+  domain: nginx
+  natural:
+  - Перечитай конфигурацию nginx на пуле из 12 узлов ночью.
+  - nginx -s reload на всех 12 узлах пула, окно — ночь.
+nginx_tls_cert:
+  domain: nginx
+  natural:
+  - 'Обнови TLS-сертификат nginx: срок 90 дней, сервис на порту 443. Писать можно только tls_config.'
+  - Новый сертификат на 90 d для сервиса на 443; конфиг меняется сертификатом, запись — только в tls_config.
+nginx_upstream_timeout:
+  domain: nginx
+  natural:
+  - 'Таймаут к апстриму: по таймауту 60 секунд, по бюджету задержки 5 — таймаут важнее.'
+  - 'proxy_read_timeout: 60 s против 5 s из бюджета задержки; приоритет у таймаута.'
+nginx_workers:
+  domain: nginx
+  natural:
+  - 'Настрой воркеры nginx: на хосте 8 ядер, у воркера до 1024 соединений.'
+  - 'nginx: число воркеров ограничено ёмкостью хоста — 8, worker_connections — 1024 в конфиг.'
+pg_backup_retention:
+  domain: СУБД
+  natural:
+  - Бэкапы базы — каждый день, хранилище под них не больше 500 ГБ.
+  - Ежедневные копии Postgres с квотой хранилища 500 GB.
+pg_connections:
+  domain: СУБД
+  natural:
+  - Подними предел соединений PostgreSQL до 300 и дай каждому 64 МБ буфера; бюджет памяти ограничивает
+    соединения.
+  - 'Postgres: максимум соединений 300, буфер 64 MB; память задаёт рамки соединениям, соединения меняют
+    конфиг.'
+pg_failover_priority:
+  domain: СУБД
+  natural:
+  - 'Переключение на standby: таймаут лидера 30 секунд, но блокировка требует 60 — блокировка важнее.
+    Реплик две.'
+  - Failover Postgres с двумя репликами; таймаут говорит 30 s, лок — 60 s, при споре побеждает лок.
+pg_index_maintenance:
+  domain: СУБД
+  natural:
+  - Перестрой индексы ночью; уровень заполнения таблиц — низкий или средний, точно не знаю.
+  - Обслуживание индексов в ночное окно; fillfactor таблиц — low или medium, решить не по чему.
+pg_memory:
+  domain: СУБД
+  natural:
+  - 'Настрой PostgreSQL: под буферы 8 ГБ, максимум соединений 400. Бюджет памяти важнее лимита соединений.'
+  - 'Подкрути память Postgres: shared buffers 8 GB, лимит соединений 400; если память и лимит спорят —
+    побеждает память.'
+pg_vacuum:
+  domain: СУБД
+  natural:
+  - 'Настрой ночное обслуживание таблиц: расписание — каждую ночь, порог запуска — 20 %.'
+  - 'Vacuum по ночам: обслуживание идёт по расписанию nightly и срабатывает при 20 % мёртвых строк.'
+redis_cache_eviction:
+  domain: СУБД
+  natural:
+  - 'Redis не должен падать от памяти: максимум 4 ГБ, вытеснять сначала старые ключи.'
+  - 'Кеш Redis: потолок памяти 4 GB, политика вытеснения — по старости.'
+replica_failover:
+  domain: СУБД
+  natural:
+  - 'Сделай так, чтобы база оставалась доступной: при отказе лидера реплика становится лидером, блокировка
+    ограничивает реплики. Реплик две, таймаут лидера 30 секунд.'
+  - 'Переключение на реплику: двух реплик, таймаут лидера 30 s; смену лидера ограничивает лок.'

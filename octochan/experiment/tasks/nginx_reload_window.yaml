@@ -1,0 +1,25 @@
+id: nginx_reload_window
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  window: night
+open: []
+weights:
+  window: 3
+natural:
+- Перечитай конфигурацию nginx на пуле из 12 узлов ночью.
+- nginx -s reload на всех 12 узлах пула, окно — ночь.
+formal:
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"config\"\n  Period : \"window\"\n  Group\
+  \  : \"pool\"\n\nrelations:\n  Period --defines--> Reload (reload_window)\n  Group --strives_to--> Reload\n\
+  \ncell c1:\n  set Period.window = night\n  set Group.size = 12\n"
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"configuration\"\n  Period : \"window\"\
+  \n  Group  : \"fleet\"\n\nrelations:\n  Period --defines--> Reload (reload_window)\n  Group --strives_to-->\
+  \ Reload\n\ncell c1:\n  set Group.size = 12\n  set Period.window = night\n"
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"configuration\"\n  Period : \"window\"\
+  \n  Group  : \"pool\"\n\nrelations:\n  Period --defines--> Reload (reload_window)\n  Group --strives_to-->\
+  \ Reload\n\ncell c1:\n  set Period.window = night\n  set Group.size = 12\n"
+lacking:
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"config\"\n  Period : \"window\"\n  Group\
+  \  : \"pool\"\n\nrelations:\n  Period --defines--> Reload (reload_window)\n  Group --strives_to--> Reload\n\
+  \ncell c1:\n  set Period.window = night\n  set Group.size = 12\n\nrequires: incident_history\n"

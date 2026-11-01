@@ -202,6 +202,24 @@ type Value struct {
 	Text string
 	// Ref — значение ссылается на элемент программы (содержит точку).
 	Ref bool
+	// Variants и Range — неточное значение (раздел 5.2 манифеста): задано,
+	// но размыто — множество вариантов {night, weekend} или диапазон
+	// 100..500. Сузить его до одного значения модель может только по
+	// явному источнику и с записью в отчёт.
+	Variants []string
+	Range    *Range
+}
+
+// Inexact — значение неточное: множество вариантов или диапазон.
+func (v Value) Inexact() bool { return len(v.Variants) > 0 || v.Range != nil }
+
+// Admits — точное значение text лежит в неточном.
+func (v Value) Admits(text string) bool {
+	if v.Range != nil {
+		n, unit, ok := ParseNumber(text)
+		return ok && v.Range.Contains(n, unit)
+	}
+	return contains(v.Variants, text)
 }
 
 // CodeRange — привязка ячейки к коду τ: файл и диапазон строк.

@@ -1,0 +1,31 @@
+id: docker_network_ports
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  port: '8080'
+  size: '24'
+open: []
+weights:
+  port: 4
+  size: 4
+natural:
+- 'Сеть контейнеров: опубликовать порт 8080, подсеть /24.'
+- 'docker network: публикуем 8080, маска подсети 24.'
+formal:
+- "goal: available\n\nclasses:\n  Port    : \"port\"\n  Address : \"address\"\n  Network : \"network\"\
+  \n  State   : \"available\"\n\nrelations:\n  Port --modifies--> Network (port_change)\n  Address --defines-->\
+  \ Network (network_address)\n  Network --strives_to--> State\n\ncell c1:\n  set Port.port = 8080\n \
+  \ set Address.size = 24\n"
+- "goal: available\n\nclasses:\n  Port    : \"port\"\n  Address : \"address\"\n  Network : \"network\"\
+  \n  State   : \"available\"\n\nrelations:\n  Address --defines--> Network (network_address)\n  Port\
+  \ --modifies--> Network (port_change)\n  Network --strives_to--> State\n\ncell c1:\n  set Address.size\
+  \ = 24\n  set Port.port = 8080\n"
+- "goal: available\n\nclasses:\n  Port    : \"port\"\n  Address : \"address\"\n  Network : \"network\"\
+  \n  State   : \"available\"\n\nrelations:\n  Network --strives_to--> State\n  Port --modifies--> Network\
+  \ (port_change)\n  Address --defines--> Network (network_address)\n\ncell c1:\n  set Address.size =\
+  \ 24\n  set Port.port = 8080\n"
+lacking:
+- "goal: available\n\nclasses:\n  Port    : \"port\"\n  Address : \"address\"\n  Network : \"network\"\
+  \n  State   : \"available\"\n\nrelations:\n  Port --modifies--> Network (port_change)\n  Address --defines-->\
+  \ Network (network_address)\n  Network --strives_to--> State\n\ncell c1:\n  set Port.port = 8080\n \
+  \ set Address.size = 24\n\nrequires: incident_history\n"

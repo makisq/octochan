@@ -1,0 +1,29 @@
+id: docker_compose_order
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  order: first
+open: []
+weights:
+  order: 4
+natural:
+- 'Запуск compose: база стартует первой, ждать её 30 секунд.'
+- 'depends_on: база первая, таймаут готовности 30 s.'
+formal:
+- "goal: running\n\nclasses:\n  Order    : \"sequence\"\n  Start    : \"start\"\n  Database : \"database\"\
+  \n  State    : \"running\"\n\nrelations:\n  Database --precedes--> Start (database_first)\n  Order --defines-->\
+  \ Start (start_sequence)\n  Start --strives_to--> State\n\ncell c1:\n  set Order.order = first\n  set\
+  \ Database.timeout = 30 s\n"
+- "goal: running\n\nclasses:\n  Order    : \"sequence\"\n  Start    : \"start\"\n  Database : \"database\"\
+  \n  State    : \"running\"\n\nrelations:\n  Order --defines--> Start (start_sequence)\n  Start --strives_to-->\
+  \ State\n  Database --precedes--> Start (database_first)\n\ncell c1:\n  set Order.order = first\n  set\
+  \ Database.timeout = 30 s\n"
+- "goal: running\n\nclasses:\n  Order    : \"order\"\n  Start    : \"launch\"\n  Database : \"database\"\
+  \n  State    : \"running\"\n\nrelations:\n  Order --defines--> Start (start_sequence)\n  Start --strives_to-->\
+  \ State\n  Database --precedes--> Start (database_first)\n\ncell c1:\n  set Database.timeout = 30 s\n\
+  \  set Order.order = first\n"
+lacking:
+- "goal: running\n\nclasses:\n  Order    : \"sequence\"\n  Start    : \"start\"\n  Database : \"database\"\
+  \n  State    : \"running\"\n\nrelations:\n  Database --precedes--> Start (database_first)\n  Order --defines-->\
+  \ Start (start_sequence)\n  Start --strives_to--> State\n\ncell c1:\n  set Order.order = first\n  set\
+  \ Database.timeout = 30 s\n\nrequires: incident_history\n"

@@ -17,6 +17,13 @@
 // не может ответить на естественном языке: ни одно утверждение вне ℒ не
 // выходит из декодера.
 //
+// Часть ответа модель не пишет вовсе. Начало (Config.Prefix — копию
+// задачи) пишет сам ochan. Там, где ведёт логика (Config.Packages),
+// единица ответа — пакет, утверждение целиком: логика называет допустимые;
+// один — его пишет декодер, несколько — модель только выбирает среди них
+// (Scorer), ни одного — ответ кончается. Статистика решает только там, где
+// посылки оставляют выбор.
+//
 // Пакет не знает, какая модель внутри: Engine — распределение следующего
 // токена после текста. Своя модель (LLaMA на fp) подключается адаптером к
 // протоколу движка (http.go) — это следующий шаг.
@@ -55,6 +62,18 @@ type Engine interface {
 	Next(ctx context.Context, prompt, output string, top int) (Step, error)
 }
 
+// Scored — оценка продолжения: сумма log p его токенов и их число.
+type Scored struct {
+	LogP   float64 `json:"logp"`
+	Tokens int     `json:"tokens"`
+}
+
+// Scorer — движок, который оценивает продолжения целиком: так модель
+// выбирает среди пакетов, допустимых по логике.
+type Scorer interface {
+	Score(ctx context.Context, prompt, output string, continuations []string) ([]Scored, error)
+}
+
 // Config — настройки декодера.
 type Config struct {
 	// Tau — порог кольца 0.
@@ -69,13 +88,25 @@ type Config struct {
 	// Final — что мешает принять готовый текст. По умолчанию — ⊥syn
 	// fp.CheckModelText.
 	Final func(text string) []fp.Diagnostic
+	// Prefix — начало ответа, которое пишет сам ochan (копия задачи); оно
+	// кончается переводом строки. Модель продолжает после него.
+	Prefix string
+	// Packages — логика: допустимые следующие утверждения (с переводом
+	// строки) после output. ok ложно — это место логика не ведёт, и
+	// утверждение пишет модель по токену. Пустой список при ok — ответ
+	// кончается здесь.
+	Packages func(output string) (adm []string, ok bool)
 }
 
 // Statement — принятое утверждение и средний логарифм вероятности его
-// токенов: это β₁ правила выбора (rings.Candidate.MeanLogProb).
+// токенов: это β₁ правила выбора (rings.Candidate.MeanLogProb). Forced —
+// утверждение написала логика: оно было единственным допустимым. Chosen —
+// модель выбрала его среди допустимых.
 type Statement struct {
 	Text        string
 	MeanLogProb float64
+	Forced      bool
+	Chosen      bool
 }
 
 // Output — ответ и то, что кольца с ним сделали.
@@ -98,6 +129,9 @@ type Output struct {
 	Rollbacks int
 	// EarlyEnd — попыток закончить ответ раньше, чем текст сложился в язык.
 	EarlyEnd int
+	// Forced — утверждений, которые написала логика (единственные
+	// допустимые); Chosen — выбранных моделью среди допустимых.
+	Forced, Chosen int
 }
 
 // Failure — ответа нет: декодер не смог провести модель внутри языка.
@@ -141,8 +175,12 @@ func Generate(ctx context.Context, engine Engine, prompt string, cfg Config) (*O
 		top = 64
 	}
 
+	if cfg.Prefix != "" && !strings.HasSuffix(cfg.Prefix, "\n") {
+		cfg.Prefix += "\n"
+	}
 	d := &decoder{engine: engine, prompt: prompt, cfg: cfg, top: top, out: &Output{},
-		cache: map[string]Step{}, banned: map[string]map[string]bool{}, endBanned: map[string]bool{}}
+		cache: map[string]Step{}, banned: map[string]map[string]bool{}, endBanned: map[string]bool{},
+		accepted: cfg.Prefix}
 	return d.run(ctx)
 }
 
@@ -206,6 +244,18 @@ func (d *decoder) run(ctx context.Context) (*Output, error) {
 	for {
 		if attempts > d.cfg.Retries {
 			return nil, d.fail("утверждение не сложилось в язык за %d откатов: модель не может продолжить ответ", d.cfg.Retries)
+		}
+		if line == "" && d.cfg.Packages != nil {
+			if adm, ok := d.cfg.Packages(d.accepted); ok {
+				done, err := d.packages(ctx, adm)
+				if err != nil {
+					return nil, err
+				}
+				if done {
+					return d.out, nil
+				}
+				continue
+			}
 		}
 		prefix := d.accepted + line
 		s, err := d.next(ctx, prefix)
@@ -288,12 +338,65 @@ func (d *decoder) accept(line string, path []step) {
 	if len(path) > 0 {
 		mean = sum / float64(len(path))
 	}
-	d.accepted += line
 	d.out.Tokens += len(path)
-	// Пустая строка — разделитель, а не утверждение.
-	if strings.TrimSpace(line) != "" {
-		d.out.Statements = append(d.out.Statements, Statement{Text: strings.TrimSuffix(line, "\n"), MeanLogProb: mean})
+	d.add(Statement{Text: line, MeanLogProb: mean})
+}
+
+// add дописывает утверждение к ответу. Пустая строка — разделитель, а не
+// утверждение.
+func (d *decoder) add(s Statement) {
+	d.accepted += s.Text
+	if strings.TrimSpace(s.Text) != "" {
+		s.Text = strings.TrimSuffix(s.Text, "\n")
+		d.out.Statements = append(d.out.Statements, s)
 	}
+}
+
+// packages — место, которое ведёт логика: adm — допустимые утверждения.
+// Возвращает done, когда ответ закончен.
+func (d *decoder) packages(ctx context.Context, adm []string) (bool, error) {
+	if len(adm) == 0 {
+		if bad := d.cfg.Final(d.accepted); len(bad) > 0 {
+			return false, d.fail("логика закончила ответ, а он не в языке: %s", bad[0])
+		}
+		d.out.Text = d.accepted
+		return true, nil
+	}
+	s := Statement{Text: adm[0], Forced: true}
+	if len(adm) > 1 {
+		scorer, ok := d.engine.(Scorer)
+		if !ok {
+			return false, d.fail("логика оставила выбор из %d утверждений, а движок их не оценивает (нет /v1/score)", len(adm))
+		}
+		if d.out.Calls >= d.cfg.MaxTokens {
+			return false, d.fail("модель спрошена %d раз, а ответ не сложился: предел llm.max_tokens", d.out.Calls)
+		}
+		d.out.Calls++
+		scores, err := scorer.Score(ctx, d.prompt, d.accepted, adm)
+		if err != nil {
+			return false, err
+		}
+		if len(scores) != len(adm) {
+			return false, fmt.Errorf("движок оценил %d продолжений из %d", len(scores), len(adm))
+		}
+		best := 0
+		for i := range scores {
+			if scores[i].LogP > scores[best].LogP {
+				best = i
+			}
+		}
+		s = Statement{Text: adm[best], MeanLogProb: scores[best].LogP / float64(max(1, scores[best].Tokens)), Chosen: true}
+	}
+	if bad := d.cfg.Statement(d.accepted, s.Text); len(bad) > 0 {
+		return false, d.fail("логика допустила утверждение не в языке: %s", bad[0])
+	}
+	if s.Chosen {
+		d.out.Chosen++
+	} else {
+		d.out.Forced++
+	}
+	d.add(s)
+	return false, nil
 }
 
 // culprit — токен, который увёл утверждение из языка: тот, что покрывает

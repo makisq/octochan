@@ -67,6 +67,8 @@ import subprocess
 
 import yaml
 
+import logic
+
 # requires — тип отношения, но и раздел requires:; в корпус не берётся,
 # чтобы модель не путала их.
 RELATIONS = ["defines", "forces", "limits", "modifies", "precedes", "terminates"]
@@ -78,15 +80,9 @@ BUILTINS = {"exec", "save", "write"}
 VERSIONS = ["v1", "v2", "v3", "v1.2", "v2.3"]
 
 COMMENT = re.compile(r"\s*#.*$")
-RELATION = re.compile(r"(\w+)\s+--(\w+)-->\s+(\w+)\s*(?:\((\w+)\))?$")
-SET = re.compile(r"set\s+(\w+)\.(\w+)\s*=\s*(.+?)\s*$")
-CELL = re.compile(r"cell\s+(\w+)\s*:")
-GENERALIZATION = re.compile(r"generalization\s+(\w+)\s*\((.*)\)\s*:")
-INSTANCE = re.compile(r"instance\s+(\w+)\s*=\s*(\w+)\s*\((.*)\)")
-SLOT = re.compile(r"(\w+)\s*:(?!=)")
-BINDING = re.compile(r"(\w+)\s*:=")
-RULE = re.compile(r"(?:hard\s+(?:forbid|require)\s+|\?\?[na]_)(\w+)\s*\(")
-OPERATION = re.compile(r"=\s*(\w+)\s*\(")
+# Недостающие предпосылки и вывод решений — логика модели, одна на корпус
+# и модель.
+missing = logic.missing
 
 
 class Lexicon:
@@ -141,6 +137,23 @@ def value(rng, lex):
     return f"{n} {rng.choice(lex.units)}" if rng.random() < 0.6 else str(n)
 
 
+def vague(rng, lex, v, inside):
+    """Неточное значение: варианты-слова или диапазон. v — значение
+    источника: inside — оно лежит внутри, иначе — вне; None — источника нет."""
+    m = logic.NUMBER.match(v) if v else None
+    if m or (v is None and rng.random() < 0.4):
+        n = int(float(m.group(1))) if m else rng.choice([10, 50, 100, 200])
+        unit = (m.group(2) or "") if m else rng.choice(["", rng.choice(lex.units)])
+        lo, hi = (max(0, n // 2), n * 2 + 1) if inside else (n + 1, n * 3 + 2)
+        return f"{lo}..{hi}" + (f" {unit}" if unit else "")
+    others = [w for w in rng.sample(lex.words, 4) if w != v][:rng.randint(1, 3)]
+    variants = ([v] if inside else []) + others
+    if len(variants) < 2:
+        variants.append(next(w for w in lex.words if w not in variants and w != v))
+    rng.shuffle(variants)
+    return "{" + ", ".join(variants) + "}"
+
+
 def task(rng, lex):
     """Случайная задача на ℒ — структура для render и lacking."""
     used, attrs = set(), set()
@@ -180,6 +193,19 @@ def task(rng, lex):
         carriers = [a for a, t, _, _ in relations if t in CARRIES]
         target = rng.choice(carriers) if carriers and rng.random() < 0.7 else rng.choice(classes[:-1])
         sets.append((target, name(rng, lex, attrs, parts=1), value(rng, lex)))
+
+    # Неточная предпосылка (раздел 5.2) — чаще на цели переноса: значение
+    # источника внутри неё её сужает, вне — вопрос оператору; без источника
+    # её сужает только история.
+    if rng.random() < 0.3:
+        given = {(t, a) for t, a, _ in sets}
+        carried = [(b, a, v) for frm, kind, b, label in relations if kind in CARRIES and label
+                   for s, a, v in sets if s == frm and (b, a) not in given]
+        if carried and rng.random() < 0.8:
+            target, attr, v = rng.choice(carried)
+            sets.append((target, attr, vague(rng, lex, v, rng.random() < 0.7)))
+        else:
+            sets.append((rng.choice(classes[:-1]), name(rng, lex, attrs, parts=1), vague(rng, lex, None, False)))
 
     # Обобщение — схема одного из отношений, частные случаи — её стрелки.
     gen = None
@@ -316,92 +342,6 @@ def lacking(rng, lex, t):
     return t
 
 
-def parse(text):
-    """Из задачи — то, из чего выводятся решения: отношения, приоритеты,
-    ячейки, обобщения (имя → слоты) и стрелки [(имя, обобщение, слоты)]."""
-    relations, chains, given, cells, section = [], [], {}, set(), None
-    gens, instances = {}, []
-    for line in text.splitlines():
-        line = COMMENT.sub("", line).rstrip()
-        if not line:
-            continue
-        if not line[0].isspace():
-            section = line.split(":")[0].strip()
-            m = CELL.match(line)
-            if m:
-                cells.add(m.group(1))
-                section = "cell"
-            if m := GENERALIZATION.match(line):
-                gens[m.group(1)] = SLOT.findall(m.group(2))
-            if m := INSTANCE.match(line):
-                instances.append((m.group(1), m.group(2), BINDING.findall(m.group(3))))
-            continue
-        body = line.strip()
-        if section == "relations":
-            m = RELATION.match(body)
-            if m:
-                relations.append(m.groups())
-        elif section == "priority":
-            chains.append([c.strip() for c in body.split("<")])
-        elif section == "cell":
-            m = SET.match(body)
-            if m:
-                given.setdefault((m.group(1), m.group(2)), m.group(3))
-    return relations, chains, given, cells, gens, instances
-
-
-def beats(chains, a, b):
-    """a < b в приоритетах задачи: в конфликте побеждает a."""
-    return any(a in chain and b in chain and chain.index(a) < chain.index(b) for chain in chains)
-
-
-def missing(text):
-    """Предпосылки задачи, которых в ней нет (⊥undef): требование, действие
-    правила или операция обобщения вне K, класс скилла не из classes:,
-    обобщение стрелки или слоты, которые она не заполнила."""
-    *_, gens, instances = parse(text)
-    unbound = [f"{name}: {of}" if of not in gens else f"{name}: {', '.join(s for s in gens[of] if s not in bound)}"
-               for name, of, bound in instances if of not in gens or set(gens[of]) - set(bound)]
-    classes, skill_classes, known, needed, section = set(), [], set(BUILTINS), [], None
-    for line in text.splitlines():
-        line = COMMENT.sub("", line).rstrip()
-        if not line:
-            continue
-        if not line[0].isspace():
-            head = line.strip()
-            section = head.split(":")[0].split()[0]
-            if section == "requires":
-                needed += [n.strip() for n in head.split(":", 1)[1].split(",") if n.strip()]
-            for pattern, into in ((GENERALIZATION, known), (INSTANCE, known)):
-                m = pattern.match(head)
-                if m:
-                    into.add(m.group(1))
-            m = RULE.match(head)
-            if m:
-                needed.append(m.group(1))
-            continue
-        body = line.strip()
-        if section == "classes":
-            classes.add(body.split(":")[0].strip())
-        elif section == "relations":
-            m = RELATION.match(body)
-            if m and m.group(4):
-                known.add(m.group(4))
-        elif section == "import":
-            key, _, items = body.partition(":")
-            names = [n.strip() for n in items.split(",") if n.strip()]
-            if key.strip() == "provides":
-                skill_classes += [n for n in names if n[0].isupper()]
-                known.update(n for n in names if not n[0].isupper())
-            elif key.strip() == "requires_class":
-                skill_classes += names
-        elif section == "generalization":
-            m = OPERATION.search(body)
-            if m:
-                needed.append(m.group(1))
-    return [n for n in needed if n not in known] + [c for c in skill_classes if c not in classes] + unbound
-
-
 def copy_of(text):
     """Задача, как её повторяет ответ: без комментариев и лишних пустых строк."""
     copy = "\n".join(COMMENT.sub("", line).rstrip() for line in text.splitlines()).strip("\n") + "\n"
@@ -409,72 +349,32 @@ def copy_of(text):
 
 
 def solve(text):
-    """Ответ модели на задачу: задача без комментариев, решения и отчёт.
-    Без предпосылки (missing) решений нет: модель не решает за оператора."""
-    relations, chains, given, cells, gens, instances = parse(text)
+    """Ответ модели на задачу: задача без комментариев, решения и отчёт —
+    решения выводит логика модели (logic.py; та же, что у ochan). Без
+    предпосылки (missing) решений нет: модель не решает за оператора. Два
+    значения одного вопроса отчёта одной записью не сказать — такой задаче
+    ответа нет (None)."""
     copy = copy_of(text)
     if missing(text):
         return copy
-
-    # Что переносится: (цель, атрибут) -> [(источник, значение, имя отношения)].
-    carried = collections.OrderedDict()
-    for (source, attr), v in given.items():
-        for a, t, b, rel in relations:
-            if a == source and t in CARRIES and rel and (b, attr) not in given:
-                carried.setdefault((b, attr), []).append((source, v, rel))
-
-    decisions = []
-    for (target, attr), sources in carried.items():
-        values = list(dict.fromkeys(v for _, v, _ in sources))
-        if len(values) == 1:
-            decisions.append((target, attr, values[0], None, f"relation({sources[0][2]})"))
-            continue
-        winners = [s for s, v, _ in sources if all(beats(chains, s, o) for o, w, _ in sources if w != v)]
-        if not winners:
-            continue  # конфликт без приоритета: решает оператор
-        win = winners[0]
-        lose = next(o for o, w, _ in sources if w != given[(win, attr)])
-        alternatives = values if all(re.fullmatch(r"[A-Za-z_]\w*", v) for v in values) else None
-        decisions.append((target, attr, given[(win, attr)], alternatives, f"priority({win} < {lose})"))
-
-    # По стрелке: атрибут обобщения-схемы отношения — каждому его частному
-    # случаю, у которого атрибута нет. Слот задаёт сама стрелка.
-    labels = {rel for *_, rel in relations if rel}
-    for (source, attr), v in given.items():
-        if source in gens and source in labels and attr not in gens[source]:
-            decisions += [(name, attr, v, None, f"relation({source})") for name, of, _ in instances
-                          if of == source and (name, attr) not in given]
-
-    if not decisions:
-        return copy
-    # Вопрос — параметр (со строчной: через точку пишется объект плана, а не
-    # класс); он покрывает параметр во всех целях с тем же значением. Один
-    # параметр с разными значениями в отчёт не записать — такой задаче
-    # ответа здесь нет.
-    report = collections.OrderedDict()
-    for t, a, v, alternatives, basis in decisions:
-        if a in report and report[a][0] != v:
-            return None
-        report.setdefault(a, (v, alternatives, basis))
-    cell = next(f"c{k}" for k in range(1, 100) if f"c{k}" not in cells)
-    out = [copy.rstrip("\n"), "", f"cell {cell}:"]
-    out += [f"  set {t}.{a} = {v}" for t, a, v, _, _ in decisions]
-    out += ["", "report:"]
-    for a, (v, alternatives, basis) in report.items():
-        out += [f"  q: {a}", f"    choice: {v}"]
-        if alternatives:
-            out.append(f"    alternatives: {{{', '.join(alternatives)}}}")
-        out.append(f"    basis: {basis}")
-    return "\n".join(out) + "\n"
+    plan = logic.AnswerPlan(text)
+    if any(len(q.targets) > 1 for q in plan.open):
+        return None
+    return copy.rstrip("\n") + plan.text()[len(plan.copy) - 1:]
 
 
 def kind(task, answer):
     """Вид пары для сводки."""
     if missing(task):
         return "без предпосылки"
+    parsed = logic.parse(task)
+    made_on = set(re.findall(r"set (\w+\.\w+)", answer[len(copy_of(task)):]))
+    vague = {f"{t}.{a}" for t, a in parsed.inexact}
+    if vague:
+        return "неточное: сужено" if made_on & vague else "неточное: вопрос"
     if "priority(" in answer:
         return "конфликт"
-    arrows = {name for name, _, _ in parse(task)[5]}
+    arrows = {name for name, _, _ in parsed.instances}
     made = set(re.findall(r"set (\w+)\.", answer[len(copy_of(task)):]))
     if made & arrows:
         return "по стрелке" if made <= arrows else "перенос и по стрелке"

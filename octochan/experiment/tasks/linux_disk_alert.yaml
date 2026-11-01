@@ -1,0 +1,29 @@
+id: linux_disk_alert
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  threshold: 85 %
+open: []
+weights:
+  threshold: 2
+natural:
+- 'Алерт на заполнение диска: где-то между 80 и 90 %, порог — 85.'
+- 'Оповещение о диске: неточно 80..90 %, точный порог 85 %.'
+formal:
+- "goal: available\n\nclasses:\n  Storage      : \"disk\"\n  Notification : \"alert\"\n  Limit       \
+  \ : \"threshold\"\n  State        : \"available\"\n\nrelations:\n  Limit --defines--> Notification (threshold_alert)\n\
+  \  Storage --strives_to--> State\n\ncell c1:\n  set Limit.threshold = 85 %\n  set Notification.threshold\
+  \ = 80..90 %\n"
+- "goal: available\n\nclasses:\n  Storage      : \"volume\"\n  Notification : \"notify\"\n  Limit    \
+  \    : \"limit\"\n  State        : \"available\"\n\nrelations:\n  Storage --strives_to--> State\n  Limit\
+  \ --defines--> Notification (threshold_alert)\n\ncell c1:\n  set Notification.threshold = 80..90 %\n\
+  \  set Limit.threshold = 85 %\n"
+- "goal: available\n\nclasses:\n  Storage      : \"disk\"\n  Notification : \"notify\"\n  Limit      \
+  \  : \"threshold\"\n  State        : \"available\"\n\nrelations:\n  Storage --strives_to--> State\n\
+  \  Limit --defines--> Notification (threshold_alert)\n\ncell c1:\n  set Limit.threshold = 85 %\n  set\
+  \ Notification.threshold = 80..90 %\n"
+lacking:
+- "goal: available\n\nclasses:\n  Storage      : \"disk\"\n  Notification : \"alert\"\n  Limit       \
+  \ : \"threshold\"\n  State        : \"available\"\n\nrelations:\n  Limit --defines--> Notification (threshold_alert)\n\
+  \  Storage --strives_to--> State\n\ncell c1:\n  set Limit.threshold = 85 %\n  set Notification.threshold\
+  \ = 80..90 %\n\nrequires: incident_history\n"

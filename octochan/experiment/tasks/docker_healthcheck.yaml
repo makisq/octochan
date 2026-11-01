@@ -1,0 +1,31 @@
+id: docker_healthcheck
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  count: '3'
+  period: 30 s
+open: []
+weights:
+  count: 3
+  period: 3
+natural:
+- 'Healthcheck контейнера: три попытки, проверять каждые 30 секунд.'
+- HEALTHCHECK --retries 3 --interval 30 s.
+formal:
+- "goal: healthy\n\nclasses:\n  Validation : \"verification\"\n  Retry      : \"retry\"\n  Service   \
+  \ : \"daemon\"\n  State      : \"healthy\"\n\nrelations:\n  Retry --defines--> Validation (retry_count)\n\
+  \  Validation --modifies--> Service (verification_change)\n  Service --strives_to--> State\n\ncell c1:\n\
+  \  set Retry.count = 3\n  set Validation.period = 30 s\n"
+- "goal: healthy\n\nclasses:\n  Validation : \"verification\"\n  Retry      : \"retry\"\n  Service   \
+  \ : \"service\"\n  State      : \"healthy\"\n\nrelations:\n  Service --strives_to--> State\n  Validation\
+  \ --modifies--> Service (verification_change)\n  Retry --defines--> Validation (retry_count)\n\ncell\
+  \ c1:\n  set Retry.count = 3\n  set Validation.period = 30 s\n"
+- "goal: healthy\n\nclasses:\n  Validation : \"verify\"\n  Retry      : \"retry\"\n  Service    : \"daemon\"\
+  \n  State      : \"healthy\"\n\nrelations:\n  Service --strives_to--> State\n  Retry --defines--> Validation\
+  \ (retry_count)\n  Validation --modifies--> Service (verification_change)\n\ncell c1:\n  set Retry.count\
+  \ = 3\n  set Validation.period = 30 s\n"
+lacking:
+- "goal: healthy\n\nclasses:\n  Validation : \"verification\"\n  Retry      : \"retry\"\n  Service   \
+  \ : \"daemon\"\n  State      : \"healthy\"\n\nrelations:\n  Retry --defines--> Validation (retry_count)\n\
+  \  Validation --modifies--> Service (verification_change)\n  Service --strives_to--> State\n\ncell c1:\n\
+  \  set Retry.count = 3\n  set Validation.period = 30 s\n\nrequires: incident_history\n"

@@ -914,6 +914,7 @@ func (c *checker) checkCells() map[string][]string {
 			if set.Value.Ref {
 				c.checkValueRef(cell, i, set.Value, everWritten, reads[i])
 			}
+			c.checkInexact(set)
 		}
 		for target := range writes[i] {
 			writer[target] = i
@@ -1001,6 +1002,7 @@ func (c *checker) checkValueRef(cell *Cell, index int, value Value, everWritten 
 // существует, и модель не переопределяет то, что задал промпт (П5).
 func (c *checker) checkReport() {
 	fixed := c.fixedByPrompt()
+	inexact := c.inexactPremises()
 	seen := map[string]int{}
 
 	for _, entry := range c.prog.Report {
@@ -1030,6 +1032,15 @@ func (c *checker) checkReport() {
 			c.report(entry.Pos, Note, "вопрос %s выключен в конфигурации (Q_off): в отчёт не входит", entry.Question)
 		}
 
+		// Неточную предпосылку модель сужает — внутри неё (раздел 5.2).
+		if premise, ok := inexact[entry.Question]; ok {
+			if !premise.Value.Admits(entry.Choice.Text) {
+				c.report(entry.Choice.Pos, ErrConflict, "промпт задаёт %s неточно — %s, а отчёт выбрал %s вне этого: "+
+					"неточное сужают только внутри (раздел 5.2)", premise.Target, premise.Value.Text, entry.Choice.Text)
+			}
+			c.checkBasis(entry.Basis)
+			continue
+		}
 		if set, ok := fixed[entry.Question]; ok {
 			if set.Value.Text != entry.Choice.Text {
 				c.report(entry.Choice.Pos, ErrConflict, "промпт задаёт %s = %s, а отчёт выбрал %s: модель не переопределяет "+
@@ -1066,8 +1077,63 @@ func (c *checker) fixedByPrompt() map[string]*Set {
 	return fixed
 }
 
+// inexactPremises — неточные предпосылки, которые текст дальше сужает —
+// точным значением той же цели в следующей ячейке: по полному имени цели
+// и по атрибуту, если он однозначен. Вопрос отчёта — атрибут; к неточной
+// предпосылке он относится, только если её сузили.
+func (c *checker) inexactPremises() map[string]*Set {
+	out := map[string]*Set{}
+	open := map[string]*Set{}
+	byAttr := map[string][]*Set{}
+	for _, cell := range c.prog.Cells {
+		for _, set := range cell.Sets {
+			if set.Value.Inexact() {
+				open[set.Target] = set
+				continue
+			}
+			premise, ok := open[set.Target]
+			if !ok {
+				continue
+			}
+			delete(open, set.Target)
+			out[set.Target] = premise
+			attr := set.Target[strings.LastIndex(set.Target, ".")+1:]
+			byAttr[attr] = append(byAttr[attr], premise)
+		}
+	}
+	for attr, sets := range byAttr {
+		if _, taken := out[attr]; !taken && len(sets) == 1 {
+			out[attr] = sets[0]
+		}
+	}
+	return out
+}
+
+// checkInexact — неточное значение само по себе: варианты не повторяются,
+// диапазон не пуст, вариант — имя или число, а не ссылка.
+func (c *checker) checkInexact(set *Set) {
+	v := set.Value
+	switch {
+	case v.Range != nil && v.Range.Lo >= v.Range.Hi:
+		c.report(v.Pos, ErrConflict, "диапазон %s в %s пуст или из одной точки: это не неточное значение", v.Range.Text, set.Target)
+	case len(v.Variants) == 1:
+		c.report(v.Pos, Note, "у %s один вариант — %s: значение точное, скобки не нужны", set.Target, v.Variants[0])
+	}
+	seen := map[string]bool{}
+	for _, variant := range v.Variants {
+		if seen[variant] {
+			c.report(v.Pos, ErrConflict, "вариант %s повторяется в %s", variant, set.Target)
+		}
+		seen[variant] = true
+	}
+}
+
 func (c *checker) checkBasis(b *Basis) {
 	switch b.Kind {
+	case "history":
+		if _, ok := c.inexactPremises()[b.Args[0]]; !ok {
+			c.report(b.Pos, ErrUndef, "основание %s: неточной предпосылки %s в промпте нет — сужать по истории нечего", b, b.Args[0])
+		}
 	case "priority":
 		if !c.precedes(b.Args[0], b.Args[1]) {
 			c.report(b.Pos, ErrUndef, "основание %s: такого приоритета в промпте нет", b)

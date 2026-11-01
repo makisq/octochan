@@ -1,0 +1,31 @@
+id: k8s_cronjob
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  rate: nightly
+  maximum: '3'
+open: []
+weights:
+  rate: 4
+  maximum: 4
+natural:
+- Ночная задача по расписанию в Kubernetes, не больше трёх повторов.
+- CronJob каждую ночь, backoffLimit 3.
+formal:
+- "goal: running\n\nclasses:\n  Task     : \"job\"\n  Schedule : \"schedule\"\n  Retry    : \"retry\"\n\
+  \  State    : \"running\"\n\nrelations:\n  Schedule --defines--> Task (job_schedule)\n  Retry --limits-->\
+  \ Task (retry_limit)\n  Task --strives_to--> State\n\ncell c1:\n  set Schedule.rate = nightly\n  set\
+  \ Retry.maximum = 3\n"
+- "goal: running\n\nclasses:\n  Task     : \"task\"\n  Schedule : \"schedule\"\n  Retry    : \"retry\"\
+  \n  State    : \"running\"\n\nrelations:\n  Task --strives_to--> State\n  Schedule --defines--> Task\
+  \ (job_schedule)\n  Retry --limits--> Task (retry_limit)\n\ncell c1:\n  set Retry.maximum = 3\n  set\
+  \ Schedule.rate = nightly\n"
+- "goal: running\n\nclasses:\n  Task     : \"task\"\n  Schedule : \"schedule\"\n  Retry    : \"retry\"\
+  \n  State    : \"running\"\n\nrelations:\n  Schedule --defines--> Task (job_schedule)\n  Task --strives_to-->\
+  \ State\n  Retry --limits--> Task (retry_limit)\n\ncell c1:\n  set Schedule.rate = nightly\n  set Retry.maximum\
+  \ = 3\n"
+lacking:
+- "goal: running\n\nclasses:\n  Task     : \"job\"\n  Schedule : \"schedule\"\n  Retry    : \"retry\"\n\
+  \  State    : \"running\"\n\nrelations:\n  Schedule --defines--> Task (job_schedule)\n  Retry --limits-->\
+  \ Task (retry_limit)\n  Task --strives_to--> State\n\ncell c1:\n  set Schedule.rate = nightly\n  set\
+  \ Retry.maximum = 3\n\nrequires: incident_history\n"

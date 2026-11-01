@@ -1,0 +1,29 @@
+id: k8s_resources
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  limit: 256 MB
+open: []
+weights:
+  limit: 4
+natural:
+- 'Лимит памяти приложения: ему нужно 512 МБ, а квота неймспейса даёт 256 — квота главнее.'
+- 'resources.limits.memory: 512 MB по памяти против 256 MB по квоте; побеждает квота.'
+formal:
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Limit   : \"quota\"\n  Service : \"application\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Memory --defines--> Service (memory_request)\n  Limit --limits-->\
+  \ Service (quota_limit)\n  Service --strives_to--> State\n\npriority:\n  Limit < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 512 MB\n  set Limit.limit = 256 MB\n"
+- "goal: stable\n\nclasses:\n  Memory  : \"ram\"\n  Limit   : \"threshold\"\n  Service : \"daemon\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Limit --limits--> Service (quota_limit)\n  Memory --defines-->\
+  \ Service (memory_request)\n  Service --strives_to--> State\n\npriority:\n  Limit < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 512 MB\n  set Limit.limit = 256 MB\n"
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Limit   : \"limit\"\n  Service : \"service\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Limit --limits--> Service (quota_limit)\n  Memory --defines-->\
+  \ Service (memory_request)\n  Service --strives_to--> State\n\npriority:\n  Limit < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 512 MB\n  set Limit.limit = 256 MB\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Limit   : \"quota\"\n  Service : \"application\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Memory --defines--> Service (memory_request)\n  Limit --limits-->\
+  \ Service (quota_limit)\n  Service --strives_to--> State\n\npriority:\n  Limit < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 512 MB\n  set Limit.limit = 256 MB\n\nrequires: incident_history\n"

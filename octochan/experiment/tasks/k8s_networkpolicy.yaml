@@ -1,0 +1,31 @@
+id: k8s_networkpolicy
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  port: '8080'
+  level: high
+open: []
+weights:
+  port: 3
+  level: 3
+natural:
+- 'Сетевая политика: пускать только на порт 8080, уровень строгости высокий.'
+- 'NetworkPolicy: доступ на 8080, строгий режим.'
+formal:
+- "goal: safe\n\nclasses:\n  Network    : \"network\"\n  Port       : \"port\"\n  Permission : \"access\"\
+  \n  Safety     : \"safe\"\n\nrelations:\n  Port --defines--> Permission (port_access)\n  Permission\
+  \ --modifies--> Network (access_change)\n  Network --strives_to--> Safety\n\ncell c1:\n  set Port.port\
+  \ = 8080\n  set Permission.level = high\n"
+- "goal: safe\n\nclasses:\n  Network    : \"network\"\n  Port       : \"port\"\n  Permission : \"access\"\
+  \n  Safety     : \"safe\"\n\nrelations:\n  Port --defines--> Permission (port_access)\n  Permission\
+  \ --modifies--> Network (access_change)\n  Network --strives_to--> Safety\n\ncell c1:\n  set Port.port\
+  \ = 8080\n  set Permission.level = high\n"
+- "goal: safe\n\nclasses:\n  Network    : \"network\"\n  Port       : \"port\"\n  Permission : \"access\"\
+  \n  Safety     : \"safe\"\n\nrelations:\n  Port --defines--> Permission (port_access)\n  Network --strives_to-->\
+  \ Safety\n  Permission --modifies--> Network (access_change)\n\ncell c1:\n  set Port.port = 8080\n \
+  \ set Permission.level = high\n"
+lacking:
+- "goal: safe\n\nclasses:\n  Network    : \"network\"\n  Port       : \"port\"\n  Permission : \"access\"\
+  \n  Safety     : \"safe\"\n\nrelations:\n  Port --defines--> Permission (port_access)\n  Permission\
+  \ --modifies--> Network (access_change)\n  Network --strives_to--> Safety\n\ncell c1:\n  set Port.port\
+  \ = 8080\n  set Permission.level = high\n\nrequires: incident_history\n"

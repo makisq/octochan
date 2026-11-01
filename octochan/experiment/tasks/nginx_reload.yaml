@@ -1,0 +1,31 @@
+id: nginx_reload
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  version: '42'
+open: []
+weights:
+  version: 3
+natural:
+- 'Перечитай конфигурацию nginx на узлах группы web: версия конфига 42, в группе 10 узлов. Записывать
+  можно только web_config.'
+- Примени конфиг версии 42 к nginx на всех десяти узлах web и перезагрузи его; запись разрешена только
+  в web_config.
+formal:
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"config\"\n  Node   : \"node\"\n  Group\
+  \  : \"web\"\n\nrelations:\n  Config --modifies--> Node (config_change)\n  Node   --strives_to--> Reload\n\
+  \nhard forbid write(except = {web_config})\n\ncell c1:\n  set Config.version = 42\n  set Group.size\
+  \ = 10"
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"config\"\n  Node   : \"machine\"\n  Group\
+  \  : \"fleet\"\n\nrelations:\n  Config --modifies--> Node (config_change)\n  Node   --strives_to-->\
+  \ Reload\n\nhard forbid write(except = {web_config})\n\ncell c1:\n  set Config.version = 42\n  set Group.size\
+  \ = 10\n"
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"configuration\"\n  Node   : \"host\"\n\
+  \  Group  : \"group\"\n\nrelations:\n  Config --modifies--> Node (config_change)\n  Node   --strives_to-->\
+  \ Reload\n\nhard forbid write(except = {web_config})\n\ncell c1:\n  set Config.version = 42\n  set Group.size\
+  \ = 10\n"
+lacking:
+- "goal: reload\n\nclasses:\n  Reload : \"reload\"\n  Config : \"config\"\n  Node   : \"node\"\n  Group\
+  \  : \"web\"\n\nrelations:\n  Config --modifies--> Node (config_change)\n  Node   --strives_to--> Reload\n\
+  \nhard forbid write(except = {web_config})\n\ncell c1:\n  set Config.version = 42\n  set Group.size\
+  \ = 10\n\nrequires: incident_history\n"

@@ -25,6 +25,16 @@ import (
 // температура, top-p и штрафы адаптера не трогают), end — вероятность
 // конца ответа. Кандидаты — по убыванию p.
 //
+// Где логика ochan оставляет выбор из нескольких утверждений, модель
+// только оценивает их целиком:
+//
+//	POST /v1/score ← {"prompt": "…", "output": "…", "continuations": ["  set A.x = 1\n", …]}
+//	               → {"scores": [{"logp": -0.21, "tokens": 7}, …]}
+//
+// logp — сумма log p токенов продолжения после prompt+output, в том же
+// полном распределении, что у /v1/next; tokens — их число. Порядок — как
+// в запросе. Движок без /v1/score подходит, пока выбора нет.
+//
 // output — всегда прежний output (или начало строки после отката),
 // продлённый текстом кандидата, которого этот движок предложил: адаптер
 // может кодировать его теми же токенами, а не токенизировать заново — BPE
@@ -37,11 +47,13 @@ import (
 // Protocol — версия протокола движка.
 const Protocol = 1
 
-// Info — что о себе говорит движок.
+// Info — что о себе говорит движок. Generate — модель архитектурная и
+// отвечает целиком сама (arch.go).
 type Info struct {
 	Protocol int    `json:"protocol"`
 	Engine   string `json:"engine"`
 	Model    string `json:"model"`
+	Generate bool   `json:"generate,omitempty"`
 }
 
 // NextRequest — тело POST /v1/next.
@@ -49,6 +61,18 @@ type NextRequest struct {
 	Prompt string `json:"prompt"`
 	Output string `json:"output"`
 	Top    int    `json:"top"`
+}
+
+// ScoreRequest — тело POST /v1/score.
+type ScoreRequest struct {
+	Prompt        string   `json:"prompt"`
+	Output        string   `json:"output"`
+	Continuations []string `json:"continuations"`
+}
+
+// ScoreReply — ответ POST /v1/score.
+type ScoreReply struct {
+	Scores []Scored `json:"scores"`
 }
 
 // HTTP — движок по протоколу v1.
@@ -96,6 +120,30 @@ func (h *HTTP) Next(ctx context.Context, prompt, output string, top int) (Step, 
 	return s, s.validate()
 }
 
+// Score — оценки продолжений целиком.
+func (h *HTTP) Score(ctx context.Context, prompt, output string, continuations []string) ([]Scored, error) {
+	body, _ := json.Marshal(ScoreRequest{Prompt: prompt, Output: output, Continuations: continuations})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.Endpoint+"/v1/score", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	var r ScoreReply
+	if err := h.do(req, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Scores) != len(continuations) {
+		return nil, fmt.Errorf("движок %s оценил %d продолжений из %d", h.Endpoint, len(r.Scores), len(continuations))
+	}
+	for i, s := range r.Scores {
+		if s.LogP > 1e-6 || s.Tokens < 1 {
+			return nil, fmt.Errorf("движок %s: оценка продолжения %q — logp %g, токенов %d: нужно logp ≤ 0 и хотя бы один токен",
+				h.Endpoint, continuations[i], s.LogP, s.Tokens)
+		}
+	}
+	return r.Scores, nil
+}
+
 func (h *HTTP) do(req *http.Request, into any) error {
 	resp, err := h.Client.Do(req)
 	if err != nil {
@@ -105,6 +153,9 @@ func (h *HTTP) do(req *http.Request, into any) error {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode == http.StatusNotFound && strings.HasSuffix(req.URL.Path, "/v1/score") {
+		return fmt.Errorf("движок %s не оценивает продолжения (нет /v1/score), а логика оставила выбор", h.Endpoint)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("движок %s: %s: %s", h.Endpoint, resp.Status, strings.TrimSpace(string(data)))
@@ -140,10 +191,31 @@ func Handler(info Info, engine Engine) http.Handler {
 		w.WriteHeader(code)
 		_ = json.NewEncoder(w).Encode(v)
 	}
+	generator, architectural := engine.(Generator)
 	mux.HandleFunc("/v1/info", func(w http.ResponseWriter, r *http.Request) {
 		info.Protocol = Protocol
+		info.Generate = architectural
 		reply(w, http.StatusOK, info)
 	})
+	if architectural {
+		mux.HandleFunc("/v1/generate", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				reply(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST"})
+				return
+			}
+			var req GenerateRequest
+			if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil {
+				reply(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			a, err := generator.Generate(r.Context(), req.Prompt)
+			if err != nil {
+				reply(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			reply(w, http.StatusOK, a)
+		})
+	}
 	mux.HandleFunc("/v1/next", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			reply(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST"})
@@ -161,5 +233,24 @@ func Handler(info Info, engine Engine) http.Handler {
 		}
 		reply(w, http.StatusOK, s)
 	})
+	if scorer, ok := engine.(Scorer); ok {
+		mux.HandleFunc("/v1/score", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				reply(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST"})
+				return
+			}
+			var req ScoreRequest
+			if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil {
+				reply(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			scores, err := scorer.Score(r.Context(), req.Prompt, req.Output, req.Continuations)
+			if err != nil {
+				reply(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+				return
+			}
+			reply(w, http.StatusOK, ScoreReply{Scores: scores})
+		})
+	}
 	return mux
 }

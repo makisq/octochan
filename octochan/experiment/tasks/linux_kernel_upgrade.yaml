@@ -1,0 +1,29 @@
+id: linux_kernel_upgrade
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  window: weekend
+open: []
+weights:
+  window: 3
+natural:
+- Обнови ядро до шестой версии на выходных, после — перезагрузка.
+- Kernel upgrade до 6 в окно weekend, затем reboot.
+formal:
+- "goal: running\n\nclasses:\n  Upgrade : \"upgrade\"\n  Restart : \"reboot\"\n  Period  : \"window\"\n\
+  \  State   : \"running\"\n\nrelations:\n  Period --defines--> Upgrade (maintenance_window)\n  Upgrade\
+  \ --precedes--> Restart (upgrade_reboot)\n  Restart --strives_to--> State\n\ncell c1:\n  set Period.window\
+  \ = weekend\n  set Upgrade.version = 6\n"
+- "goal: running\n\nclasses:\n  Upgrade : \"upgrade\"\n  Restart : \"restart\"\n  Period  : \"hour\"\n\
+  \  State   : \"running\"\n\nrelations:\n  Upgrade --precedes--> Restart (upgrade_reboot)\n  Restart\
+  \ --strives_to--> State\n  Period --defines--> Upgrade (maintenance_window)\n\ncell c1:\n  set Upgrade.version\
+  \ = 6\n  set Period.window = weekend\n"
+- "goal: running\n\nclasses:\n  Upgrade : \"upgrade\"\n  Restart : \"reboot\"\n  Period  : \"peak\"\n\
+  \  State   : \"running\"\n\nrelations:\n  Period --defines--> Upgrade (maintenance_window)\n  Upgrade\
+  \ --precedes--> Restart (upgrade_reboot)\n  Restart --strives_to--> State\n\ncell c1:\n  set Period.window\
+  \ = weekend\n  set Upgrade.version = 6\n"
+lacking:
+- "goal: running\n\nclasses:\n  Upgrade : \"upgrade\"\n  Restart : \"reboot\"\n  Period  : \"window\"\n\
+  \  State   : \"running\"\n\nrelations:\n  Period --defines--> Upgrade (maintenance_window)\n  Upgrade\
+  \ --precedes--> Restart (upgrade_reboot)\n  Restart --strives_to--> State\n\ncell c1:\n  set Period.window\
+  \ = weekend\n  set Upgrade.version = 6\n\nrequires: incident_history\n"

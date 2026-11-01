@@ -1,0 +1,31 @@
+id: nginx_log_rotation
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  rate: daily
+  count: '7'
+open: []
+weights:
+  rate: 3
+  count: 3
+natural:
+- 'Ротация логов nginx: раз в день или в неделю — по расписанию ежедневно; хранить семь файлов.'
+- 'logrotate для nginx: частота неточно (daily или weekly), расписание говорит daily, rotate 7.'
+formal:
+- "goal: available\n\nclasses:\n  Log      : \"log\"\n  Schedule : \"schedule\"\n  Storage  : \"storage\"\
+  \n  State    : \"available\"\n\nrelations:\n  Schedule --defines--> Log (log_schedule)\n  Log --modifies-->\
+  \ Storage (log_size)\n  Storage --strives_to--> State\n\ncell c1:\n  set Schedule.rate = daily\n  set\
+  \ Log.rate = {daily, weekly}\n  set Log.count = 7\n"
+- "goal: available\n\nclasses:\n  Log      : \"journal\"\n  Schedule : \"schedule\"\n  Storage  : \"disk\"\
+  \n  State    : \"available\"\n\nrelations:\n  Log --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n  Schedule --defines--> Log (log_schedule)\n\ncell c1:\n  set Log.rate = {daily, weekly}\n\
+  \  set Log.count = 7\n  set Schedule.rate = daily\n"
+- "goal: available\n\nclasses:\n  Log      : \"journal\"\n  Schedule : \"schedule\"\n  Storage  : \"volume\"\
+  \n  State    : \"available\"\n\nrelations:\n  Log --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n  Schedule --defines--> Log (log_schedule)\n\ncell c1:\n  set Log.count = 7\n  set Log.rate\
+  \ = {daily, weekly}\n  set Schedule.rate = daily\n"
+lacking:
+- "goal: available\n\nclasses:\n  Log      : \"log\"\n  Schedule : \"schedule\"\n  Storage  : \"storage\"\
+  \n  State    : \"available\"\n\nrelations:\n  Schedule --defines--> Log (log_schedule)\n  Log --modifies-->\
+  \ Storage (log_size)\n  Storage --strives_to--> State\n\ncell c1:\n  set Schedule.rate = daily\n  set\
+  \ Log.rate = {daily, weekly}\n  set Log.count = 7\n\nrequires: incident_history\n"

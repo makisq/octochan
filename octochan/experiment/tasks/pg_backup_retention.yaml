@@ -1,0 +1,31 @@
+id: pg_backup_retention
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  period: daily
+  quota: 500 GB
+open: []
+weights:
+  period: 4
+  quota: 4
+natural:
+- Бэкапы базы — каждый день, хранилище под них не больше 500 ГБ.
+- Ежедневные копии Postgres с квотой хранилища 500 GB.
+formal:
+- "goal: safe\n\nclasses:\n  Backup   : \"backup\"\n  Storage  : \"storage\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Schedule --defines--> Backup (backup_schedule)\n  Storage --limits-->\
+  \ Backup (storage_quota)\n  Backup --strives_to--> Safety\n\ncell c1:\n  set Schedule.period = daily\n\
+  \  set Storage.quota = 500 GB\n"
+- "goal: safe\n\nclasses:\n  Backup   : \"backup\"\n  Storage  : \"disk\"\n  Schedule : \"schedule\"\n\
+  \  Safety   : \"safe\"\n\nrelations:\n  Backup --strives_to--> Safety\n  Storage --limits--> Backup\
+  \ (storage_quota)\n  Schedule --defines--> Backup (backup_schedule)\n\ncell c1:\n  set Schedule.period\
+  \ = daily\n  set Storage.quota = 500 GB\n"
+- "goal: safe\n\nclasses:\n  Backup   : \"snapshot\"\n  Storage  : \"disk\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Storage --limits--> Backup (storage_quota)\n  Backup --strives_to-->\
+  \ Safety\n  Schedule --defines--> Backup (backup_schedule)\n\ncell c1:\n  set Storage.quota = 500 GB\n\
+  \  set Schedule.period = daily\n"
+lacking:
+- "goal: safe\n\nclasses:\n  Backup   : \"backup\"\n  Storage  : \"storage\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Schedule --defines--> Backup (backup_schedule)\n  Storage --limits-->\
+  \ Backup (storage_quota)\n  Backup --strives_to--> Safety\n\ncell c1:\n  set Schedule.period = daily\n\
+  \  set Storage.quota = 500 GB\n\nrequires: incident_history\n"

@@ -1,0 +1,29 @@
+id: disk_cleanup
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended: {}
+open: []
+weights: {}
+natural:
+- 'Освободи место на диске: логи раздувают хранилище, порог — 80 %. Писать можно только старые логи, бэкапов
+  держим семь.'
+- 'Диск забивается логами. Почисти так, чтобы он снова был доступен: порог заполнения 80 %, трогать разрешено
+  только old_log, количество бэкапов — 7.'
+formal:
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Storage : \"disk\"\n  Log     : \"log\"\n\
+  \  Backup  : \"backup\"\n\nrelations:\n  Log     --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n\nhard forbid write(except = {old_log})\n\ncell c1:\n  set Storage.threshold = 80 %\n  set\
+  \ Backup.count = 7"
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Storage : \"disk\"\n  Log     : \"journal\"\
+  \n  Backup  : \"copy\"\n\nrelations:\n  Storage --strives_to--> State\n  Log     --modifies--> Storage\
+  \ (log_size)\n\nhard forbid write(except = {old_log})\n\ncell c1:\n  set Backup.count = 7\n  set Storage.threshold\
+  \ = 80 %\n"
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Storage : \"volume\"\n  Log     : \"log\"\
+  \n  Backup  : \"copy\"\n\nrelations:\n  Storage --strives_to--> State\n  Log     --modifies--> Storage\
+  \ (log_size)\n\nhard forbid write(except = {old_log})\n\ncell c1:\n  set Storage.threshold = 80 %\n\
+  \  set Backup.count = 7\n"
+lacking:
+- "goal: available\n\nclasses:\n  State   : \"available\"\n  Storage : \"disk\"\n  Log     : \"log\"\n\
+  \  Backup  : \"backup\"\n\nrelations:\n  Log     --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n\nhard forbid write(except = {old_log})\n\ncell c1:\n  set Storage.threshold = 80 %\n  set\
+  \ Backup.count = 7\n\nrequires: incident_history\n"

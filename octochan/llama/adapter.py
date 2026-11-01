@@ -8,10 +8,17 @@ ochan сам ведёт генерацию во встроенном режим�
     POST /v1/next  <- {"prompt": "...", "output": "...", "top": 2}
                    -> {"candidates": [{"text": "goal", "p": 0.81}, ...], "end": 0.001}
 
+    POST /v1/score <- {"prompt": "...", "output": "...", "continuations": ["  set A.x = 1\\n", ...]}
+                   -> {"scores": [{"logp": -0.21, "tokens": 7}, ...]}
+    POST /v1/generate <- {"prompt": "..."}       (архитектурная модель, own.py)
+                      -> {"answer": "...", "refused": false, "packages": [...], "questions": [...], ...}
+
 p — вероятность в полном распределении модели, после softmax и до любой
 выборки: температуры, top-p и штрафов здесь нет. end — вероятность конца
 ответа (EOS и конец реплики). Кандидаты — по убыванию p, служебные токены
-среди них не бывают.
+среди них не бывают. /v1/score — где логика ochan оставила выбор из
+нескольких утверждений: модель оценивает каждое целиком, сумма log p его
+токенов в том же распределении.
 
 prompt — неизменная часть: протокол, затем "\n\n# Task\n\n" и задача. У
 instruct-модели она раскладывается по шаблону чата: system — протокол, user —
@@ -37,6 +44,7 @@ instruct-модели она раскладывается по шаблону ч
 
 import argparse
 import json
+import math
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -201,6 +209,22 @@ class Engine:
                 candidates.append({"text": self.piece(token), "p": float(v)})
         return {"candidates": candidates, "end": end}
 
+    def score(self, prompt, output, continuations):
+        """Оценки продолжений целиком: сумма log p их токенов после prompt+output.
+        Токена вне алфавита у обрезанной модели нет — его log p очень мал."""
+        base, start = self.ids(prompt, output), len(self.prompt_ids(prompt))
+        index = {t: k for k, t in enumerate(self.to_id)} if self.to_id else None
+        scores = []
+        for text in continuations:
+            ids, seq, logp = answer_ids(self.tok, text), list(base), 0.0
+            for token in ids:
+                k = index.get(token) if index is not None else token
+                p = float(self.distribution(seq, start)[k]) if k is not None else 0.0
+                logp += math.log(max(p, 1e-45))
+                seq.append(token)
+            scores.append({"logp": logp, "tokens": len(ids)})
+        return scores
+
     def raw(self, prompt, max_new_tokens=512):
         """Сырой вывод модели без колец и маски: жадный, до конца реплики."""
         ids, out = list(self.prompt_ids(prompt)), []
@@ -214,17 +238,20 @@ class Engine:
         return self.tok.decode(out, skip_special_tokens=True, clean_up_tokenization_spaces=False)
 
 
-def engine_for(model, device="cuda", dtype="bfloat16", chat=True):
-    """Движок по каталогу модели: своя модель ℒ (own.py) или модель Hugging Face."""
+def engine_for(model, device="cuda", dtype="bfloat16", chat=True, bare=False):
+    """Движок по каталогу модели: своя модель ℒ (own.py, архитектурная; bare —
+    без логики в распределении) или модель Hugging Face."""
     import own
 
     if own.is_own(model):
-        return own.Engine(model, device)
+        return own.Engine(model, device, arch=not bare)
     return Engine(model, device, dtype, chat)
 
 
 def serve(engine, listen):
     host, port = listen.rsplit(":", 1)
+    # Архитектурная модель отвечает целиком сама: логика и кольца — в ней.
+    architectural = bool(getattr(engine, "arch", False))
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self, code, body):
@@ -238,13 +265,19 @@ def serve(engine, listen):
         def do_GET(self):
             if self.path != "/v1/info":
                 return self.reply(404, {"error": "нет такого адреса"})
-            self.reply(200, {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name})
+            self.reply(200, {"protocol": PROTOCOL, "engine": "transformers", "model": engine.name,
+                             "generate": architectural})
 
         def do_POST(self):
-            if self.path != "/v1/next":
+            if self.path not in ("/v1/next", "/v1/score") and not (self.path == "/v1/generate" and architectural):
                 return self.reply(404, {"error": "нет такого адреса"})
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+                if self.path == "/v1/generate":
+                    return self.reply(200, engine.generate(req["prompt"]))
+                if self.path == "/v1/score":
+                    return self.reply(200, {"scores": engine.score(req["prompt"], req.get("output", ""),
+                                                                   req["continuations"])})
                 self.reply(200, engine.next(req["prompt"], req.get("output", ""), int(req.get("top", 2))))
             except Exception as e:  # ochan показывает текст ошибки движка как есть
                 self.reply(500, {"error": f"{type(e).__name__}: {e}"})
@@ -266,12 +299,13 @@ def main():
         p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
         p.add_argument("--dtype", default="bfloat16")
         p.add_argument("--no-chat", action="store_true", help="не оборачивать prompt шаблоном чата")
+        p.add_argument("--bare", action="store_true", help="своя модель без логики в распределении — для сравнений")
     sub.choices["serve"].add_argument("--listen", default="127.0.0.1:8090")
     sub.choices["raw"].add_argument("--prompt-file", required=True)
     sub.choices["raw"].add_argument("--max-new-tokens", type=int, default=512)
     args = ap.parse_args()
 
-    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat)
+    engine = engine_for(args.model, args.device, args.dtype, chat=not args.no_chat, bare=args.bare)
     if args.cmd == "serve":
         serve(engine, args.listen)
         return

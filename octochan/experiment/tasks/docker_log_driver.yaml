@@ -1,0 +1,31 @@
+id: docker_log_driver
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  size: 100 MB
+  count: '3'
+open: []
+weights:
+  size: 3
+  count: 3
+natural:
+- 'Логи контейнера: размер файла где-то 50–200 МБ, потолок — 100; хранить три файла.'
+- 'json-file: max-size неточно 50..200 MB, cap 100 MB, max-file 3.'
+formal:
+- "goal: available\n\nclasses:\n  Log     : \"journal\"\n  Storage : \"volume\"\n  Limit   : \"cap\"\n\
+  \  State   : \"available\"\n\nrelations:\n  Limit --limits--> Log (size_cap)\n  Log --modifies--> Storage\
+  \ (journal_size)\n  Storage --strives_to--> State\n\ncell c1:\n  set Limit.size = 100 MB\n  set Log.size\
+  \ = 50..200 MB\n  set Log.count = 3\n"
+- "goal: available\n\nclasses:\n  Log     : \"log\"\n  Storage : \"disk\"\n  Limit   : \"threshold\"\n\
+  \  State   : \"available\"\n\nrelations:\n  Log --modifies--> Storage (journal_size)\n  Limit --limits-->\
+  \ Log (size_cap)\n  Storage --strives_to--> State\n\ncell c1:\n  set Limit.size = 100 MB\n  set Log.count\
+  \ = 3\n  set Log.size = 50..200 MB\n"
+- "goal: available\n\nclasses:\n  Log     : \"log\"\n  Storage : \"storage\"\n  Limit   : \"cap\"\n  State\
+  \   : \"available\"\n\nrelations:\n  Limit --limits--> Log (size_cap)\n  Storage --strives_to--> State\n\
+  \  Log --modifies--> Storage (journal_size)\n\ncell c1:\n  set Log.size = 50..200 MB\n  set Limit.size\
+  \ = 100 MB\n  set Log.count = 3\n"
+lacking:
+- "goal: available\n\nclasses:\n  Log     : \"journal\"\n  Storage : \"volume\"\n  Limit   : \"cap\"\n\
+  \  State   : \"available\"\n\nrelations:\n  Limit --limits--> Log (size_cap)\n  Log --modifies--> Storage\
+  \ (journal_size)\n  Storage --strives_to--> State\n\ncell c1:\n  set Limit.size = 100 MB\n  set Log.size\
+  \ = 50..200 MB\n  set Log.count = 3\n\nrequires: incident_history\n"

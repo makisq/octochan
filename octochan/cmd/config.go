@@ -109,6 +109,7 @@ func initConfig() error {
 	viper.SetDefault("llm.rings.tau", 0.42)
 	viper.SetDefault("llm.max_tokens", 2048)
 	viper.SetDefault("llm.retries", 32)
+	viper.SetDefault("llm.derive", true)
 	viper.SetDefault("llm.timeout", "60s")
 
 	// Почта: язык писем людям — auto (по режиму), formal или natural.

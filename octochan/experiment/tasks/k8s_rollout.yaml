@@ -1,0 +1,31 @@
+id: k8s_rollout
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  maximum: 25 %
+  size: '1'
+open: []
+weights:
+  maximum: 4
+  size: 4
+natural:
+- 'Выкати релиз в Kubernetes постепенно: maxSurge 25 %, недоступен не больше одного пода.'
+- 'RollingUpdate: всплеск до 25 %, maxUnavailable 1.'
+formal:
+- "goal: release\n\nclasses:\n  Deployment : \"deploy\"\n  Strategy   : \"rolling\"\n  Batch      : \"\
+  batch\"\n  Version    : \"release\"\n\nrelations:\n  Strategy --defines--> Deployment (rolling_update)\n\
+  \  Batch --limits--> Deployment (batch_size)\n  Deployment --strives_to--> Version\n\ncell c1:\n  set\
+  \ Strategy.maximum = 25 %\n  set Batch.size = 1\n"
+- "goal: release\n\nclasses:\n  Deployment : \"apply\"\n  Strategy   : \"rolling\"\n  Batch      : \"\
+  batch\"\n  Version    : \"release\"\n\nrelations:\n  Strategy --defines--> Deployment (rolling_update)\n\
+  \  Batch --limits--> Deployment (batch_size)\n  Deployment --strives_to--> Version\n\ncell c1:\n  set\
+  \ Strategy.maximum = 25 %\n  set Batch.size = 1\n"
+- "goal: release\n\nclasses:\n  Deployment : \"apply\"\n  Strategy   : \"rolling\"\n  Batch      : \"\
+  batch\"\n  Version    : \"release\"\n\nrelations:\n  Strategy --defines--> Deployment (rolling_update)\n\
+  \  Batch --limits--> Deployment (batch_size)\n  Deployment --strives_to--> Version\n\ncell c1:\n  set\
+  \ Batch.size = 1\n  set Strategy.maximum = 25 %\n"
+lacking:
+- "goal: release\n\nclasses:\n  Deployment : \"deploy\"\n  Strategy   : \"rolling\"\n  Batch      : \"\
+  batch\"\n  Version    : \"release\"\n\nrelations:\n  Strategy --defines--> Deployment (rolling_update)\n\
+  \  Batch --limits--> Deployment (batch_size)\n  Deployment --strives_to--> Version\n\ncell c1:\n  set\
+  \ Strategy.maximum = 25 %\n  set Batch.size = 1\n\nrequires: incident_history\n"

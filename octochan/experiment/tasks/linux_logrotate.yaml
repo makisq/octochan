@@ -1,0 +1,26 @@
+id: linux_logrotate
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  size: 100 MB
+open:
+- rate
+weights:
+  size: 3
+natural:
+- Ротация системных логов по размеру 100 МБ; по времени — ежедневно или еженедельно, не решили.
+- 'logrotate: size 100 MB, расписание daily или weekly — вопрос.'
+formal:
+- "goal: available\n\nclasses:\n  Log      : \"log\"\n  Schedule : \"schedule\"\n  Storage  : \"storage\"\
+  \n  State    : \"available\"\n\nrelations:\n  Log --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n\ncell c1:\n  set Log.size = 100 MB\n  set Schedule.rate = {daily, weekly}\n"
+- "goal: available\n\nclasses:\n  Log      : \"log\"\n  Schedule : \"schedule\"\n  Storage  : \"disk\"\
+  \n  State    : \"available\"\n\nrelations:\n  Storage --strives_to--> State\n  Log --modifies--> Storage\
+  \ (log_size)\n\ncell c1:\n  set Log.size = 100 MB\n  set Schedule.rate = {daily, weekly}\n"
+- "goal: available\n\nclasses:\n  Log      : \"journal\"\n  Schedule : \"schedule\"\n  Storage  : \"volume\"\
+  \n  State    : \"available\"\n\nrelations:\n  Log --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n\ncell c1:\n  set Schedule.rate = {daily, weekly}\n  set Log.size = 100 MB\n"
+lacking:
+- "goal: available\n\nclasses:\n  Log      : \"log\"\n  Schedule : \"schedule\"\n  Storage  : \"storage\"\
+  \n  State    : \"available\"\n\nrelations:\n  Log --modifies--> Storage (log_size)\n  Storage --strives_to-->\
+  \ State\n\ncell c1:\n  set Log.size = 100 MB\n  set Schedule.rate = {daily, weekly}\n\nrequires: incident_history\n"

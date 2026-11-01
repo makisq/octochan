@@ -1,0 +1,31 @@
+id: linux_time_sync
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  count: '3'
+  period: 64 s
+open: []
+weights:
+  count: 4
+  period: 4
+natural:
+- 'Синхронизация времени: три источника, опрос раз в 64 секунды.'
+- 'chrony: 3 сервера, poll 64 s.'
+formal:
+- "goal: stable\n\nclasses:\n  Source  : \"source\"\n  Service : \"daemon\"\n  Rate    : \"frequency\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Source --defines--> Service (service_source)\n  Rate --defines-->\
+  \ Service (rate_change)\n  Service --strives_to--> State\n\ncell c1:\n  set Source.count = 3\n  set\
+  \ Rate.period = 64 s\n"
+- "goal: stable\n\nclasses:\n  Source  : \"source\"\n  Service : \"application\"\n  Rate    : \"nightly\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Service --strives_to--> State\n  Rate --defines--> Service\
+  \ (rate_change)\n  Source --defines--> Service (service_source)\n\ncell c1:\n  set Rate.period = 64\
+  \ s\n  set Source.count = 3\n"
+- "goal: stable\n\nclasses:\n  Source  : \"source\"\n  Service : \"service\"\n  Rate    : \"nightly\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Service --strives_to--> State\n  Source --defines--> Service\
+  \ (service_source)\n  Rate --defines--> Service (rate_change)\n\ncell c1:\n  set Rate.period = 64 s\n\
+  \  set Source.count = 3\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Source  : \"source\"\n  Service : \"daemon\"\n  Rate    : \"frequency\"\
+  \n  State   : \"stable\"\n\nrelations:\n  Source --defines--> Service (service_source)\n  Rate --defines-->\
+  \ Service (rate_change)\n  Service --strives_to--> State\n\ncell c1:\n  set Source.count = 3\n  set\
+  \ Rate.period = 64 s\n\nrequires: incident_history\n"

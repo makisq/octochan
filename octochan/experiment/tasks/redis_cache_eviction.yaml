@@ -1,0 +1,31 @@
+id: redis_cache_eviction
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  maximum: 4 GB
+  order: old
+open: []
+weights:
+  maximum: 4
+  order: 4
+natural:
+- 'Redis не должен падать от памяти: максимум 4 ГБ, вытеснять сначала старые ключи.'
+- 'Кеш Redis: потолок памяти 4 GB, политика вытеснения — по старости.'
+formal:
+- "goal: stable\n\nclasses:\n  Cache  : \"cache\"\n  Memory : \"ram\"\n  Policy : \"policy\"\n  State\
+  \  : \"stable\"\n\nrelations:\n  Memory --limits--> Cache (memory_cap)\n  Policy --defines--> Cache\
+  \ (cache_policy)\n  Cache --strives_to--> State\n\ncell c1:\n  set Memory.maximum = 4 GB\n  set Policy.order\
+  \ = old\n"
+- "goal: stable\n\nclasses:\n  Cache  : \"cache\"\n  Memory : \"ram\"\n  Policy : \"policy\"\n  State\
+  \  : \"stable\"\n\nrelations:\n  Policy --defines--> Cache (cache_policy)\n  Memory --limits--> Cache\
+  \ (memory_cap)\n  Cache --strives_to--> State\n\ncell c1:\n  set Memory.maximum = 4 GB\n  set Policy.order\
+  \ = old\n"
+- "goal: stable\n\nclasses:\n  Cache  : \"cache\"\n  Memory : \"memory\"\n  Policy : \"policy\"\n  State\
+  \  : \"stable\"\n\nrelations:\n  Memory --limits--> Cache (memory_cap)\n  Cache --strives_to--> State\n\
+  \  Policy --defines--> Cache (cache_policy)\n\ncell c1:\n  set Policy.order = old\n  set Memory.maximum\
+  \ = 4 GB\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Cache  : \"cache\"\n  Memory : \"ram\"\n  Policy : \"policy\"\n  State\
+  \  : \"stable\"\n\nrelations:\n  Memory --limits--> Cache (memory_cap)\n  Policy --defines--> Cache\
+  \ (cache_policy)\n  Cache --strives_to--> State\n\ncell c1:\n  set Memory.maximum = 4 GB\n  set Policy.order\
+  \ = old\n\nrequires: incident_history\n"

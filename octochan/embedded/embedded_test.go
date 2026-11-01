@@ -114,3 +114,51 @@ func TestHTTPProtocol(t *testing.T) {
 		t.Fatalf("сумма 1,4: %v", err)
 	}
 }
+
+// Копию задачи пишет ochan, решения ведёт логика: единственное допустимое
+// утверждение — декодер пишет сам, из нескольких модель только выбирает
+// (/v1/score), ни одного — конец. Модель по токену не спрошена ни разу.
+func TestPackages(t *testing.T) {
+	task := "goal: count\n\nclasses:\n  Count : \"count\"\n  Period : \"period\"\n\ncell c1:\n  set Count.total = 3\n"
+	decisions := []string{"  set Count.days = 3\n", "  set Period.length = 7 d\n"}
+	full := task + "\ncell c2:\n" + decisions[1] + decisions[0]
+	packages := func(output string) ([]string, bool) {
+		rest, ok := strings.CutPrefix(output, task)
+		if !ok {
+			return nil, false
+		}
+		switch rest {
+		case "":
+			return []string{"\n"}, true
+		case "\n":
+			return []string{"cell c2:\n"}, true
+		case "\ncell c2:\n":
+			return decisions, true
+		case "\ncell c2:\n" + decisions[1]:
+			return decisions[:1], true
+		}
+		return nil, true
+	}
+	srv := httptest.NewServer(Handler(Info{Engine: "demo"}, &Demo{Answer: full}))
+	defer srv.Close()
+	out, err := Generate(context.Background(), NewHTTP(srv.URL, 0), "prompt", Config{Tau: 0.42, Prefix: task, Packages: packages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != full || out.Forced != 3 || out.Chosen != 1 || out.Calls != 1 || out.Tokens != 0 {
+		t.Fatalf("логика %d, выбор %d, обращений %d, токенов %d:\n%s", out.Forced, out.Chosen, out.Calls, out.Tokens, out.Text)
+	}
+	if len(out.Statements) != 3 || !out.Statements[1].Chosen || out.Statements[1].Text != strings.TrimSuffix(decisions[1], "\n") {
+		t.Fatalf("утверждения: %+v", out.Statements)
+	}
+
+	// Движок без оценки продолжений подходит, пока выбора нет.
+	_, err = Generate(context.Background(), table{}, "prompt", Config{Tau: 0.42, Prefix: task, Packages: packages})
+	if err == nil || !strings.Contains(err.Error(), "не оценивает") {
+		t.Fatalf("выбор без /v1/score: %v", err)
+	}
+	none := func(output string) ([]string, bool) { return nil, true }
+	if out, err := Generate(context.Background(), table{}, "prompt", Config{Tau: 0.42, Prefix: task, Packages: none}); err != nil || out.Text != task {
+		t.Fatalf("без решений: %v %v", err, out)
+	}
+}

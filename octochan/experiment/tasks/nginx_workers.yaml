@@ -1,0 +1,31 @@
+id: nginx_workers
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  capacity: '8'
+  maximum: '1024'
+open: []
+weights:
+  capacity: 3
+  maximum: 3
+natural:
+- 'Настрой воркеры nginx: на хосте 8 ядер, у воркера до 1024 соединений.'
+- 'nginx: число воркеров ограничено ёмкостью хоста — 8, worker_connections — 1024 в конфиг.'
+formal:
+- "goal: tuned\n\nclasses:\n  Process : \"worker\"\n  Node    : \"host\"\n  Config  : \"config\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Node --limits--> Process (host_capacity)\n  Process --modifies--> Config\
+  \ (worker_config)\n  Config --strives_to--> State\n\ncell c1:\n  set Node.capacity = 8\n  set Process.maximum\
+  \ = 1024\n"
+- "goal: tuned\n\nclasses:\n  Process : \"thread\"\n  Node    : \"machine\"\n  Config  : \"configuration\"\
+  \n  State   : \"tuned\"\n\nrelations:\n  Config --strives_to--> State\n  Node --limits--> Process (host_capacity)\n\
+  \  Process --modifies--> Config (worker_config)\n\ncell c1:\n  set Node.capacity = 8\n  set Process.maximum\
+  \ = 1024\n"
+- "goal: tuned\n\nclasses:\n  Process : \"process\"\n  Node    : \"host\"\n  Config  : \"configuration\"\
+  \n  State   : \"tuned\"\n\nrelations:\n  Process --modifies--> Config (worker_config)\n  Node --limits-->\
+  \ Process (host_capacity)\n  Config --strives_to--> State\n\ncell c1:\n  set Process.maximum = 1024\n\
+  \  set Node.capacity = 8\n"
+lacking:
+- "goal: tuned\n\nclasses:\n  Process : \"worker\"\n  Node    : \"host\"\n  Config  : \"config\"\n  State\
+  \   : \"tuned\"\n\nrelations:\n  Node --limits--> Process (host_capacity)\n  Process --modifies--> Config\
+  \ (worker_config)\n  Config --strives_to--> State\n\ncell c1:\n  set Node.capacity = 8\n  set Process.maximum\
+  \ = 1024\n\nrequires: incident_history\n"

@@ -1,0 +1,29 @@
+id: docker_memory_limit
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  limit: 1 GB
+open: []
+weights:
+  limit: 4
+natural:
+- 'Лимит памяти контейнера: по памяти 2 ГБ, по бюджету 1 ГБ — бюджет важнее.'
+- 'mem_limit: 2 GB против 1 GB из бюджета; побеждает бюджет.'
+formal:
+- "goal: stable\n\nclasses:\n  Memory  : \"ram\"\n  Budget  : \"budget\"\n  Service : \"application\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Memory --limits--> Service (memory_cap)\n  Budget --limits-->\
+  \ Service (budget_cap)\n  Service --strives_to--> State\n\npriority:\n  Budget < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 2 GB\n  set Budget.limit = 1 GB\n"
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Budget  : \"budget\"\n  Service : \"service\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Service --strives_to--> State\n  Memory --limits--> Service\
+  \ (memory_cap)\n  Budget --limits--> Service (budget_cap)\n\npriority:\n  Budget < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 2 GB\n  set Budget.limit = 1 GB\n"
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Budget  : \"budget\"\n  Service : \"daemon\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Service --strives_to--> State\n  Memory --limits--> Service\
+  \ (memory_cap)\n  Budget --limits--> Service (budget_cap)\n\npriority:\n  Budget < Memory\n\ncell c1:\n\
+  \  set Budget.limit = 1 GB\n  set Memory.limit = 2 GB\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Memory  : \"ram\"\n  Budget  : \"budget\"\n  Service : \"application\"\n\
+  \  State   : \"stable\"\n\nrelations:\n  Memory --limits--> Service (memory_cap)\n  Budget --limits-->\
+  \ Service (budget_cap)\n  Service --strives_to--> State\n\npriority:\n  Budget < Memory\n\ncell c1:\n\
+  \  set Memory.limit = 2 GB\n  set Budget.limit = 1 GB\n\nrequires: incident_history\n"

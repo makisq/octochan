@@ -1,0 +1,31 @@
+id: linux_swap
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  level: '10'
+  size: 4 GB
+open: []
+weights:
+  level: 4
+  size: 4
+natural:
+- 'Своп: swappiness 10, раздел подкачки 4 ГБ.'
+- vm.swappiness=10 и swap на 4 GB.
+formal:
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Storage : \"disk\"\n  Level   : \"level\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Level --defines--> Memory (memory_level)\n  Storage --limits--> Memory\
+  \ (disk_size)\n  Memory --strives_to--> State\n\ncell c1:\n  set Level.level = 10\n  set Storage.size\
+  \ = 4 GB\n"
+- "goal: stable\n\nclasses:\n  Memory  : \"ram\"\n  Storage : \"disk\"\n  Level   : \"medium\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Level --defines--> Memory (memory_level)\n  Storage --limits--> Memory\
+  \ (disk_size)\n  Memory --strives_to--> State\n\ncell c1:\n  set Level.level = 10\n  set Storage.size\
+  \ = 4 GB\n"
+- "goal: stable\n\nclasses:\n  Memory  : \"ram\"\n  Storage : \"storage\"\n  Level   : \"level\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Memory --strives_to--> State\n  Level --defines--> Memory (memory_level)\n\
+  \  Storage --limits--> Memory (disk_size)\n\ncell c1:\n  set Storage.size = 4 GB\n  set Level.level\
+  \ = 10\n"
+lacking:
+- "goal: stable\n\nclasses:\n  Memory  : \"memory\"\n  Storage : \"disk\"\n  Level   : \"level\"\n  State\
+  \   : \"stable\"\n\nrelations:\n  Level --defines--> Memory (memory_level)\n  Storage --limits--> Memory\
+  \ (disk_size)\n  Memory --strives_to--> State\n\ncell c1:\n  set Level.level = 10\n  set Storage.size\
+  \ = 4 GB\n\nrequires: incident_history\n"

@@ -1,0 +1,27 @@
+id: backup_schedule
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  period: daily
+open: []
+weights:
+  period: 3
+natural:
+- Настрой ежедневный бэкап базы данных. Расписание задаёт, как часто база бэкапится; на хранилище под
+  бэкапы — квота 500 ГБ.
+- Нужно, чтобы база данных бэкапилась каждый день по расписанию. Хранилище для копий — не больше 500 GB.
+formal:
+- "goal: backup\n\nclasses:\n  Backup   : \"backup\"\n  Schedule : \"schedule\"\n  Database : \"database\"\
+  \n  Storage  : \"storage\"\n\nrelations:\n  Schedule --defines--> Database (nightly_backup)\n  Database\
+  \ --strives_to--> Backup\n\ncell c1:\n  set Schedule.period = daily\n  set Storage.quota = 500 GB"
+- "goal: backup\n\nclasses:\n  Backup   : \"backup\"\n  Schedule : \"schedule\"\n  Database : \"database\"\
+  \n  Storage  : \"storage\"\n\nrelations:\n  Database --strives_to--> Backup\n  Schedule --defines-->\
+  \ Database (nightly_backup)\n\ncell c1:\n  set Storage.quota = 500 GB\n  set Schedule.period = daily\n"
+- "goal: backup\n\nclasses:\n  Backup   : \"backup\"\n  Schedule : \"schedule\"\n  Database : \"database\"\
+  \n  Storage  : \"disk\"\n\nrelations:\n  Schedule --defines--> Database (nightly_backup)\n  Database\
+  \ --strives_to--> Backup\n\ncell c1:\n  set Schedule.period = daily\n  set Storage.quota = 500 GB\n"
+lacking:
+- "goal: backup\n\nclasses:\n  Backup   : \"backup\"\n  Schedule : \"schedule\"\n  Database : \"database\"\
+  \n  Storage  : \"storage\"\n\nrelations:\n  Schedule --defines--> Database (nightly_backup)\n  Database\
+  \ --strives_to--> Backup\n\ncell c1:\n  set Schedule.period = daily\n  set Storage.quota = 500 GB\n\n\
+  requires: incident_history\n"

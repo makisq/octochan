@@ -1,0 +1,30 @@
+id: nginx_upstream_timeout
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  timeout: 60 s
+open: []
+weights:
+  timeout: 4
+natural:
+- 'Таймаут к апстриму: по таймауту 60 секунд, по бюджету задержки 5 — таймаут важнее.'
+- 'proxy_read_timeout: 60 s против 5 s из бюджета задержки; приоритет у таймаута.'
+formal:
+- "goal: available\n\nclasses:\n  Timeout    : \"timeout\"\n  Latency    : \"latency\"\n  Connection :\
+  \ \"connection\"\n  State      : \"available\"\n\nrelations:\n  Timeout --defines--> Connection (connection_timeout)\n\
+  \  Latency --limits--> Connection (latency_budget)\n  Connection --strives_to--> State\n\npriority:\n\
+  \  Timeout < Latency\n\ncell c1:\n  set Timeout.timeout = 60 s\n  set Latency.timeout = 5 s\n"
+- "goal: available\n\nclasses:\n  Timeout    : \"timeout\"\n  Latency    : \"delay\"\n  Connection : \"\
+  session\"\n  State      : \"available\"\n\nrelations:\n  Latency --limits--> Connection (latency_budget)\n\
+  \  Connection --strives_to--> State\n  Timeout --defines--> Connection (connection_timeout)\n\npriority:\n\
+  \  Timeout < Latency\n\ncell c1:\n  set Timeout.timeout = 60 s\n  set Latency.timeout = 5 s\n"
+- "goal: available\n\nclasses:\n  Timeout    : \"timeout\"\n  Latency    : \"delay\"\n  Connection : \"\
+  session\"\n  State      : \"available\"\n\nrelations:\n  Timeout --defines--> Connection (connection_timeout)\n\
+  \  Connection --strives_to--> State\n  Latency --limits--> Connection (latency_budget)\n\npriority:\n\
+  \  Timeout < Latency\n\ncell c1:\n  set Latency.timeout = 5 s\n  set Timeout.timeout = 60 s\n"
+lacking:
+- "goal: available\n\nclasses:\n  Timeout    : \"timeout\"\n  Latency    : \"latency\"\n  Connection :\
+  \ \"connection\"\n  State      : \"available\"\n\nrelations:\n  Timeout --defines--> Connection (connection_timeout)\n\
+  \  Latency --limits--> Connection (latency_budget)\n  Connection --strives_to--> State\n\npriority:\n\
+  \  Timeout < Latency\n\ncell c1:\n  set Timeout.timeout = 60 s\n  set Latency.timeout = 5 s\n\nrequires:\
+  \ incident_history\n"

@@ -1,0 +1,31 @@
+id: linux_cron_backup
+domain: Linux
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  rate: nightly
+  count: '30'
+open: []
+weights:
+  rate: 4
+  count: 4
+natural:
+- Ночной cron-бэкап каталога, хранить 30 копий.
+- Каждую ночь архив папки, ротация на 30.
+formal:
+- "goal: safe\n\nclasses:\n  Task      : \"job\"\n  Schedule  : \"schedule\"\n  Directory : \"folder\"\
+  \n  Safety    : \"safe\"\n\nrelations:\n  Schedule --defines--> Task (job_schedule)\n  Directory --modifies-->\
+  \ Task (folder_source)\n  Task --strives_to--> Safety\n\ncell c1:\n  set Schedule.rate = nightly\n \
+  \ set Directory.count = 30\n"
+- "goal: safe\n\nclasses:\n  Task      : \"task\"\n  Schedule  : \"schedule\"\n  Directory : \"directory\"\
+  \n  Safety    : \"safe\"\n\nrelations:\n  Schedule --defines--> Task (job_schedule)\n  Directory --modifies-->\
+  \ Task (folder_source)\n  Task --strives_to--> Safety\n\ncell c1:\n  set Directory.count = 30\n  set\
+  \ Schedule.rate = nightly\n"
+- "goal: safe\n\nclasses:\n  Task      : \"task\"\n  Schedule  : \"schedule\"\n  Directory : \"directory\"\
+  \n  Safety    : \"safe\"\n\nrelations:\n  Directory --modifies--> Task (folder_source)\n  Schedule --defines-->\
+  \ Task (job_schedule)\n  Task --strives_to--> Safety\n\ncell c1:\n  set Schedule.rate = nightly\n  set\
+  \ Directory.count = 30\n"
+lacking:
+- "goal: safe\n\nclasses:\n  Task      : \"job\"\n  Schedule  : \"schedule\"\n  Directory : \"folder\"\
+  \n  Safety    : \"safe\"\n\nrelations:\n  Schedule --defines--> Task (job_schedule)\n  Directory --modifies-->\
+  \ Task (folder_source)\n  Task --strives_to--> Safety\n\ncell c1:\n  set Schedule.rate = nightly\n \
+  \ set Directory.count = 30\n\nrequires: incident_history\n"

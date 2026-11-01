@@ -1,0 +1,31 @@
+id: nginx_gzip
+domain: nginx
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  minimum: 1 KB
+  level: '5'
+open: []
+weights:
+  minimum: 3
+  level: 3
+natural:
+- 'Включи gzip в nginx: сжимать ответы от 1 КБ, уровень 5.'
+- gzip_min_length 1 KB от трафика в конфиг, gzip_comp_level 5.
+formal:
+- "goal: fast\n\nclasses:\n  Speed  : \"throughput\"\n  Config : \"config\"\n  Load   : \"traffic\"\n\
+  \  Pace   : \"fast\"\n\nrelations:\n  Load --modifies--> Config (traffic_change)\n  Config --defines-->\
+  \ Speed (config_speed)\n  Speed --strives_to--> Pace\n\ncell c1:\n  set Load.minimum = 1 KB\n  set Config.level\
+  \ = 5\n"
+- "goal: fast\n\nclasses:\n  Speed  : \"speed\"\n  Config : \"config\"\n  Load   : \"traffic\"\n  Pace\
+  \   : \"fast\"\n\nrelations:\n  Config --defines--> Speed (config_speed)\n  Speed --strives_to--> Pace\n\
+  \  Load --modifies--> Config (traffic_change)\n\ncell c1:\n  set Config.level = 5\n  set Load.minimum\
+  \ = 1 KB\n"
+- "goal: fast\n\nclasses:\n  Speed  : \"speed\"\n  Config : \"config\"\n  Load   : \"workload\"\n  Pace\
+  \   : \"fast\"\n\nrelations:\n  Config --defines--> Speed (config_speed)\n  Load --modifies--> Config\
+  \ (traffic_change)\n  Speed --strives_to--> Pace\n\ncell c1:\n  set Load.minimum = 1 KB\n  set Config.level\
+  \ = 5\n"
+lacking:
+- "goal: fast\n\nclasses:\n  Speed  : \"throughput\"\n  Config : \"config\"\n  Load   : \"traffic\"\n\
+  \  Pace   : \"fast\"\n\nrelations:\n  Load --modifies--> Config (traffic_change)\n  Config --defines-->\
+  \ Speed (config_speed)\n  Speed --strives_to--> Pace\n\ncell c1:\n  set Load.minimum = 1 KB\n  set Config.level\
+  \ = 5\n\nrequires: incident_history\n"

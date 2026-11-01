@@ -1,0 +1,31 @@
+id: pg_failover_priority
+domain: СУБД
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  timeout: 60 s
+open: []
+weights:
+  timeout: 4
+natural:
+- 'Переключение на standby: таймаут лидера 30 секунд, но блокировка требует 60 — блокировка важнее. Реплик
+  две.'
+- Failover Postgres с двумя репликами; таймаут говорит 30 s, лок — 60 s, при споре побеждает лок.
+formal:
+- "goal: available\n\nclasses:\n  Leader  : \"primary\"\n  Replica : \"standby\"\n  Lock    : \"lock\"\
+  \n  Timeout : \"timeout\"\n  State   : \"available\"\n\nrelations:\n  Timeout --defines--> Leader (leader_timeout)\n\
+  \  Lock --limits--> Leader (leader_lock)\n  Leader --strives_to--> State\n\npriority:\n  Lock < Timeout\n\
+  \ncell c1:\n  set Timeout.timeout = 30 s\n  set Lock.timeout = 60 s\n  set Replica.count = 2\n"
+- "goal: available\n\nclasses:\n  Leader  : \"primary\"\n  Replica : \"follower\"\n  Lock    : \"lock\"\
+  \n  Timeout : \"timeout\"\n  State   : \"available\"\n\nrelations:\n  Timeout --defines--> Leader (leader_timeout)\n\
+  \  Lock --limits--> Leader (leader_lock)\n  Leader --strives_to--> State\n\npriority:\n  Lock < Timeout\n\
+  \ncell c1:\n  set Lock.timeout = 60 s\n  set Timeout.timeout = 30 s\n  set Replica.count = 2\n"
+- "goal: available\n\nclasses:\n  Leader  : \"leader\"\n  Replica : \"replica\"\n  Lock    : \"lock\"\n\
+  \  Timeout : \"timeout\"\n  State   : \"available\"\n\nrelations:\n  Timeout --defines--> Leader (leader_timeout)\n\
+  \  Lock --limits--> Leader (leader_lock)\n  Leader --strives_to--> State\n\npriority:\n  Lock < Timeout\n\
+  \ncell c1:\n  set Timeout.timeout = 30 s\n  set Replica.count = 2\n  set Lock.timeout = 60 s\n"
+lacking:
+- "goal: available\n\nclasses:\n  Leader  : \"primary\"\n  Replica : \"standby\"\n  Lock    : \"lock\"\
+  \n  Timeout : \"timeout\"\n  State   : \"available\"\n\nrelations:\n  Timeout --defines--> Leader (leader_timeout)\n\
+  \  Lock --limits--> Leader (leader_lock)\n  Leader --strives_to--> State\n\npriority:\n  Lock < Timeout\n\
+  \ncell c1:\n  set Timeout.timeout = 30 s\n  set Lock.timeout = 60 s\n  set Replica.count = 2\n\nrequires:\
+  \ incident_history\n"

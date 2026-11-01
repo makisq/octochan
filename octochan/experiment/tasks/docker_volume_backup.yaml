@@ -1,0 +1,31 @@
+id: docker_volume_backup
+domain: Docker
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  rate: weekly
+  count: '4'
+open: []
+weights:
+  rate: 4
+  count: 4
+natural:
+- Снимки тома раз в неделю, держать четыре. Писать только backup_volume.
+- Еженедельный snapshot volume, хранить 4; запись — только в backup_volume.
+formal:
+- "goal: safe\n\nclasses:\n  Backup   : \"snapshot\"\n  Storage  : \"volume\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Schedule --defines--> Backup (snapshot_schedule)\n  Storage\
+  \ --limits--> Backup (volume_quota)\n  Backup --strives_to--> Safety\n\nhard forbid write(except = {backup_volume})\n\
+  \ncell c1:\n  set Schedule.rate = weekly\n  set Storage.count = 4\n"
+- "goal: safe\n\nclasses:\n  Backup   : \"snapshot\"\n  Storage  : \"volume\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Backup --strives_to--> Safety\n  Storage --limits--> Backup\
+  \ (volume_quota)\n  Schedule --defines--> Backup (snapshot_schedule)\n\nhard forbid write(except = {backup_volume})\n\
+  \ncell c1:\n  set Schedule.rate = weekly\n  set Storage.count = 4\n"
+- "goal: safe\n\nclasses:\n  Backup   : \"backup\"\n  Storage  : \"volume\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Storage --limits--> Backup (volume_quota)\n  Backup --strives_to-->\
+  \ Safety\n  Schedule --defines--> Backup (snapshot_schedule)\n\nhard forbid write(except = {backup_volume})\n\
+  \ncell c1:\n  set Schedule.rate = weekly\n  set Storage.count = 4\n"
+lacking:
+- "goal: safe\n\nclasses:\n  Backup   : \"snapshot\"\n  Storage  : \"volume\"\n  Schedule : \"schedule\"\
+  \n  Safety   : \"safe\"\n\nrelations:\n  Schedule --defines--> Backup (snapshot_schedule)\n  Storage\
+  \ --limits--> Backup (volume_quota)\n  Backup --strives_to--> Safety\n\nhard forbid write(except = {backup_volume})\n\
+  \ncell c1:\n  set Schedule.rate = weekly\n  set Storage.count = 4\n\nrequires: incident_history\n"

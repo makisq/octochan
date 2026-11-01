@@ -1,0 +1,31 @@
+id: k8s_probe
+domain: Kubernetes
+status: 'черновик: эталон и пересказы утверждает владелец'
+intended:
+  timeout: 5 s
+  period: 10 s
+open: []
+weights:
+  timeout: 3
+  period: 3
+natural:
+- 'Проверка живости сервиса: таймаут 5 секунд, проверять каждые 10.'
+- 'livenessProbe: timeoutSeconds 5 s, periodSeconds 10 s.'
+formal:
+- "goal: healthy\n\nclasses:\n  Probe   : \"probe\"\n  Timeout : \"timeout\"\n  Service : \"service\"\n\
+  \  State   : \"healthy\"\n\nrelations:\n  Timeout --defines--> Probe (probe_timeout)\n  Probe --modifies-->\
+  \ Service (service_probe)\n  Service --strives_to--> State\n\ncell c1:\n  set Timeout.timeout = 5 s\n\
+  \  set Probe.period = 10 s\n"
+- "goal: healthy\n\nclasses:\n  Probe   : \"probe\"\n  Timeout : \"timeout\"\n  Service : \"daemon\"\n\
+  \  State   : \"healthy\"\n\nrelations:\n  Timeout --defines--> Probe (probe_timeout)\n  Service --strives_to-->\
+  \ State\n  Probe --modifies--> Service (service_probe)\n\ncell c1:\n  set Probe.period = 10 s\n  set\
+  \ Timeout.timeout = 5 s\n"
+- "goal: healthy\n\nclasses:\n  Probe   : \"probe\"\n  Timeout : \"timeout\"\n  Service : \"service\"\n\
+  \  State   : \"healthy\"\n\nrelations:\n  Probe --modifies--> Service (service_probe)\n  Service --strives_to-->\
+  \ State\n  Timeout --defines--> Probe (probe_timeout)\n\ncell c1:\n  set Timeout.timeout = 5 s\n  set\
+  \ Probe.period = 10 s\n"
+lacking:
+- "goal: healthy\n\nclasses:\n  Probe   : \"probe\"\n  Timeout : \"timeout\"\n  Service : \"service\"\n\
+  \  State   : \"healthy\"\n\nrelations:\n  Timeout --defines--> Probe (probe_timeout)\n  Probe --modifies-->\
+  \ Service (service_probe)\n  Service --strives_to--> State\n\ncell c1:\n  set Timeout.timeout = 5 s\n\
+  \  set Probe.period = 10 s\n\nrequires: incident_history\n"
