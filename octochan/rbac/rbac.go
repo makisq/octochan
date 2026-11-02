@@ -36,7 +36,13 @@ var Groups = map[string][]string{
 	"read": {"agents", "aliases", "check", "diff", "else", "find", "fp", "ha", "history", "if", "inventory", "lang",
 		"logs", "modules", "policy", "print", "requests", "sandbox", "services", "stats", "status", "trigger", "validate",
 		// !!search только читает реестры из настроек.
-		"!!search", "incident", "llm", "mail"},
+		"!!search", "incident", "llm", "mail",
+		// text — поиск, поля и хвост файлов: читает, как print.
+		"text"},
+	// net — проверка сети с машины ochan: порт, DNS, HTTP, TLS. Не read:
+	// это возможность, которую выдают явно, — нейросети, которой подсунули
+	// вредную инструкцию, незачем сканировать внутренние порты.
+	"net": {"net"},
 	// llm.generate — своя модель пишет ответ: ничего не меняет, как план.
 	"plan": {"llm.generate", "plan"},
 	// compensate оформляет обратное действие заявкой: его согласуют, как
@@ -84,8 +90,12 @@ var Free = []string{"back.role", "completion", "completion.bash", "completion.fi
 
 // LLMCeiling — потолок роли llm. Нейросеть предлагает, человек решает
 // (П6): выполнять, согласовывать, ставить модули и управлять ролями llm
-// не может, даже если master попытается ей это выдать.
-var LLMCeiling = []string{"read", "plan", "request"}
+// не может, даже если master попытается ей это выдать. net — проверять
+// сеть при инциденте — master выдаёт ей сам: после установки его нет.
+var LLMCeiling = []string{"read", "plan", "request", "net"}
+
+// LLMDefault — права llm после установки.
+var LLMDefault = []string{"read", "plan", "request"}
 
 var namePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,31}$`)
 

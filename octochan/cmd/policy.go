@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,9 +234,20 @@ func checkPaths(cmd *cobra.Command, role *rbac.Role, key string, args []string) 
 }
 
 // pathCandidates — аргументы и значения строковых флагов, кроме «-» и
-// ссылок на живые источники.
+// ссылок на живые источники. Позиционные аргументы, которые команда
+// пометила не путями (шаблон grep, хосты net), не проверяются; флаги —
+// всегда.
 func pathCandidates(cmd *cobra.Command, args []string) []string {
 	values := append([]string(nil), args...)
+	switch from := cmd.Annotations[pathArgsFrom]; from {
+	case "":
+	case "none":
+		values = nil
+	default:
+		if n, err := strconv.Atoi(from); err == nil {
+			values = values[min(n, len(values)):]
+		}
+	}
 	visitChanged(cmd, func(f *pflag.Flag) {
 		switch f.Value.Type() {
 		case "string":

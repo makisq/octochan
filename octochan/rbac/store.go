@@ -49,7 +49,7 @@ func Default() *Store {
 			{Name: Master, Perms: []string{All}, Builtin: true},
 			// Нейросеть, которой подсунули вредную инструкцию, может
 			// завалить людей заявками: тридцати в час хватает для работы.
-			{Name: LLM, Perms: append([]string(nil), LLMCeiling...), Builtin: true,
+			{Name: LLM, Perms: append([]string(nil), LLMDefault...), Builtin: true,
 				Limits: []Limit{{Perm: "request", Count: 30, Window: time.Hour}}},
 		},
 		Current: Master,
