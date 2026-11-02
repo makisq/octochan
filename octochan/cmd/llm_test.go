@@ -390,6 +390,19 @@ func TestModelNamesClosed(t *testing.T) {
 		t.Fatalf("сценарий без естественного языка отвергнут: %v", err)
 	}
 
+	// Путь, к которому задача привязала ячейку (binds_to), — тоже из задачи.
+	e.write(e.path("bound.fp"), "goal: tuned\n\nclasses:\n  Config : \"config\"\n  State : \"tuned\"\n\n"+
+		"relations:\n  Config --strives_to--> State\n\ncell c1:\n  set Config.limit = 200\n  binds_to: conf/pg.conf:1-1\n")
+	e.write(e.path("bound.ochan"), "c = config(\"conf/pg.conf\")\nsave(c, \"conf/pg.conf\")\n")
+	if _, err := e.ochan("plan", "--script", e.path("bound.ochan"), "--prompt", e.path("bound.fp")); err != nil &&
+		strings.Contains(err.Error(), "своя модель (llm.mode: embedded) пишет только на ℒ") {
+		t.Fatalf("путь из binds_to задачи отвергнут: %v", err)
+	}
+	if _, err := e.ochan("plan", "--script", e.path("bound.ochan"), "--prompt", e.path("task.fp")); err == nil ||
+		!strings.Contains(err.Error(), `строка "conf/pg.conf"`) {
+		t.Fatalf("путь не из задачи принят: %v", err)
+	}
+
 	// Внешней модели (protocol) строки нужны: её сценарий так не проверяется.
 	viper.Set("llm.mode", "protocol")
 	if _, err := e.ochan("plan", "--script", e.path("chatty.ochan"), "--prompt", e.path("task.fp")); err != nil &&

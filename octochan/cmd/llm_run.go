@@ -454,7 +454,7 @@ func (a *agentRun) handleMail(msg *workspace.Message) {
 		to = "operator"
 	}
 	send := func(body, what string) {
-		if out, err := a.ochan(body, "mail", "send", "--to", to, "-"); err != nil {
+		if out, err := a.ochan(body, "mail", "send", "--to", to, "--reply", msg.ID, "-"); err != nil {
 			a.logf("  письмо %s → %s не ушло: %s\n", what, to, out)
 		} else {
 			a.logf("  %s → %s\n", what, to)

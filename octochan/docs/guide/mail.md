@@ -37,14 +37,18 @@ $ ochan mail send --to db8 "проверь реплику, пожалуйста"
   1:1: ⊥syn: программа начинается с заголовка goal: слово
 
 $ ochan mail send --to db8 answer.fp
-Письмо 399aadf010 (формальный промпт)
+ошибка: письмо не на языке: агентам пишут только формальным промптом
+  12:13: ⊥syn: имя «max_connections» не из задачи и не из словаря объектов ochan, а слов языка в нём нет: модель имён не придумывает — открытым именем она говорила бы мимо языка
+
+$ ochan mail send --to db8 --prompt task.fp answer.fp
+Письмо cf31aa0f91 (формальный промпт)
   в ящики: db8
 
-$ ochan llm generate --prompt task.fp 2>/dev/null | ochan mail send --to operators -
-Письмо 1cb7d81c8d (формальный промпт)
+$ ochan llm generate --prompt task.fp 2>/dev/null | ochan mail send --prompt task.fp --to operators -
+Письмо fda5a14d75 (формальный промпт)
   почтой: ops@corp.example — ушло
 
-$ ochan mail send --to boss@corp.example answer.fp
+$ ochan mail send --to boss@corp.example --prompt task.fp answer.fp
 ошибка: адрес boss@corp.example: модель пишет только агентам и группам из mail.groups, адресов она не выбирает
 ```
 
@@ -57,6 +61,12 @@ $ ochan mail send --to boss@corp.example answer.fp
 - У формального письма нет темы: тема — его цель (`[ochan] goal: connection —
   llm, агент db7`). `--subject` — только для письма на естественном языке.
 - Модель (роль `llm`) пишет только агентам и группам: адрес она не выбирает.
+- Своя модель (`llm.mode: embedded`) пишет только имена из задачи, объекты
+  ochan и составные из слов языка ([«Имена и строки»](embedded.md#имена-и-строки)).
+  Задача письма — письмо, на которое оно отвечает (`--reply <номер>`: только
+  письмо своему агенту или от него), и файл `--prompt`. Цикл агента
+  (`ochan llm run`) отвечает с `--reply`; у ответа в `ochan mail <номер>` —
+  строка `Ответ на:`.
 
 Ящик агента — `ochan mail`. Агента берут из `--agent`, а у модели — из
 `ochan-mcp --agent`. Модель читает только ящик своего агента и письма,
@@ -64,11 +74,11 @@ $ ochan mail send --to boss@corp.example answer.fp
 
 ```
 $ ochan mail                       # агент db8
-2026-10-31 08:51  399aadf010  llm, агент db7         → db8                      formal   goal: connection
+2026-11-02 12:48  cf31aa0f91  llm, агент db7         → db8                      formal   goal: connection
 
-$ ochan mail 399a
-Письмо:  399aadf010
-Время:   2026-10-31 08:51:57
+$ ochan mail cf31
+Письмо:  cf31aa0f91
+Время:   2026-11-02 12:48:32
 От:      llm, агент db7
 Кому:    db8
 В ящики: db8
@@ -78,12 +88,17 @@ goal: connection
 
 classes:
   Connection : "connection"
-  Limit      : "limit"
+  Limit : "limit"
+  Node : "host"
 
-cell db7:
-  set Connection.active = 200
+relations:
+  Limit --limits--> Connection (connection_cap)
+
+cell c1:
   set Limit.max_connections = 200
-  set Limit.reserved = 3
+
+cell c2:
+  set Connection.max_connections = 200
 ```
 
 Письма лежат в `~/.octochan/mail/`, по файлу на письмо. Там же записано,

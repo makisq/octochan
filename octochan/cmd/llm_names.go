@@ -106,7 +106,7 @@ func checkModelScript(cmd *cobra.Command, in *scriptInput) error {
 
 // modelScriptErrors — что мешает принять сценарий своей модели:
 // комментарии и строки, в которых не имя задачи или объекта ochan, не путь
-// к ним и не значение с единицей.
+// из binds_to задачи и не значение с единицей.
 func modelScriptErrors(file, script, task string, opts fp.Options) []error {
 	names := modelNames(task)
 	lex := opts.Lexicon
@@ -116,6 +116,9 @@ func modelScriptErrors(file, script, task string, opts fp.Options) []error {
 		}
 		if strings.ContainsAny(text, " \t") {
 			return false
+		}
+		if names.Path(text) {
+			return true
 		}
 		for _, candidate := range []string{text, filepath.Base(text), path.Base(text)} {
 			if names.Admits(candidate, lex, opts.MaxMeanings) || names.Admits(formalName(candidate, "name"), lex, opts.MaxMeanings) {

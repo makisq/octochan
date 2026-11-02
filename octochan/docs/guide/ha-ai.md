@@ -389,8 +389,11 @@ $ curl -X POST -H "Authorization: Bearer $(cat incidents.secret)" \
 {"deadline":"2026-10-30T10:34:00Z","id":"9c0e…","result":"инцидент 9c0e… (high) открыт: модель чинит до 10:34"}
 ```
 
-`log` прикладывается к инциденту как `monitoring.log`. Вебхук принимает
-только primary; standby отвечает 503 с адресом primary.
+`log` прикладывается к инциденту как `monitoring.log`. `scenario` —
+сценарий исполнителя с местами `${Класс.атрибут}` (YAML текстом), как у
+`incident open --scenario`: по нему решение своей модели становится заявкой
+(`ochan llm run`, [«Цикл агента»](embedded.md#цикл-агента-ochan-llm-run)).
+Вебхук принимает только primary; standby отвечает 503 с адресом primary.
 
 ### Обучение на повторяющихся инцидентах
 
@@ -472,6 +475,7 @@ $ ochan llm generate --prompt logs.fp
 | `agents free`, `agents free --revoke` | master |
 | `incident`, карточка, `incident stats`, `incident learn` | `read` |
 | `incident open`, `note`, `attach`, `resolve`, `escalate`, `check`, `report` | `request` |
+| `llm run` — цикл агента своей модели | `request` |
 | `incident secret` | `admin` |
 
 ## Что не проверялось

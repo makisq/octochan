@@ -100,6 +100,8 @@ var decoderOld = map[string]string{
 
 var decoderNames = []string{"tau", "derive", "max_tokens", "retries"}
 
+var decoderDefaults = map[string]any{"tau": 0.42, "derive": true, "max_tokens": 2048, "retries": 32}
+
 // decoderKey — ключ настройки декодера, который действует.
 func decoderKey(name string) string {
 	key := "llm.decoder." + name
@@ -109,14 +111,15 @@ func decoderKey(name string) string {
 	return key
 }
 
-// decoderInConfig — настройки декодера, заданные в конфиге, и прежние
-// ключи среди них.
+// decoderInConfig — настройки декодера, заданные в конфиге не по
+// умолчанию, и прежние ключи среди них. Значение по умолчанию в конфиге —
+// то, что записал сам ochan, а не настройка оператора.
 func decoderInConfig() (set, old []string) {
 	for _, name := range decoderNames {
 		switch key := decoderKey(name); {
 		case key != "llm.decoder."+name:
 			set, old = append(set, key), append(old, key)
-		case viper.InConfig(key):
+		case viper.InConfig(key) && fmt.Sprint(viper.Get(key)) != fmt.Sprint(decoderDefaults[name]):
 			set = append(set, key)
 		}
 	}
@@ -256,7 +259,11 @@ var llmCmd = &cobra.Command{
 		info, err := engine.Info(ctx)
 		if err != nil {
 			cmd.Printf("Движок:  %s — %v\n", engine.Endpoint, err)
-			cmd.Println("Запуск:  ochan llm serve — адаптер своей модели с llm.model; llm.adapter.autostart: true — запускать его самому")
+			if viper.GetBool("llm.adapter.autostart") {
+				cmd.Println("Запуск:  llm generate и llm run запустят адаптер сами (llm.adapter.autostart); держать его постоянно — ochan llm serve")
+			} else {
+				cmd.Println("Запуск:  ochan llm serve — адаптер своей модели с llm.model; llm.adapter.autostart: true — llm generate и llm run запустят его сами")
+			}
 		} else {
 			cmd.Printf("Движок:  %s — протокол v%d, %s, модель %s\n", engine.Endpoint, info.Protocol, info.Engine, info.Model)
 			if want := viper.GetString("llm.engine"); want != "" && !strings.EqualFold(want, info.Engine) {

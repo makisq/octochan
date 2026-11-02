@@ -99,10 +99,18 @@ func TestLLMRunAgent(t *testing.T) {
 	// Чужой хост — не задача db7.
 	e.must("incident", "open", "--level", "low", "--host", "db9", loopTask)
 
-	// Письмо от агента db8.
+	// Письмо от агента db8 — задача с именем не из словаря (max_connections): своя
+	// модель пишет его, только отвечая на задачу, где оно есть.
+	letter := strings.Replace(loopTask, "File.limit", "File.max_connections", 1)
+	e.write(e.path("letter.fp"), letter)
 	t.Setenv(EnvRole, "llm")
 	t.Setenv(EnvAgent, "db8")
-	e.must("mail", "send", "--to", "db7", loopTask)
+	e.fails("имя «max_connections» не из задачи", "mail", "send", "--to", "db7", letter)
+	out = e.must("mail", "send", "--to", "db7", "--prompt", e.path("letter.fp"), letter)
+	letterID := regexpAfter(t, out, "Письмо ")
+	// На чужое письмо модель агента не отвечает: его имена ей не задача.
+	t.Setenv(EnvAgent, "db9")
+	e.fails("письмо не агенту db9 и не от него", "mail", "send", "--to", "db8", "--reply", letterID, letter)
 	t.Setenv(EnvRole, "master")
 	t.Setenv(EnvAgent, "")
 
@@ -131,7 +139,8 @@ func TestLLMRunAgent(t *testing.T) {
 	box, _ := mailbox()
 	all, _ := box.List()
 	replies := workspace.MessagesFor(all, "db8")
-	if len(replies) != 1 || replies[0].FromAgent != "db7" || !strings.Contains(replies[0].Body, "set Approval.limit = 200") {
+	if len(replies) != 1 || replies[0].FromAgent != "db7" || replies[0].ReplyTo != letterID ||
+		!strings.Contains(replies[0].Body, "set Approval.max_connections = 200") {
 		t.Fatalf("ответ на письмо: %+v", replies)
 	}
 

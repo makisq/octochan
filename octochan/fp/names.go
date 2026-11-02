@@ -22,12 +22,14 @@ import (
 //   - это новая ячейка cK: так модель называет ячейку своих решений.
 //
 // Строки binds_to и import пишутся по шаблону целиком (путь, версия) — их
-// модель берёт из задачи как есть.
+// модель берёт из задачи как есть. Путь из binds_to задачи — и тот файл,
+// который модель может назвать в своём сценарии (Names.Path).
 
 // Names — имена, которые модель может писать, кроме имён со смыслом.
 type Names struct {
 	task  map[string]bool
 	lines map[string]bool
+	paths map[string]bool
 	// Known — объекты, которые знает ochan; nil — никаких.
 	Known func(name string) bool
 }
@@ -35,13 +37,16 @@ type Names struct {
 // NamesOf — имена задачи task: каждое имя её текста и её строки по
 // шаблону. Пустая задача — имён нет: модель пишет письмо без задачи.
 func NamesOf(task string) *Names {
-	n := &Names{task: map[string]bool{}, lines: map[string]bool{}}
+	n := &Names{task: map[string]bool{}, lines: map[string]bool{}, paths: map[string]bool{}}
 	for _, ln := range splitLines(task) {
 		if ln.err != nil {
 			continue
 		}
 		if word := firstWord(ln.raw); word == "binds_to" || word == "import" {
 			n.lines[ln.raw] = true
+			if m := bindsPattern.FindStringSubmatch(ln.raw); m != nil {
+				n.paths[m[1]] = true
+			}
 			continue
 		}
 		for _, t := range ln.toks {
@@ -52,6 +57,10 @@ func NamesOf(task string) *Names {
 	}
 	return n
 }
+
+// Path — путь, к которому задача привязала ячейку (binds_to): его модель
+// может назвать в сценарии строкой, как оператор назвал его в задаче.
+func (n *Names) Path(p string) bool { return n != nil && n.paths[p] }
 
 // newCell — имя ячейки решений модели.
 var newCell = regexp.MustCompile(`^c[0-9]+$`)

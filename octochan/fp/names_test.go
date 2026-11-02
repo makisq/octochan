@@ -39,6 +39,12 @@ func TestForeignNames(t *testing.T) {
 		t.Fatalf("binds_to: %v", bad)
 	}
 
+	// Путь из binds_to задачи — его модель может назвать в сценарии.
+	bound := NamesOf(task + "\ncell c2:\n  set Config.port = 5432\n  binds_to: conf/prod.conf:1-3\n")
+	if !bound.Path("conf/prod.conf") || bound.Path("conf/other.conf") || names.Path("conf/prod.conf") {
+		t.Fatalf("пути задачи: %v", bound.paths)
+	}
+
 	// Без задачи — только словарь объектов и слова языка.
 	letter := "goal: count\n\nclasses:\n  Count : \"count\"\n\ncell c1:\n  set Count.total = 3\n  set Count.host = db7\n"
 	r = CheckModelText("model", letter, Options{})

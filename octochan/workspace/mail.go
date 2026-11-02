@@ -33,6 +33,8 @@ type Message struct {
 	Lang    string `json:"lang"`
 	Subject string `json:"subject,omitempty"`
 	Body    string `json:"body"`
+	// ReplyTo — письмо, на которое это ответ.
+	ReplyTo string `json:"reply_to,omitempty"`
 	// Error — письмо людям не ушло: почему.
 	Error string `json:"error,omitempty"`
 }
