@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"ochan/fp"
@@ -145,6 +146,9 @@ func resolveRecipients(names []string) (recipients, error) {
 			add(&r.agents, name)
 		default:
 			to, ok := mailGroup(name)
+			if !ok && name == "operator" {
+				return r, fmt.Errorf("адресата %q нет: людей не задано — mail.operator, incidents.engineers или defaults.smtp_to в config.yaml", name)
+			}
 			if !ok {
 				return r, fmt.Errorf("адресата %q нет: это не агент (ochan agents), не группа mail.groups и не адрес", name)
 			}
@@ -173,13 +177,16 @@ func requiredLanguage(r recipients) (mailLang, error) {
 }
 
 // checkFormalMessage — письмо на языке: формальный промпт без ⊥syn. Письмо
-// модели проверяется строже: ни комментариев, ни символов вне ASCII.
-func checkFormalMessage(cmd *cobra.Command, body, why string) (*fp.Result, error) {
-	return checkFormalText(cmd, i18n.T("письмо не на языке"), body, why)
+// модели проверяется строже: ни комментариев, ни символов вне ASCII. task —
+// задача, на которую письмо отвечает: её имена своя модель может писать.
+func checkFormalMessage(cmd *cobra.Command, body, why, task string) (*fp.Result, error) {
+	return checkFormalText(cmd, i18n.T("письмо не на языке"), body, why, task)
 }
 
-// checkFormalText — текст на языке; title — что не на языке.
-func checkFormalText(cmd *cobra.Command, title, body, why string) (*fp.Result, error) {
+// checkFormalText — текст на языке; title — что не на языке. У своей
+// модели ещё и имена: из задачи task или объекты ochan — открытым именем
+// она говорила бы мимо языка.
+func checkFormalText(cmd *cobra.Command, title, body, why, task string) (*fp.Result, error) {
 	opts, err := fpOptions(cmd, false)
 	if err != nil {
 		return nil, err
@@ -190,11 +197,15 @@ func checkFormalText(cmd *cobra.Command, title, body, why string) (*fp.Result, e
 	} else {
 		result = fp.CheckText("письмо", body, opts)
 	}
-	if result.InLanguage() {
+	bad := result.Syntax()
+	if len(bad) == 0 && modelEmbedded() {
+		bad = foreignNames(result, body, task, opts)
+	}
+	if len(bad) == 0 {
 		return result, nil
 	}
 	var lines []string
-	for _, d := range result.Syntax() {
+	for _, d := range bad {
 		lines = append(lines, "  "+d.String())
 	}
 	return nil, fmt.Errorf("%s: %s\n%s", title, why, strings.Join(lines, "\n"))
@@ -204,7 +215,7 @@ func checkFormalText(cmd *cobra.Command, title, body, why string) (*fp.Result, e
 // формальным промптом: не только письма, но и записи инцидента — что
 // случилось, заметки, решение, причина эскалации. Их читают инженеры.
 // Внешняя модель (protocol) пишет записи как есть: это записи, а не письма.
-func checkModelSays(cmd *cobra.Command, text, what string) error {
+func checkModelSays(cmd *cobra.Command, text, what, task string) error {
 	if !senderIsModel() {
 		return nil
 	}
@@ -213,7 +224,7 @@ func checkModelSays(cmd *cobra.Command, text, what string) error {
 		return err
 	}
 	_, err = checkFormalText(cmd, i18n.T("запись инцидента не на языке"), text,
-		i18n.Sprintf("%s — своя модель (llm.mode: embedded) пишет только формальным промптом", what))
+		i18n.Sprintf("%s — своя модель (llm.mode: embedded) пишет только формальным промптом", what), task)
 	return err
 }
 
@@ -221,6 +232,8 @@ var (
 	mailTo      []string
 	mailSubject string
 	mailAgent   string
+	mailReply   string
+	mailPrompt  string
 )
 
 var mailCmd = &cobra.Command{
@@ -300,6 +313,9 @@ func showMessage(cmd *cobra.Command, msg *workspace.Message) {
 	cmd.Printf("Время:   %s\n", msg.Time.Local().Format("2006-01-02 15:04:05"))
 	cmd.Printf("От:      %s\n", msg.From)
 	cmd.Printf("Кому:    %s\n", strings.Join(msg.To, ", "))
+	if msg.ReplyTo != "" {
+		cmd.Printf("Ответ на: %s\n", msg.ReplyTo)
+	}
 	if len(msg.Agents) > 0 {
 		cmd.Printf("В ящики: %s\n", strings.Join(msg.Agents, ", "))
 	}
@@ -340,10 +356,12 @@ var mailSendCmd = &cobra.Command{
 		"Модель (роль llm) пишет только агентам и группам: адреса она не выбирает.\n\n" +
 		"Язык проверяется до отправки: письмо агенту и письмо своей модели —\n" +
 		"формальный промпт без ⊥syn; людям — на языке режима. У формального\n" +
-		"письма темы нет: тема — его цель.",
+		"письма темы нет: тема — его цель.\n\n" +
+		"Своя модель пишет только имена из задачи, объекты ochan и слова языка.\n" +
+		"Задача ответа — письмо --reply или файл --prompt: их имена ей можно.",
 	Args: cobra.ExactArgs(1),
 	Example: "ochan mail send --to db8 report.fp\n" +
-		"ochan llm generate --prompt задача.fp | ochan mail send --to operators -",
+		"ochan llm generate --prompt задача.fp | ochan mail send --prompt задача.fp --to operators -",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		body, err := messageArg(args[0])
 		if err != nil {
@@ -355,6 +373,32 @@ var mailSendCmd = &cobra.Command{
 		to, err := resolveRecipients(mailTo)
 		if err != nil {
 			return err
+		}
+		box, err := mailbox()
+		if err != nil {
+			return err
+		}
+		// Задача, на которую письмо отвечает: письмо --reply и файл --prompt.
+		// Модель агента отвечает только на письма своего агента.
+		var task []string
+		replyTo := ""
+		if mailReply != "" {
+			orig, err := box.Get(mailReply)
+			if err != nil {
+				return fmt.Errorf("--reply %s: %w", mailReply, err)
+			}
+			if agent := os.Getenv(EnvAgent); senderIsModel() && agent != "" &&
+				!slices.Contains(orig.Agents, agent) && orig.FromAgent != agent {
+				return fmt.Errorf("--reply %s: письмо не агенту %s и не от него — отвечать на него модели этого агента не на что", orig.ID, agent)
+			}
+			replyTo, task = orig.ID, append(task, orig.Body)
+		}
+		if mailPrompt != "" {
+			src, err := readSource(mailPrompt)
+			if err != nil {
+				return err
+			}
+			task = append(task, src.Content)
 		}
 		lang, err := requiredLanguage(to)
 		if err != nil {
@@ -370,7 +414,7 @@ var mailSendCmd = &cobra.Command{
 					why = i18n.T("своя модель (llm.mode: embedded) пишет только формальным промптом")
 				}
 			}
-			if _, err := checkFormalMessage(cmd, body, why); err != nil {
+			if _, err := checkFormalMessage(cmd, body, why, strings.Join(task, "\n")); err != nil {
 				return err
 			}
 			if mailSubject != "" {
@@ -384,11 +428,7 @@ var mailSendCmd = &cobra.Command{
 			from = i18n.Sprintf("%s, агент %s", from, agent)
 		}
 		msg := &workspace.Message{From: from, FromAgent: agent, To: mailTo, Agents: to.agents, Emails: to.emails,
-			Lang: string(lang), Subject: mailSubject, Body: body}
-		box, err := mailbox()
-		if err != nil {
-			return err
-		}
+			Lang: string(lang), Subject: mailSubject, Body: body, ReplyTo: replyTo}
 		if err := box.Create(msg); err != nil {
 			return err
 		}
@@ -424,6 +464,8 @@ func init() {
 	mailCmd.Flags().StringVar(&mailAgent, "agent", "", "ящик агента")
 	mailSendCmd.Flags().StringSliceVar(&mailTo, "to", nil, "агент, группа mail.groups, operator или адрес; через запятую")
 	mailSendCmd.Flags().StringVar(&mailSubject, "subject", "", "тема письма на естественном языке")
+	mailSendCmd.Flags().StringVar(&mailReply, "reply", "", "номер письма, на которое это ответ: его имена — имена задачи")
+	mailSendCmd.Flags().StringVar(&mailPrompt, "prompt", "", "задача, на которую письмо отвечает (файл или - для stdin): её имена своя модель может писать")
 	mailCmd.AddCommand(mailSendCmd)
 	rootCmd.AddCommand(mailCmd)
 }

@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// Протокол движка, версия 1 — то, что адаптер локальной модели (llama.cpp,
-// vLLM, своя LLaMA на fp) отдаёт ochan по HTTP:
+// Протокол движка, версия 1 — то, что адаптер локальной модели (llama/adapter.py:
+// своя модель ℒ или дообученная на fp) отдаёт ochan по HTTP:
 //
-//	GET  /v1/info  → {"protocol": 1, "engine": "llama.cpp", "model": "llama-3.1-8b-q4"}
+//	GET  /v1/info  → {"protocol": 1, "engine": "transformers", "model": "own-small"}
 //	POST /v1/next  ← {"prompt": "…", "output": "…", "top": 2}
 //	               → {"candidates": [{"text": "goal", "p": 0.81}, …], "end": 0.001}
 //

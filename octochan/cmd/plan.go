@@ -76,6 +76,9 @@ func planScriptCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkModelScript(cmd, input); err != nil {
+		return err
+	}
 	src := input.script
 	prompt, err := checkPrompt(cmd, input)
 	if err != nil {

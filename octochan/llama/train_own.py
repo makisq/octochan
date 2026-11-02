@@ -27,6 +27,7 @@
 """
 
 import argparse
+import contextlib
 import json
 import math
 import os
@@ -90,9 +91,16 @@ def tensors(data, batch, pad, device):
     return ids.to(device), labels.to(device), answer.to(device)
 
 
+def autocast(device):
+    """bf16 — только на видеокарте; на процессоре считается в fp32."""
+    if str(device).startswith("cuda"):
+        return torch.autocast("cuda", dtype=torch.bfloat16)
+    return contextlib.nullcontext()
+
+
 def losses(model, ids, labels, answer):
     """Средние потери по всей паре и по ответу."""
-    with torch.autocast("cuda", dtype=torch.bfloat16):
+    with autocast(ids.device):
         logits = model(input_ids=ids, attention_mask=(labels != -100).long()).logits
     logits, labels, answer = logits[:, :-1].float(), labels[:, 1:], answer[:, 1:]
     each = torch.nn.functional.cross_entropy(logits.reshape(-1, logits.shape[-1]), labels.reshape(-1),
@@ -115,11 +123,16 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--save-every", type=int, default=500, help="шагов между сохранениями")
     ap.add_argument("--resume", action="store_true", help="продолжить с сохранения в --out")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu",
+                    help="cuda или cpu; по умолчанию — видеокарта, если она есть")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    device = "cuda"
+    device = args.device
+    cuda = device.startswith("cuda")
+    if cuda and not torch.cuda.is_available():
+        raise SystemExit(f"--device {device}: видеокарты с CUDA нет — --device cpu")
     state_path = os.path.join(args.out, STATE)
     resume = args.resume and os.path.isfile(state_path)
     if args.init and os.path.abspath(args.init) == os.path.abspath(args.out):
@@ -178,7 +191,7 @@ def main():
         tok.save(args.out)
         torch.save({"step": step, "queue": queue, "rng": rng.getstate(), "opt": opt.state_dict(),
                     "sched": sched.state_dict(), "torch": torch.get_rng_state(),
-                    "cuda": torch.cuda.get_rng_state()}, state_path)
+                    "cuda": torch.cuda.get_rng_state() if cuda else None}, state_path)
 
     first, queue = 0, []
     if resume:
@@ -187,7 +200,8 @@ def main():
         sched.load_state_dict(state["sched"])
         rng.setstate(state["rng"])
         torch.set_rng_state(state["torch"])
-        torch.cuda.set_rng_state(state["cuda"])
+        if cuda and state.get("cuda") is not None:
+            torch.cuda.set_rng_state(state["cuda"])
         first, queue = state["step"], state["queue"]
         print(f"Продолжение с шага {first}/{steps}", flush=True)
     else:

@@ -50,19 +50,38 @@ func premisesOf(prog *fp.Program) []string {
 	return out
 }
 
-func generateArchitectural(cmd *cobra.Command, gen embedded.Generator, info embedded.Info, prompt string,
-	task archTask, opts fp.Options) error {
+// archResult — ответ архитектурной модели после проверки ochan.
+type archResult struct {
+	ans embedded.Answer
+	// problems — почему ochan ответ не принял; пусто — принял.
+	problems []string
+	// omitted — решения, которые кольцо 2 модели не приняло: вопросы.
+	omitted []string
+	// journal — запись журнала решений.
+	journal string
+	out     *embedded.Output
+}
+
+// answerArchitectural — ответ своей модели на задачу и его проверка
+// снаружи: язык, имена, логика ochan. Ответ уходит в журнал решений и
+// журнал генераций. Отказ модели (не хватает предпосылок) — ans.Refused,
+// ошибки нет.
+func answerArchitectural(cmd *cobra.Command, gen embedded.Generator, info embedded.Info, prompt string,
+	task archTask, opts fp.Options) (*archResult, error) {
 	ans, err := gen.Generate(cmd.Context(), prompt)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if ans.Refused {
-		return fmt.Errorf("модель отказала: не хватает предпосылок — %s; вопрос к оператору", strings.Join(ans.Missing, "; "))
+		return &archResult{ans: ans}, nil
 	}
 
 	var problems []string
-	if bad := fp.CheckModelText("model", ans.Text, opts).Syntax(); len(bad) > 0 {
+	checked := fp.CheckModelText("model", ans.Text, opts)
+	if bad := checked.Syntax(); len(bad) > 0 {
 		problems = append(problems, "ответ не в языке: "+bad[0].String())
+	} else if bad := foreignNames(checked, ans.Text, task.text, opts); len(bad) > 0 {
+		problems = append(problems, "в ответе имя не из задачи и не из объектов ochan: "+bad[0].String())
 	}
 	var omitted, narrowings []string
 	for _, p := range ans.Packages {
@@ -93,6 +112,23 @@ func generateArchitectural(cmd *cobra.Command, gen embedded.Generator, info embe
 		genErr = errors.New(strings.Join(problems, "; "))
 	}
 	recordGeneration(cmd, info, 0, out, genErr)
+	return &archResult{ans: ans, problems: problems, omitted: omitted, journal: id, out: out}, nil
+}
+
+func generateArchitectural(cmd *cobra.Command, gen embedded.Generator, info embedded.Info, prompt string,
+	task archTask, opts fp.Options) error {
+	res, err := answerArchitectural(cmd, gen, info, prompt, task, opts)
+	if err != nil {
+		return err
+	}
+	ans, omitted, id, out := res.ans, res.omitted, res.journal, res.out
+	if ans.Refused {
+		return fmt.Errorf("модель отказала: не хватает предпосылок — %s; вопрос к оператору", strings.Join(ans.Missing, "; "))
+	}
+	var genErr error
+	if len(res.problems) > 0 {
+		genErr = errors.New(strings.Join(res.problems, "; "))
+	}
 
 	cmd.PrintErrln("Архитектурная модель: ответ написала она сама — логика и кольца в её коде; ochan проверил его снаружи")
 	// Токенов модель не сообщает: ответ она пишет сама, ochan её не ведёт.

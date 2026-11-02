@@ -286,7 +286,8 @@ def check_listen(listen, allow_remote):
                          "Для доступа с других машин — прокси с TLS и аутентификацией и --allow-remote")
 
 
-def serve(engine, listen, allow_remote=False):
+def make_server(engine, listen, allow_remote=False):
+    """HTTP-сервер протокола v1 вокруг движка; порт 0 — любой свободный."""
     check_listen(listen, allow_remote)
     host, port = listen.rsplit(":", 1)
     # Своя модель отвечает целиком сама: логика и кольца — в ней.
@@ -340,12 +341,18 @@ def serve(engine, listen, allow_remote=False):
         def log_message(self, *args):
             pass
 
+    return HTTPServer((host.strip("[]"), int(port)), Handler)
+
+
+def serve(engine, listen, allow_remote=False):
+    server = make_server(engine, listen, allow_remote)
+    host = listen.rsplit(":", 1)[0]
     print(f"Адаптер: http://{listen}, протокол v{PROTOCOL}, модель {engine.name}, "
-          f"{'своя, архитектурная' if architectural else 'шаблон чата: ' + ('да' if engine.chat else 'нет')}",
+          f"{'своя, архитектурная' if getattr(engine, 'architectural', False) else 'шаблон чата: ' + ('да' if engine.chat else 'нет')}",
           flush=True)
     if not local(host):
         print("внимание: адрес не локальный — без аутентификации и TLS; только за защищённым прокси", flush=True)
-    HTTPServer((host, int(port)), Handler).serve_forever()
+    server.serve_forever()
 
 
 def main():

@@ -81,6 +81,10 @@ type Incident struct {
 	State    IncidentState  `json:"state"`
 	Steps    []IncidentStep `json:"steps"`
 	Logs     []IncidentLog  `json:"logs,omitempty"`
+	// Scenario — как решение своей модели становится заявкой: сценарий
+	// исполнителя с местами ${Класс.атрибут} (ochan llm run). Пусто — модель
+	// только отвечает, заявку оформляет человек.
+	Scenario string `json:"scenario,omitempty"`
 	// Closed и Outcome — когда и чем кончилось последний раз: решение или
 	// причина эскалации.
 	Closed  time.Time `json:"closed,omitempty"`

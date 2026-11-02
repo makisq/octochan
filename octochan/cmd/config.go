@@ -106,13 +106,20 @@ func initConfig() error {
 	viper.SetDefault("llm.engine", "")
 	viper.SetDefault("llm.endpoint", "http://127.0.0.1:8080")
 	viper.SetDefault("llm.model", "")
+	// Адаптер своей модели запускает ochan: llm serve, а с autostart —
+	// llm generate и llm run сами, если он не отвечает.
+	viper.SetDefault("llm.adapter.python", "")
+	viper.SetDefault("llm.adapter.script", "")
+	viper.SetDefault("llm.adapter.device", "")
+	viper.SetDefault("llm.adapter.autostart", false)
+	viper.SetDefault("llm.adapter.restarts", 5)
+	viper.SetDefault("llm.adapter.start_timeout", "180s")
 	// Декодер ochan — для чужого локального движка; прежние ключи
 	// (llm.rings.tau, llm.max_tokens, llm.retries, llm.derive) читаются,
 	// пока нового нет (decoderKey).
-	viper.SetDefault("llm.decoder.tau", 0.42)
-	viper.SetDefault("llm.decoder.max_tokens", 2048)
-	viper.SetDefault("llm.decoder.retries", 32)
-	viper.SetDefault("llm.decoder.derive", true)
+	for name, v := range decoderDefaults {
+		viper.SetDefault("llm.decoder."+name, v)
+	}
 	// Обучение по инцидентам — порог как у autovacuum в PostgreSQL.
 	viper.SetDefault("incidents.learn.scale_factor", 0.2)
 	viper.SetDefault("incidents.learn.threshold", 5)

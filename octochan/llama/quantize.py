@@ -34,6 +34,8 @@ def quantize(w, bits, group):
     """(q, scale): q — целые в [−2^(bits−1), 2^(bits−1) − 1], scale — на группу."""
     rows, cols = w.shape
     g = group if 0 < group < cols else cols
+    if cols % g:
+        raise ValueError(f"матрица {rows}×{cols}: ширина не делится на группу {g} — другой --group")
     x = w.float().view(rows, cols // g, g)
     top = 2 ** (bits - 1) - 1
     scale = (x.abs().amax(dim=-1, keepdim=True) / top).clamp(min=1e-12)
@@ -100,8 +102,11 @@ def load(path, dtype=torch.float32):
     return model.to(dtype)
 
 
-def size(path, names):
-    return sum(os.path.getsize(os.path.join(path, n)) for n in names if os.path.isfile(os.path.join(path, n)))
+def weights_size(path):
+    """Размер весов каталога: все файлы *.safetensors и *.bin — целый
+    model.safetensors или шарды model-0000k-of-0000n.safetensors."""
+    return sum(os.path.getsize(os.path.join(path, n)) for n in os.listdir(path)
+               if n.endswith((".safetensors", ".bin")) and os.path.isfile(os.path.join(path, n)))
 
 
 @torch.no_grad()
@@ -140,8 +145,8 @@ def main():
     group = args.group or (32 if args.bits == 4 else 0)
 
     save(args.model, args.out, args.bits, group)
-    before = size(args.model, ["model.safetensors"])
-    after = size(args.out, [QUANT_WEIGHTS])
+    before = weights_size(args.model)
+    after = weights_size(args.out)
     print(f"int{args.bits}, группа {group or 'строка'}: веса {before / 2**20:.1f} → {after / 2**20:.1f} МБ "
           f"({before / after:.1f}×)", flush=True)
     if args.check:

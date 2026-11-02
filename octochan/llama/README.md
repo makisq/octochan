@@ -1,15 +1,48 @@
-# Лама в ФПм-вид
+# Своя модель ℒ
 
 Своя модель ochan (`llm.mode: embedded`) знает только формальный промпт.
-Здесь — два пути к ней и замер каждого шага. Первый — дообучить готовую
-модель архитектуры Llama: адаптер к протоколу движка v1, обрезка выходного
-словаря до алфавита ℒ, LoRA. Второй — своя модель ℒ с нуля: архитектура
-Llama, веса и словарь только ℒ. Доступ к Llama 3.2 Meta владельцу не дала,
-поэтому основная линия — вторая. План целиком —
-[docs/plans/llama-fpm.md](../docs/plans/llama-fpm.md).
+Это модель ℒ с нуля: веса и словарь только ℒ, логика и кольца — в её коде
+(`own.py`, `logic.py`, `rings.py`). Она — единственная линия; сторонние
+движки ochan не подключает. Дообученная готовая модель (SmolLM2:
+обрезка выходного словаря до алфавита ℒ, LoRA) осталась только для
+сравнения в замерах ниже. План и история —
+[docs/plans/llama-fpm.md](../docs/plans/llama-fpm.md), как модель работает
+в ochan — [«Своя модель»](../docs/guide/embedded.md).
+
+## Коротко: от весов до действия
+
+```
+make install-llm fpcheck                 # адаптер и venv рядом с ochan; bin/fpcheck
+cd llama
+ochan fp alphabet > alphabet.tsv
+python corpus.py --lexicon ../fp/lexicon.yaml --fpcheck ../bin/fpcheck --count 60000 --out corpus-own.jsonl
+python train_own.py --alphabet alphabet.tsv --corpus corpus-own.jsonl --out ~/models/own   # без видеокарты: --device cpu
+```
+
+```yaml
+# ~/.octochan/config.yaml
+llm:
+  mode: embedded
+  endpoint: http://127.0.0.1:8093
+  model: ~/models/own
+  adapter:
+    autostart: true
+```
+
+```
+ochan llm                                 # движок, подход, модель
+ochan llm run --prompt task.fp            # ответ модели на задачу
+ochan llm run --agent db7                 # цикл агента: письма и инциденты → заметки, заявки, ответы
+```
+
+`ochan llm serve` держит адаптер постоянно; с `autostart` его запускают сами
+`llm generate` и `llm run`. Тесты Python — `make llm-test`, пакетная
+проверка корпуса (`fpcheck`) — `make fpcheck`.
 
 | Файл | Что делает |
 |---|---|
+| `requirements.txt` | зависимости: torch, transformers, safetensors, pyyaml |
+| `tests/` | тесты Python: модель, адаптер, квантование, обучение на процессоре (`python -m unittest discover -s tests`) |
 | `adapter.py` | сервер протокола движка v1: распределение следующего токена до выборки, кеш KV по общему префиксу; `raw` — сырой вывод без колец |
 | `fpm.py` | модель в ФПм-виде: базовая модель и выходной слой, обрезанный до алфавита (`fpm.json`, `lm_head.safetensors`) |
 | `prune.py` | шаг 2: обрезка выходного словаря до алфавита ℒ (`ochan fp alphabet`) |
@@ -31,14 +64,32 @@ Llama, веса и словарь только ℒ. Доступ к Llama 3.2 Me
 
 ## Окружение
 
-Модели, venv и кеши — не на системном диске:
+Проще всего — установкой ochan: `make install-llm` (Linux, macOS) или
+`scripts\install.ps1 -Llm` (Windows) кладут `*.py` рядом с ochan и
+создают venv по `requirements.txt`; torch для видеокарты — с
+`TORCH_INDEX` / `-TorchIndex`. Вручную:
+
+```
+python -m venv venv
+venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cu128   # видеокарта NVIDIA
+venv/bin/python -m pip install -r requirements.txt
+```
+
+Без видеокарты всё работает на процессоре: `train_own.py`, `train.py` и
+`adapter.py serve` по умолчанию берут видеокарту, если она есть, иначе
+процессор (`--device cpu` — явно). Обучение малой модели на процессоре
+медленное; тест обучения (`tests/test_train_own.py`, крошечная модель)
+в облачном контейнере без видеокарты идёт около 10 с.
+
+Модели, venv и кеши — не на системном диске (так у владельца, Windows):
 
 ```
 py -3.12 -m venv G:\fpm-llm\venv
 set PIP_CACHE_DIR=G:\fpm-llm\cache\pip
 set HF_HOME=G:\fpm-llm\cache\hf
 G:\fpm-llm\venv\Scripts\python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
-G:\fpm-llm\venv\Scripts\python -m pip install transformers safetensors accelerate peft huggingface_hub
+G:\fpm-llm\venv\Scripts\python -m pip install -r requirements.txt
+G:\fpm-llm\venv\Scripts\python -m pip install accelerate peft huggingface_hub   # только для сравнения со SmolLM2
 ```
 
 Проверено: Windows 10, RTX 5070 12 ГБ (sm_120), torch 2.11.0+cu128,
