@@ -6,14 +6,15 @@
 | Роль | Права | |
 |---|---|---|
 | `master` | `all` — всё | первая и высшая; на своём компьютере ты master |
-| `llm` | `read`, `plan`, `request` | для нейросетей: читать, планировать, оформлять заявки |
+| `llm` | `read`, `plan`, `request` | для нейросетей: читать, планировать, оформлять заявки; `net` master выдаёт ей сам (`role grant llm net`) |
 
 Остальные роли создаёт `master`. Право — группа, `all` или имя отдельной
 команды (вложенная пишется через точку: `role.create`):
 
 | Группа | Команды |
 |---|---|
-| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, policy, print, requests, sandbox, services, stats, status, trigger, validate |
+| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, policy, print, requests, sandbox, services, stats, status, text, trigger, validate |
+| `net` | net port, net dns, net http, net tls — проверять сеть с машины ochan; выдаётся явно, в `read` не входит |
 | `plan` | llm generate, plan |
 | `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, mail send, request, watch |
 | `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |

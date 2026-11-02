@@ -27,6 +27,13 @@ var scriptForbidden = []string{"agent", "apply", "back", "completion", "connect"
 // scriptCommands — команды ochan, которые видит сценарий.
 type scriptCommands struct{}
 
+// scriptDepth — сколько команд сейчас выполняется из сценария: команда,
+// которая ждала бы вечно (text tail -f) или stdin, по нему отказывает.
+var scriptDepth int
+
+// queryGroups — права читающих команд: их ochan() выполняет и в плане.
+var queryGroups = []string{"read", "net"}
+
 func (scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
 	argv := args
 	if len(args) == 1 {
@@ -54,7 +61,10 @@ func (scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
 	if slices.Contains(argv, "-") {
 		return nil, "", false, fmt.Errorf("ochan %s: stdin сценарию недоступен — передайте файл", strings.Join(argv, " "))
 	}
-	query := rbac.Covers("read", key) || slices.Contains(rbac.Free, key)
+	query := slices.Contains(rbac.Free, key)
+	for _, group := range queryGroups {
+		query = query || rbac.Covers(group, key)
+	}
 	return argv, key, query, nil
 }
 
@@ -73,7 +83,9 @@ func (scriptCommands) Run(ctx context.Context, argv []string) (string, error) {
 	prev := rootCmd.OutOrStdout()
 	rootCmd.SetOut(&out)
 	rootCmd.SetArgs(argv)
+	scriptDepth++
 	defer func() {
+		scriptDepth--
 		rootCmd.SetOut(prev)
 		resetFlags(target)
 		restore()
