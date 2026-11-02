@@ -188,6 +188,19 @@ func exitShell(code int) {
 // executeShellInput выполняет одну строку оболочки.
 func executeShellInput(ctx context.Context, raw string) {
 	input := strings.TrimSpace(raw)
+	// Блок инструкции ещё не закрыт: строка — его продолжение.
+	if shellPending != "" {
+		if input != "" {
+			rememberCommand(raw, input)
+		}
+		if src, done := continueStatement(raw); done {
+			if terminated := runShellStatement(ctx, src); terminated {
+				exitShell(143)
+			}
+			refreshShellPrefix()
+		}
+		return
+	}
 	if input == "" {
 		return
 	}
@@ -207,12 +220,30 @@ func executeShellInput(ctx context.Context, raw string) {
 	case "!!history", "his":
 		showCommandHistory()
 		return
+	case "!!reset":
+		shellReset()
+		fmt.Println(i18n.T("Сеанс языка сброшен: переменных и алиасов оболочки больше нет"))
+		return
 	case "!clear", "!history":
 		fmt.Println(i18n.Sprintf("ошибка: команды оболочки пишутся с «!!»: !%s — одиночный «!» теперь означает «не»", input))
 		return
 	}
 
 	rememberCommand(raw, input)
+
+	// Инструкция языка алиасов: язык в оболочке тот же, что в файле.
+	if shellStatement(input) {
+		if blockDepth(input) > 0 {
+			shellPending = input
+			shellPrefix = "...     "
+			return
+		}
+		if terminated := runShellStatement(ctx, input); terminated {
+			exitShell(143)
+		}
+		refreshShellPrefix()
+		return
+	}
 
 	args, err := splitArgs(input)
 	if err != nil {
@@ -253,6 +284,35 @@ func refreshShellPrefix() {
 // выйти. SIGTERM во время команды завершает оболочку после неё: раньше он
 // просто отменял общий контекст, и процесс продолжал жить.
 func runShellCommand(base context.Context, args []string) (terminated bool) {
+	return runInterruptible(base, func(ctx context.Context) {
+		// cobra запоминает контекст подкоманды при первом запуске и больше
+		// его не меняет, а флаги не сбрасывает вовсе. Оба состояния
+		// переходили бы из строки в строку.
+		setContext(rootCmd, ctx)
+		resetFlags(rootCmd)
+
+		rootCmd.SetArgs(args)
+		if out, ok := reply(args); ok {
+			fmt.Print(out)
+			return
+		}
+		if err := singleBang(args); err != nil {
+			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			return
+		}
+		if err := rootCmd.ExecuteContext(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				fmt.Println(i18n.T("Прервано"))
+			} else {
+				fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			}
+		}
+	})
+}
+
+// runInterruptible выполняет строку оболочки — команду или инструкцию — в
+// собственном контексте и сообщает, просили ли процесс завершиться.
+func runInterruptible(base context.Context, run func(ctx context.Context)) (terminated bool) {
 	ctx, cancel := context.WithCancel(base)
 	defer cancel()
 
@@ -283,28 +343,7 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 		}
 	}()
 
-	// cobra запоминает контекст подкоманды при первом запуске и больше его
-	// не меняет, а флаги не сбрасывает вовсе. Оба состояния переходили бы
-	// из строки в строку.
-	setContext(rootCmd, ctx)
-	resetFlags(rootCmd)
-
-	rootCmd.SetArgs(args)
-	if out, ok := reply(args); ok {
-		fmt.Print(out)
-		return stop.Load()
-	}
-	if err := singleBang(args); err != nil {
-		fmt.Printf(i18n.T("ошибка: %v\n"), err)
-		return stop.Load()
-	}
-	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		if errors.Is(err, context.Canceled) {
-			fmt.Println(i18n.T("Прервано"))
-		} else {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
-		}
-	}
+	run(ctx)
 	return stop.Load()
 }
 

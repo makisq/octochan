@@ -174,6 +174,8 @@ type Interpreter struct {
 	dir string
 	// dry непуст в режиме плана: записи попадают сюда, а не на диск.
 	dry *overlay
+	// commands — команды ochan для ochan() (command.go); nil — их нет.
+	commands Commands
 	// effects — действия сценария за пределами интерпретатора.
 	effects []Effect
 	// calls — вызовы алиасов; callIDs — стек текущих вызовов; nextCall —

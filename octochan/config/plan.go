@@ -24,6 +24,9 @@ const (
 	ChangeWrite ChangeKind = "write"
 	// ChangeExec — будет запущена программа (exec сценария в песочнице).
 	ChangeExec ChangeKind = "exec"
+	// ChangeCommand — будет выполнена меняющая команда ochan (ochan()
+	// сценария).
+	ChangeCommand ChangeKind = "command"
 )
 
 func (k ChangeKind) Russian() string {
@@ -40,6 +43,8 @@ func (k ChangeKind) Russian() string {
 		return "записать"
 	case ChangeExec:
 		return "запуск"
+	case ChangeCommand:
+		return "команда"
 	default:
 		return string(k)
 	}
@@ -168,7 +173,7 @@ func (p *Plan) Render(width int) string {
 		}
 
 		switch change.Kind {
-		case ChangeTask, ChangeWrite, ChangeExec:
+		case ChangeTask, ChangeWrite, ChangeExec, ChangeCommand:
 			fmt.Fprintf(&b, "    %-10s %s", change.Kind.Russian(), change.Name)
 			if change.Detail != "" {
 				fmt.Fprintf(&b, " — %s", change.Detail)

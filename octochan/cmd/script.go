@@ -185,6 +185,7 @@ func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, ou
 		interp.SetClock(s.clock)
 	}
 	interp.SetInventory(s.inventory, s.inventoryErr)
+	interp.SetCommands(scriptCommands{})
 	if s.watch {
 		interp.WatchLiterals(s.script.Name, s.perturb)
 	}
@@ -634,6 +635,9 @@ func describeDrift(approved []string, current []lang.Effect) string {
 				i+1, wasKind, wasPath, current[i].Kind, current[i].Path))
 		case current[i].Kind == lang.EffectExec:
 			lines = append(lines, fmt.Sprintf("  %s: запуск с другими аргументами — %s", current[i].Path,
+				strings.Join(current[i].Args, " ")))
+		case current[i].Kind == lang.EffectCommand:
+			lines = append(lines, fmt.Sprintf("  команда %s с другими аргументами — ochan %s", current[i].Path,
 				strings.Join(current[i].Args, " ")))
 		default:
 			lines = append(lines, fmt.Sprintf("  %s: будет записано не то содержимое, что согласовали "+

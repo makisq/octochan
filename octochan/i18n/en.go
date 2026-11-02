@@ -84,6 +84,7 @@ var english = map[string]string{
 	"Выполнить сценарий или алиас":                       "Run a script or an alias",
 	"Вычислить выражение языка алиасов":                  "Evaluate an alias-language expression",
 	"До встречи!": "Goodbye!",
+	"Сеанс языка сброшен: переменных и алиасов оболочки больше нет":                     "Language session reset: the shell has no variables or aliases any more",
 	"Добро пожаловать в OctoChan. Введите 'help' для списка команд, 'exit' для выхода.": "Welcome to OctoChan. Type 'help' for the list of commands, 'exit' to leave.",
 	"Доступные команды:": "Available commands:",
 	"Если первый аргумент — существующий файл или «-» (stdin), выполняется он.\nИначе имя трактуется как алиас, а остальные аргументы — как его параметры.\nЧисла распознаются автоматически, всё остальное передаётся строкой.\n\nЧто сценарий изменил бы, не выполняя его: ochan plan файл.ochan.": "If the first argument is an existing file or \"-\" (stdin), it is run.\nOtherwise the name is taken as an alias, and the other arguments as its parameters.\nNumbers are recognized automatically, everything else is passed as a string.\n\nWhat the script would change, without running it: ochan plan file.ochan.",

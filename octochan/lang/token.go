@@ -175,6 +175,13 @@ var keywords = map[string]TokenKind{
 	"import": TokenImport,
 }
 
+// IsKeyword сообщает, что слово зарезервировано языком: оболочка по нему
+// отличает инструкцию (if x > 1 { … }) от команды ochan с тем же именем.
+func IsKeyword(word string) bool {
+	_, ok := keywords[word]
+	return ok
+}
+
 // Position — место в исходном тексте, нужное для внятных сообщений об ошибках.
 type Position struct {
 	File string
