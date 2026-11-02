@@ -106,6 +106,14 @@ func initConfig() error {
 	viper.SetDefault("llm.engine", "")
 	viper.SetDefault("llm.endpoint", "http://127.0.0.1:8080")
 	viper.SetDefault("llm.model", "")
+	// Адаптер своей модели запускает ochan: llm serve, а с autostart —
+	// llm generate и llm run сами, если он не отвечает.
+	viper.SetDefault("llm.adapter.python", "")
+	viper.SetDefault("llm.adapter.script", "")
+	viper.SetDefault("llm.adapter.device", "")
+	viper.SetDefault("llm.adapter.autostart", false)
+	viper.SetDefault("llm.adapter.restarts", 5)
+	viper.SetDefault("llm.adapter.start_timeout", "180s")
 	// Декодер ochan — для чужого локального движка; прежние ключи
 	// (llm.rings.tau, llm.max_tokens, llm.retries, llm.derive) читаются,
 	// пока нового нет (decoderKey).

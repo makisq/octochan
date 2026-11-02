@@ -53,8 +53,10 @@ var Groups = map[string][]string{
 	// эскалация. Это не изменение системы, а отчёт о нём.
 	// incident.report шлёт статистику на почту: тоже отчёт, а не изменение.
 	// mail.send — письмо агенту или людям: сообщение, а не изменение системы.
+	// llm.run — цикл агента своей модели: её ответы становятся заявками,
+	// шагами инцидента и письмами — от роли llm, с её правами.
 	"request": {"compensate", "incident.attach", "incident.check", "incident.escalate", "incident.note",
-		"incident.open", "incident.report", "incident.resolve", "mail.send", "request", "watch"},
+		"incident.open", "incident.report", "incident.resolve", "llm.run", "mail.send", "request", "watch"},
 	// inventory.ack — решение, что новый сервер уже не новый: ochan watch
 	// больше не построит для него план. policy.add — заранее данное
 	// согласование: по политике watch согласует заявки сам.
@@ -78,7 +80,8 @@ var Groups = map[string][]string{
 	// Ни то ни другое не входит в потолок llm: нейросеть, подключившись
 	// к серверу, где у master нет пароля, стала бы master.
 	// ha.init и ha.promote — пара серверов: настроить узел и переключить.
-	"server": {"ha.init", "ha.promote", "serve", "tls.init"},
+	// llm.serve — держать адаптер своей модели: процесс на этой машине.
+	"server": {"ha.init", "ha.promote", "llm.serve", "serve", "tls.init"},
 	"remote": {"agent", "connect", "remote"},
 }
 

@@ -23,10 +23,13 @@ import (
 //
 //	llm:
 //	  mode: embedded            # protocol | embedded | natural
-//	  engine: llama.cpp         # что за адаптером: для отчёта и сверки
-//	  endpoint: http://127.0.0.1:8080
-//	  model: ./models/llama-3.1-8b-q4.gguf
-//	  decoder:                  # декодер ochan — для чужого локального движка
+//	  engine: transformers      # что за адаптером: для отчёта и сверки
+//	  endpoint: http://127.0.0.1:8093
+//	  model: ./models/own-small # её загружает адаптер (llama/adapter.py)
+//	  adapter:                  # ochan llm serve: запуск и перезапуск адаптера
+//	    python: ./venv/bin/python
+//	    autostart: true
+//	  decoder:                  # декодер ochan — для модели без /v1/generate
 //	    tau: 0.42               # кольцо 0
 //	    derive: true            # выводимое пишет логика ochan
 //
@@ -253,15 +256,19 @@ var llmCmd = &cobra.Command{
 		info, err := engine.Info(ctx)
 		if err != nil {
 			cmd.Printf("Движок:  %s — %v\n", engine.Endpoint, err)
+			cmd.Println("Запуск:  ochan llm serve — адаптер своей модели с llm.model; llm.adapter.autostart: true — запускать его самому")
 		} else {
 			cmd.Printf("Движок:  %s — протокол v%d, %s, модель %s\n", engine.Endpoint, info.Protocol, info.Engine, info.Model)
 			if want := viper.GetString("llm.engine"); want != "" && !strings.EqualFold(want, info.Engine) {
 				cmd.Printf("внимание: llm.engine: %s, а по адресу отвечает %s\n", want, info.Engine)
 			}
 			printApproach(cmd, info)
+			if warn := checkModelPath(info); warn != "" {
+				cmd.Printf("внимание: %s\n", warn)
+			}
 		}
 		if model := viper.GetString("llm.model"); model != "" {
-			cmd.Printf("Модель:  %s (её загружает адаптер)\n", model)
+			cmd.Printf("Модель:  %s (её получает адаптер: ochan llm serve)\n", model)
 		}
 		cmd.Println("Язык:    только формальный промпт: в ответе модели — утверждения ℒ, ничего на естественном языке")
 		return err
@@ -306,6 +313,11 @@ var llmGenerateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		stop, err := ensureAdapter(cmd, engine)
+		if err != nil {
+			return err
+		}
+		defer stop()
 		opts, err := fpOptions(cmd, false)
 		if err != nil {
 			return err
@@ -380,15 +392,26 @@ var llmGenerateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// Имена в ответе — из задачи и объектов ochan: открытым именем
+		// модель говорила бы мимо языка. Словарь собирается один раз.
+		names := modelNames(task.text)
 		cfg := embedded.Config{
 			Tau:       tau,
 			MaxTokens: viper.GetInt(decoderKey("max_tokens")),
 			Retries:   viper.GetInt(decoderKey("retries")),
 			Statement: func(prefix, statement string) []fp.Diagnostic {
-				return fp.StatementSyntax(prefix, statement, opts)
+				if bad := fp.StatementSyntax(prefix, statement, opts); len(bad) > 0 {
+					return bad
+				}
+				text := prefix + statement
+				return fp.CheckModelText("model", text, opts).ForeignNames(text, names, opts.MaxMeanings)
 			},
 			Final: func(text string) []fp.Diagnostic {
-				return fp.CheckModelText("model", text, opts).Syntax()
+				r := fp.CheckModelText("model", text, opts)
+				if bad := r.Syntax(); len(bad) > 0 {
+					return bad
+				}
+				return r.ForeignNames(text, names, opts.MaxMeanings)
 			},
 		}
 		// Копию задачи пишет ochan, а не модель: это текст оператора. То,

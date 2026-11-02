@@ -14,8 +14,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-const formalNote = "goal: count\n\nclasses:\n  Count : \"count\"\n  Period : \"period\"\n\ncell incidents:\n" +
-	"  set Count.total = 3\n  set Period.length = 7 d\n"
+const formalNote = "goal: count\n\nclasses:\n  Count : \"count\"\n  Period : \"period\"\n\ncell c1:\n" +
+	"  set Count.total = 3\n  set Period.window = 7 d\n"
 
 // llm.mode и прежний fp.mode: natural — по-старому из fp.mode; embedded с
 // natural вместе нельзя — своя модель знает только формальный промпт.
@@ -353,5 +353,47 @@ func TestMail(t *testing.T) {
 	inbox := workspace.MessagesFor(all, "db8")
 	if out := e.must("mail", inbox[0].ID[:4]); !strings.Contains(out, "Язык:    формальный промпт") || !strings.Contains(out, "set Count.total = 3") {
 		t.Fatalf("письмо:\n%s", out)
+	}
+}
+
+// Своя модель не прячет естественный язык ни в имени, ни в строке: имя — из
+// задачи, словаря объектов ochan или слов языка; в сценарии нет
+// комментариев, а строка — имя, путь или значение из того же множества.
+func TestModelNamesClosed(t *testing.T) {
+	e := newScriptEnv(t)
+	viper.Set("llm.mode", "embedded")
+	viper.Set("mail.groups", map[string]any{"operators": []string{"ops@corp.example"}})
+	t.Cleanup(func() { viper.Set("llm.mode", ""); viper.Set("mail.groups", nil) })
+	mailSender = func(report.MailConfig, report.Mail) error { return nil }
+	t.Cleanup(func() { mailSender = report.Send })
+	e.must("agents", "beat", "--name", "db8")
+
+	t.Setenv(EnvRole, "llm")
+	note := "goal: count\n\nclasses:\n  Count : \"count\"\n\ncell c1:\n  set Count.total = 3\n  set Count.host = db8\n"
+	e.must("mail", "send", "--to", "operators", note)
+	e.fails("имя «please_restart» не из задачи и не из словаря объектов ochan",
+		"mail", "send", "--to", "operators", strings.Replace(note, "db8", "please_restart", 1))
+
+	// Сценарий своей модели.
+	e.write(e.path("task.fp"), "goal: tuned\n\nclasses:\n  Config : \"config\"\n  State : \"tuned\"\n\n"+
+		"relations:\n  Config --strives_to--> State\n\nhard forbid save(except = {prod_conf})\n")
+	e.write(e.path("ok.ochan"), "c = поднять(config(\"prod.conf\"), 200)\nsave(c, \"prod.conf\")\n")
+	e.write(e.path("chatty.ochan"), "c = поднять(config(\"prod.conf\"), 200)  # поднимаю лимит\n"+
+		"print(\"please restart the server\")\nsave(c, \"prod.conf\")\n")
+	out, err := e.ochan("plan", "--script", e.path("chatty.ochan"), "--prompt", e.path("task.fp"))
+	if err == nil || !strings.Contains(err.Error(), "комментарий в сценарии своей модели") ||
+		!strings.Contains(err.Error(), `строка "please restart the server"`) {
+		t.Fatalf("болтливый сценарий своей модели: %v\n%s", err, out)
+	}
+	if _, err := e.ochan("plan", "--script", e.path("ok.ochan"), "--prompt", e.path("task.fp")); err != nil &&
+		strings.Contains(err.Error(), "своя модель (llm.mode: embedded) пишет только на ℒ") {
+		t.Fatalf("сценарий без естественного языка отвергнут: %v", err)
+	}
+
+	// Внешней модели (protocol) строки нужны: её сценарий так не проверяется.
+	viper.Set("llm.mode", "protocol")
+	if _, err := e.ochan("plan", "--script", e.path("chatty.ochan"), "--prompt", e.path("task.fp")); err != nil &&
+		strings.Contains(err.Error(), "своя модель") {
+		t.Fatalf("сценарий внешней модели проверен как своей: %v", err)
 	}
 }

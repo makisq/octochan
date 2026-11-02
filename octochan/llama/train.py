@@ -71,11 +71,16 @@ def main():
     ap.add_argument("--checkpointing", action="store_true", help="экономия памяти на большой модели")
     ap.add_argument("--save-every", type=int, default=50, help="шагов между сохранениями")
     ap.add_argument("--resume", action="store_true", help="продолжить с сохранения в --out")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu",
+                    help="cuda или cpu; по умолчанию — видеокарта, если она есть")
     args = ap.parse_args()
 
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    device = "cuda"
+    device = args.device
+    cuda = device.startswith("cuda")
+    if cuda and not torch.cuda.is_available():
+        raise SystemExit(f"--device {device}: видеокарты с CUDA нет — --device cpu")
     with open(os.path.join(args.model, fpm.FPM_JSON), encoding="utf-8") as f:
         meta = json.load(f)
     with open(args.protocol, encoding="utf-8") as f:
@@ -120,7 +125,7 @@ def main():
         fpm.save(args.out, meta["base"], alphabet, meta["end"], head.weight.detach().to(torch.bfloat16), lora="lora")
         torch.save({"step": step, "order": order, "rng": rng.getstate(), "opt": opt.state_dict(),
                     "sched": sched.state_dict(), "torch": torch.get_rng_state(),
-                    "cuda": torch.cuda.get_rng_state()}, os.path.join(args.out, STATE))
+                    "cuda": torch.cuda.get_rng_state() if cuda else None}, os.path.join(args.out, STATE))
 
     first, order = 0, []
     state_path = os.path.join(args.out, STATE)
@@ -132,7 +137,8 @@ def main():
         sched.load_state_dict(state["sched"])
         rng.setstate(state["rng"])
         torch.set_rng_state(state["torch"])
-        torch.cuda.set_rng_state(state["cuda"])
+        if cuda and state.get("cuda") is not None:
+            torch.cuda.set_rng_state(state["cuda"])
         first, order = state["step"], state["order"]
         print(f"Продолжение с шага {first}/{steps}", flush=True)
     else:

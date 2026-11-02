@@ -14,6 +14,7 @@ import (
 	"ochan/rbac"
 	"ochan/remote"
 	"ochan/sandbox"
+	"ochan/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -29,7 +30,14 @@ func TestMain(m *testing.M) {
 		os.Exit(SandboxChild())
 	}
 	if os.Getenv("OCHAN_TEST_AS_OCHAN") == "1" {
+		// Исполнитель для дочернего ochan: в тесте он только в памяти.
+		if service := os.Getenv("OCHAN_TEST_EXECUTOR"); service != "" {
+			scenario.Register(service, &extExecutor{remote: "v1"})
+		}
 		os.Exit(Execute())
+	}
+	if os.Getenv("OCHAN_TEST_FAKE_ADAPTER") == "1" {
+		os.Exit(fakeAdapter())
 	}
 	os.Exit(m.Run())
 }

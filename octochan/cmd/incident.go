@@ -608,8 +608,23 @@ var (
 	incidentLevelFlag  string
 	incidentHosts      []string
 	incidentSource     string
+	incidentScenario   string
 	incidentAttachName string
 )
+
+// incidentTask — что случилось: задача, на которую модель отвечает
+// записями инцидента. Нет инцидента — нет и задачи.
+func incidentTask(id string) string {
+	store, err := incidentStore()
+	if err != nil {
+		return ""
+	}
+	i, err := store.Get(id)
+	if err != nil {
+		return ""
+	}
+	return i.Summary
+}
 
 // brief — текст записи одной строкой: у многострочного (формальный промпт
 // своей модели) — первая строка и «…». Целиком он в карточке и письме.
@@ -752,16 +767,31 @@ var incidentOpenCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := checkModelSays(cmd, summary, i18n.T("что случилось")); err != nil {
+		if err := checkModelSays(cmd, summary, i18n.T("что случилось"), ""); err != nil {
 			return err
 		}
 		source := incidentSource
 		if source == "" {
 			source = actor()
 		}
+		var scenarioText string
+		if incidentScenario != "" {
+			data, err := os.ReadFile(incidentScenario)
+			if err != nil {
+				return err
+			}
+			if scenarioText, err = checkRealization(string(data)); err != nil {
+				return fmt.Errorf("--scenario %s: %w", incidentScenario, err)
+			}
+		}
 		i, err := openIncident(incidentLevelFlag, incidentHosts, summary, source)
 		if err != nil {
 			return err
+		}
+		if scenarioText != "" {
+			if i, err = setIncidentScenario(i.ID, scenarioText); err != nil {
+				return err
+			}
 		}
 		cmd.Printf("Инцидент %s (%s) открыт: модель чинит сама до %s (%s)\n", i.ID, i.Level,
 			i.Deadline.Local().Format("15:04"), i.Timer)
@@ -782,7 +812,7 @@ var incidentNoteCmd = &cobra.Command{
 		if text == "" {
 			return fmt.Errorf("пустая заметка")
 		}
-		if err := checkModelSays(cmd, text, i18n.T("заметка")); err != nil {
+		if err := checkModelSays(cmd, text, i18n.T("заметка"), incidentTask(args[0])); err != nil {
 			return err
 		}
 		i, err := stepIncident(args[0], "note", text, "")
@@ -847,7 +877,7 @@ var incidentResolveCmd = &cobra.Command{
 		if text == "" {
 			return fmt.Errorf("что сделано — обязательно: решение без описания не проверить")
 		}
-		if err := checkModelSays(cmd, text, i18n.T("решение")); err != nil {
+		if err := checkModelSays(cmd, text, i18n.T("решение"), incidentTask(args[0])); err != nil {
 			return err
 		}
 		store, err := incidentStore()
@@ -890,7 +920,7 @@ var incidentEscalateCmd = &cobra.Command{
 		if text == "" {
 			return fmt.Errorf("почему эскалация — обязательно: это первое, что прочтут инженеры")
 		}
-		if err := checkModelSays(cmd, text, i18n.T("причина эскалации")); err != nil {
+		if err := checkModelSays(cmd, text, i18n.T("причина эскалации"), incidentTask(args[0])); err != nil {
 			return err
 		}
 		store, err := incidentStore()
@@ -949,6 +979,9 @@ type incidentRequest struct {
 	Source  string   `json:"source"`
 	// Log — кусок журнала, который мониторинг видел.
 	Log string `json:"log,omitempty"`
+	// Scenario — сценарий исполнителя с местами ${Класс.атрибут}: по нему
+	// решение своей модели становится заявкой (ochan llm run).
+	Scenario string `json:"scenario,omitempty"`
 }
 
 // incidentsHandler — POST /v1/incidents: мониторинг открывает инцидент.
@@ -983,7 +1016,18 @@ func incidentsHandler(writable func() (bool, string)) http.HandlerFunc {
 		if req.Source != "" {
 			source = "мониторинг " + req.Source
 		}
+		var scenarioText string
+		if req.Scenario != "" {
+			var serr error
+			if scenarioText, serr = checkRealization(req.Scenario); serr != nil {
+				reply(http.StatusBadRequest, map[string]string{"result": "scenario: " + serr.Error()})
+				return
+			}
+		}
 		i, err := openIncident(req.Level, req.Hosts, req.Summary, source)
+		if err == nil && scenarioText != "" {
+			i, err = setIncidentScenario(i.ID, scenarioText)
+		}
 		if err == nil && req.Log != "" {
 			store, serr := incidentStore()
 			if serr == nil {
@@ -1037,6 +1081,7 @@ func init() {
 	_ = incidentOpenCmd.MarkFlagRequired("level")
 	incidentOpenCmd.Flags().StringSliceVar(&incidentHosts, "host", nil, "хосты инцидента")
 	incidentOpenCmd.Flags().StringVar(&incidentSource, "source", "", "кто открыл: мониторинг, модель")
+	incidentOpenCmd.Flags().StringVar(&incidentScenario, "scenario", "", "сценарий исполнителя с местами ${Класс.атрибут}: по нему решение своей модели становится заявкой (llm run)")
 	incidentAttachCmd.Flags().StringVar(&incidentAttachName, "name", "", "имя журнала во вложении (для stdin)")
 	incidentCmd.AddCommand(incidentOpenCmd, incidentNoteCmd, incidentAttachCmd, incidentResolveCmd,
 		incidentEscalateCmd, incidentCheckCmd, incidentSecretCmd)

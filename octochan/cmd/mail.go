@@ -175,11 +175,13 @@ func requiredLanguage(r recipients) (mailLang, error) {
 // checkFormalMessage — письмо на языке: формальный промпт без ⊥syn. Письмо
 // модели проверяется строже: ни комментариев, ни символов вне ASCII.
 func checkFormalMessage(cmd *cobra.Command, body, why string) (*fp.Result, error) {
-	return checkFormalText(cmd, i18n.T("письмо не на языке"), body, why)
+	return checkFormalText(cmd, i18n.T("письмо не на языке"), body, why, "")
 }
 
-// checkFormalText — текст на языке; title — что не на языке.
-func checkFormalText(cmd *cobra.Command, title, body, why string) (*fp.Result, error) {
+// checkFormalText — текст на языке; title — что не на языке. У своей
+// модели ещё и имена: из задачи task или объекты ochan — открытым именем
+// она говорила бы мимо языка.
+func checkFormalText(cmd *cobra.Command, title, body, why, task string) (*fp.Result, error) {
 	opts, err := fpOptions(cmd, false)
 	if err != nil {
 		return nil, err
@@ -190,11 +192,15 @@ func checkFormalText(cmd *cobra.Command, title, body, why string) (*fp.Result, e
 	} else {
 		result = fp.CheckText("письмо", body, opts)
 	}
-	if result.InLanguage() {
+	bad := result.Syntax()
+	if len(bad) == 0 && modelEmbedded() {
+		bad = foreignNames(result, body, task, opts)
+	}
+	if len(bad) == 0 {
 		return result, nil
 	}
 	var lines []string
-	for _, d := range result.Syntax() {
+	for _, d := range bad {
 		lines = append(lines, "  "+d.String())
 	}
 	return nil, fmt.Errorf("%s: %s\n%s", title, why, strings.Join(lines, "\n"))
@@ -204,7 +210,7 @@ func checkFormalText(cmd *cobra.Command, title, body, why string) (*fp.Result, e
 // формальным промптом: не только письма, но и записи инцидента — что
 // случилось, заметки, решение, причина эскалации. Их читают инженеры.
 // Внешняя модель (protocol) пишет записи как есть: это записи, а не письма.
-func checkModelSays(cmd *cobra.Command, text, what string) error {
+func checkModelSays(cmd *cobra.Command, text, what, task string) error {
 	if !senderIsModel() {
 		return nil
 	}
@@ -213,7 +219,7 @@ func checkModelSays(cmd *cobra.Command, text, what string) error {
 		return err
 	}
 	_, err = checkFormalText(cmd, i18n.T("запись инцидента не на языке"), text,
-		i18n.Sprintf("%s — своя модель (llm.mode: embedded) пишет только формальным промптом", what))
+		i18n.Sprintf("%s — своя модель (llm.mode: embedded) пишет только формальным промптом", what), task)
 	return err
 }
 

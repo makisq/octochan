@@ -5,6 +5,11 @@
 #   scripts/install.sh                  в ~/.local/bin
 #   PREFIX=/usr/local scripts/install.sh    в /usr/local/bin (спросит sudo)
 #   scripts/install.sh --rlm            ещё и модуль RLM
+#   scripts/install.sh --llm            ещё и адаптер своей модели ℒ: llama/*.py
+#                                       в $PREFIX/share/ochan/llm, venv с requirements.txt
+#                                       (PYTHON — интерпретатор, по умолчанию python3;
+#                                       TORCH_INDEX — индекс pip для torch, например
+#                                       https://download.pytorch.org/whl/cu128)
 #   scripts/install.sh --uninstall      убрать
 #
 # Нужен Go 1.22 или новее. Сборка идёт от вашего имени, sudo — только на
@@ -36,14 +41,22 @@ remove() {
 	done
 }
 
-if [ "${1:-}" = "--uninstall" ]; then
-	remove
-	exit 0
-fi
 WITH_RLM=
-if [ "${1:-}" = "--rlm" ]; then
-	WITH_RLM=1
-fi
+WITH_LLM=
+for arg in "$@"; do
+	case "$arg" in
+	--uninstall)
+		remove
+		exit 0
+		;;
+	--rlm) WITH_RLM=1 ;;
+	--llm) WITH_LLM=1 ;;
+	*)
+		echo "Неизвестный ключ $arg: --rlm, --llm, --uninstall" >&2
+		exit 1
+		;;
+	esac
+done
 
 command -v go >/dev/null 2>&1 || { echo "Нужен Go 1.22 или новее: https://go.dev/dl/" >&2; exit 1; }
 
@@ -70,6 +83,29 @@ if [ -n "$WITH_RLM" ]; then
 	(cd "$ROOT" && go build -trimpath -o "$OUT/rlm.hcplugin" ./plugins/rlm)
 	"$BIN/ochan" '!!install' "$OUT/rlm.hcplugin"
 	echo "Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml"
+fi
+
+if [ -n "$WITH_LLM" ]; then
+	# Адаптер своей модели ℒ: ochan находит его сам — adapter.py в
+	# share/ochan/llm рядом с bin, интерпретатор — venv рядом с ним.
+	LLM="$PREFIX/share/ochan/llm"
+	PYTHON=${PYTHON:-python3}
+	command -v "$PYTHON" >/dev/null 2>&1 || { echo "Нужен Python 3.10 или новее: PYTHON=путь" >&2; exit 1; }
+	mkdir -p "$LLM" 2>/dev/null || sudo mkdir -p "$LLM"
+	if [ -w "$LLM" ]; then SUDO=; else SUDO=sudo; fi
+	$SUDO cp "$ROOT"/llama/*.py "$ROOT/llama/requirements.txt" "$LLM/"
+	echo "Сборка fpcheck…"
+	(cd "$ROOT" && go build -trimpath -o "$OUT/fpcheck" ./llama/fpcheck)
+	$SUDO install -m 0755 "$OUT/fpcheck" "$LLM/"
+	if [ ! -x "$LLM/venv/bin/python" ]; then
+		echo "Окружение Python: $LLM/venv"
+		$SUDO "$PYTHON" -m venv "$LLM/venv"
+	fi
+	if [ -n "${TORCH_INDEX:-}" ]; then
+		$SUDO "$LLM/venv/bin/python" -m pip install torch --index-url "$TORCH_INDEX"
+	fi
+	$SUDO "$LLM/venv/bin/python" -m pip install -r "$LLM/requirements.txt"
+	echo "Адаптер своей модели: $LLM/adapter.py; в config.yaml — llm.model (каталог модели) и llm.endpoint, запуск — ochan llm serve"
 fi
 
 case ":$PATH:" in

@@ -1,0 +1,15 @@
+# Своя модель ℒ: адаптер (adapter.py, own.py), обучение (train_own.py),
+# квантование (quantize.py), корпус и пакеты знаний (corpus.py, knowledge.py).
+#
+#   python -m venv venv
+#   venv/bin/python -m pip install -r requirements.txt        # Windows: venv\Scripts\python
+#
+# Видеокарта NVIDIA: torch — с индекса CUDA, до остального
+# (RTX 50xx — CUDA 12.8 и новее):
+#   venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
+# Без видеокарты обучение и адаптер работают на процессоре (--device cpu,
+# по умолчанию — видеокарта, если она есть).
+torch>=2.6
+transformers>=5.0,<6
+safetensors>=0.4
+pyyaml>=6

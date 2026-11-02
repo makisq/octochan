@@ -342,6 +342,9 @@ func scriptRequest(cmd *cobra.Command, args []string, opts *scriptOptions, popts
 	if err != nil {
 		return nil, err
 	}
+	if err := checkModelScript(cmd, input); err != nil {
+		return nil, err
+	}
 	src := input.script
 	prompt, err := checkPrompt(cmd, input)
 	if err != nil {
