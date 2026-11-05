@@ -50,7 +50,7 @@ type ModelQuestion struct {
 }
 
 // ModelCluster — кластер повторяющихся инцидентов, структуру которого
-// повторяет задача (ochan incident learn, llama/learn.py): частных случаев,
+// повторяет задача (ochan incident learn, ochan llm learn): частных случаев,
 // исходов с весом давности, из них решено моделью самой, и её надёжность на
 // этой структуре.
 type ModelCluster struct {

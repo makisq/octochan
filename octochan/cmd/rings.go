@@ -695,7 +695,7 @@ var fpJournalAmendCmd = &cobra.Command{
 }
 
 // journalExport — то, из чего архитектурная модель пересчитывает свои
-// кольца (llama/fit.py): надёжность правил, условный счёт, порог и исходы
+// кольца (ochan llm fit): надёжность правил, условный счёт, порог и исходы
 // её выборов с признаками правила выбора.
 type journalExport struct {
 	Prior    [2]float64            `json:"prior"`
@@ -727,64 +727,13 @@ var fpJournalExportCmd = &cobra.Command{
 	Long: "Надёжность правил по журналу (счёт с весом давности), условный счёт\n" +
 		"автора, порог well_True и исходы выборов архитектурной модели с\n" +
 		"признаками правила выбора. Из них модель пересчитывает свои кольца —\n" +
-		"rings.json рядом с весами (llama/fit.py). Исходы слепые к оценкам\n" +
+		"rings.json рядом с весами (ochan llm fit). Исходы слепые к оценкам\n" +
 		"(раздел 7.3): отказ кольца 2 исходом не считается.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := loadRingsConfig(purposePlan)
+		out, err := journalExportData()
 		if err != nil {
 			return err
-		}
-		journal, err := decisionStore()
-		if err != nil {
-			return err
-		}
-		all, err := journal.All()
-		if err != nil {
-			return err
-		}
-		out := journalExport{Prior: [2]float64{float64(cfg.prior.Successes), float64(cfg.prior.Uses)},
-			WellTrue: cfg.wellTrue, Rules: map[string][2]float64{}, Choices: []exportChoice{}, Plans: []exportPlan{},
-			History: map[string]map[string]float64{}}
-		read := func(statement string) {
-			target, value, ok := strings.Cut(strings.TrimPrefix(statement, "set "), " = ")
-			if !ok {
-				return
-			}
-			attr := target[strings.LastIndex(target, ".")+1:]
-			if out.History[attr] == nil {
-				out.History[attr] = map[string]float64{}
-			}
-			out.History[attr][value]++
-		}
-		for rule, c := range workspace.RuleCountsAt(all, time.Now(), cfg.halfLife) {
-			out.Rules[rule] = [2]float64{c.WSuccesses, c.WUses}
-		}
-		// Точные посылки — как оператор читает атрибут, по промпту один раз.
-		seen := map[string]bool{}
-		for _, d := range all {
-			if d.Mode == string(rings.Architectural) && !seen[d.PromptSum] {
-				seen[d.PromptSum] = true
-				for _, p := range d.Premises {
-					read(p)
-				}
-			}
-		}
-		for _, d := range workspace.Decided(all) {
-			if d.Mode != string(rings.Architectural) {
-				continue
-			}
-			ok, _ := d.Outcome()
-			out.Plans = append(out.Plans, exportPlan{Score: d.PlanLower(), Correct: ok})
-			for i, p := range d.Packages {
-				correct, decided := d.PackageOutcome(i)
-				if p.Chosen && decided {
-					out.Choices = append(out.Choices, exportChoice{LogProb: p.LogProb, L: p.L, U: p.U, Score: p.Score, Correct: correct})
-				}
-				if correct && slices.Contains(p.Rules, historyRule) {
-					read(p.Statement)
-				}
-			}
 		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -793,6 +742,67 @@ var fpJournalExportCmd = &cobra.Command{
 		cmd.Println(string(data))
 		return nil
 	},
+}
+
+// journalExportData — журнал решений для пересчёта колец своей модели
+// (ochan llm fit, ochan fp journal export).
+func journalExportData() (journalExport, error) {
+	cfg, err := loadRingsConfig(purposePlan)
+	if err != nil {
+		return journalExport{}, err
+	}
+	journal, err := decisionStore()
+	if err != nil {
+		return journalExport{}, err
+	}
+	all, err := journal.All()
+	if err != nil {
+		return journalExport{}, err
+	}
+	out := journalExport{Prior: [2]float64{float64(cfg.prior.Successes), float64(cfg.prior.Uses)},
+		WellTrue: cfg.wellTrue, Rules: map[string][2]float64{}, Choices: []exportChoice{}, Plans: []exportPlan{},
+		History: map[string]map[string]float64{}}
+	read := func(statement string) {
+		target, value, ok := strings.Cut(strings.TrimPrefix(statement, "set "), " = ")
+		if !ok {
+			return
+		}
+		attr := target[strings.LastIndex(target, ".")+1:]
+		if out.History[attr] == nil {
+			out.History[attr] = map[string]float64{}
+		}
+		out.History[attr][value]++
+	}
+	for rule, c := range workspace.RuleCountsAt(all, time.Now(), cfg.halfLife) {
+		out.Rules[rule] = [2]float64{c.WSuccesses, c.WUses}
+	}
+	// Точные посылки — как оператор читает атрибут, по промпту один раз.
+	seen := map[string]bool{}
+	for _, d := range all {
+		if d.Mode == string(rings.Architectural) && !seen[d.PromptSum] {
+			seen[d.PromptSum] = true
+			for _, p := range d.Premises {
+				read(p)
+			}
+		}
+	}
+	for _, d := range workspace.Decided(all) {
+		if d.Mode != string(rings.Architectural) {
+			continue
+		}
+		ok, _ := d.Outcome()
+		out.Plans = append(out.Plans, exportPlan{Score: d.PlanLower(), Correct: ok})
+		for i, p := range d.Packages {
+			correct, decided := d.PackageOutcome(i)
+			if p.Chosen && decided {
+				out.Choices = append(out.Choices, exportChoice{LogProb: p.LogProb, L: p.L, U: p.U, Score: p.Score, Correct: correct})
+			}
+			if correct && slices.Contains(p.Rules, historyRule) {
+				read(p.Statement)
+			}
+		}
+	}
+	return out, nil
 }
 
 func init() {

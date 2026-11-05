@@ -139,9 +139,8 @@ generalizations:
 - Задача подключает знания тем же `import`, что и скилл:
   `import @pg_incidents v1`. Версия — часть знания: задача просит v2, а
   стоит 1.0 — ⊥undef.
-- Своя модель читает пакеты из каталога модулей
-  (`adapter.py serve --modules ~/.octochan/modules`) и называет их в
-  `/v1/info`. Знания, которые задача подключает, модель должна видеть —
+- Своя модель читает пакеты из каталога модулей ochan
+  (`~/.octochan/modules`) и называет их в `ochan llm` и `/v1/info`. Знания, которые задача подключает, модель должна видеть —
   иначе генерации нет: без них она ответила бы, как будто их нет.
 - Модель берёт обобщения пакета только для задачи, которая его подключает и
   повторяет обобщение: надёжность правил на этой структуре — по исходам из
@@ -149,8 +148,15 @@ generalizations:
   ближе к этой машине.
 
 ```
-$ python llama/learn.py --model ./models/own --package pg_incidents --version 1.0
-Пакет знаний @pg_incidents v1.0: обобщений 2 — pg_incidents
+$ ochan llm learn --package pg_tuning --version 1.0
+Пакет знаний @pg_tuning v1.0: обобщений 1 — pg_tuning
+Публикация с подписью: ochan '!!registry' publish pg_tuning --registry <каталог> --key <ключ>
+```
+
+Дальше — как у любого пакета; ниже — тот же путь для пакета
+`pg_incidents` с двумя обобщениями:
+
+```
 $ ochan '!!registry' publish pg_incidents --registry /srv/registry --key release.key
 # на другой машине
 $ ochan '!!rin' @pg_incidents

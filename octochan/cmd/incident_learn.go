@@ -60,7 +60,7 @@ type learnRecord struct {
 }
 
 // learnCluster — созревший кластер; Similarity — с какой похожестью задача
-// повторяет его структуру: так её узнаёт модель (llama/learn.py).
+// повторяет его структуру: так её узнаёт модель (ochan llm learn).
 type learnCluster struct {
 	Shape      []string      `json:"shape"`
 	Weight     float64       `json:"weight"`
@@ -85,73 +85,33 @@ var incidentLearnCmd = &cobra.Command{
 		"обучении не участвуют.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := learnConfig()
-		if err != nil {
-			return err
-		}
 		opts, err := fpOptions(cmd, false)
 		if err != nil {
 			return err
 		}
-		store, err := incidentStore()
+		sum, err := incidentClusters(opts)
 		if err != nil {
 			return err
 		}
-		all, err := store.List()
-		if err != nil {
-			return err
-		}
-		isWord := func(w string) bool {
-			if opts.Lexicon == nil {
-				return false
-			}
-			_, ok := opts.Lexicon.Lookup(w)
-			return ok
-		}
-		var items []learn.Item
-		byID := map[string]*workspace.Incident{}
-		natural := 0
-		for _, inc := range all {
-			r := fp.CheckText(inc.ID, inc.Summary, opts)
-			if !r.InLanguage() {
-				natural++
-				continue
-			}
-			items = append(items, learn.Item{ID: inc.ID, Time: inc.Opened, Shape: fp.Shape(r.Program, isWord)})
-			byID[inc.ID] = inc
-		}
-
-		now := time.Now()
-		j := learn.Judge(items, cfg, now)
-		cmd.Printf("Инцидентов на ℒ: %d; на естественном языке: %d — в обучении не участвуют\n", len(items), natural)
+		cfg, j := sum.cfg, sum.judgement
+		cmd.Printf("Инцидентов на ℒ: %d; на естественном языке: %d — в обучении не участвуют\n", sum.formal, sum.natural)
 		cmd.Printf("Порог: больше %g + %g × %.1f = %.1f (incidents.learn.threshold + scale_factor × вес всех)\n",
 			cfg.Threshold, cfg.ScaleFactor, j.Total, j.Due)
 		labels := map[learn.Verdict]string{learn.Ripe: "созрел", learn.Growing: "копится"}
 		noise := 0
-		var ripe []learnCluster
 		for _, c := range j.Clusters {
 			if c.Verdict == learn.Noise {
 				noise++
 				continue
 			}
 			cmd.Printf("  %-8s инцидентов %d, вес %.1f — %s\n", labels[c.Verdict], len(c.Items), c.Weight, shapeText(c.Shape))
-			if c.Verdict == learn.Ripe {
-				out := learnCluster{Shape: c.Shape, Weight: c.Weight, Similarity: cfg.Similarity}
-				for _, it := range c.Items {
-					inc := byID[it.ID]
-					out.Incidents = append(out.Incidents, learnRecord{ID: inc.ID, Weight: learn.Weight(it.Time, now, cfg.HalfLife),
-						Opened: inc.Opened, State: string(inc.State),
-						Outcome: string(inc.Result(rbac.LLM)), Summary: inc.Summary, Steps: inc.Steps})
-				}
-				ripe = append(ripe, out)
-			}
 		}
 		cmd.Printf("Шум: одиночных инцидентов %d — в обучение не идут\n", noise)
 		if incidentLearnExport == "" {
 			return nil
 		}
 		var buf strings.Builder
-		for _, c := range ripe {
+		for _, c := range sum.ripe {
 			line, err := json.Marshal(c)
 			if err != nil {
 				return err
@@ -162,9 +122,70 @@ var incidentLearnCmd = &cobra.Command{
 		if err := os.WriteFile(incidentLearnExport, []byte(buf.String()), 0o600); err != nil {
 			return err
 		}
-		cmd.Printf("Созревших кластеров в %s: %d\n", incidentLearnExport, len(ripe))
+		cmd.Printf("Созревших кластеров в %s: %d\n", incidentLearnExport, len(sum.ripe))
 		return nil
 	},
+}
+
+// learnSummary — инциденты, разложенные по кластерам: какие созрели.
+type learnSummary struct {
+	cfg             learn.Config
+	judgement       learn.Judgement
+	formal, natural int
+	ripe            []learnCluster
+}
+
+// incidentClusters группирует инциденты по структуре записи на ℒ и решает,
+// какие кластеры созрели (ochan incident learn, ochan llm learn).
+func incidentClusters(opts fp.Options) (*learnSummary, error) {
+	cfg, err := learnConfig()
+	if err != nil {
+		return nil, err
+	}
+	store, err := incidentStore()
+	if err != nil {
+		return nil, err
+	}
+	all, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+	isWord := func(w string) bool {
+		if opts.Lexicon == nil {
+			return false
+		}
+		_, ok := opts.Lexicon.Lookup(w)
+		return ok
+	}
+	var items []learn.Item
+	byID := map[string]*workspace.Incident{}
+	sum := &learnSummary{cfg: cfg}
+	for _, inc := range all {
+		r := fp.CheckText(inc.ID, inc.Summary, opts)
+		if !r.InLanguage() {
+			sum.natural++
+			continue
+		}
+		items = append(items, learn.Item{ID: inc.ID, Time: inc.Opened, Shape: fp.Shape(r.Program, isWord)})
+		byID[inc.ID] = inc
+	}
+	sum.formal = len(items)
+	now := time.Now()
+	sum.judgement = learn.Judge(items, cfg, now)
+	for _, c := range sum.judgement.Clusters {
+		if c.Verdict != learn.Ripe {
+			continue
+		}
+		out := learnCluster{Shape: c.Shape, Weight: c.Weight, Similarity: cfg.Similarity}
+		for _, it := range c.Items {
+			inc := byID[it.ID]
+			out.Incidents = append(out.Incidents, learnRecord{ID: inc.ID, Weight: learn.Weight(it.Time, now, cfg.HalfLife),
+				Opened: inc.Opened, State: string(inc.State),
+				Outcome: string(inc.Result(rbac.LLM)), Summary: inc.Summary, Steps: inc.Steps})
+		}
+		sum.ripe = append(sum.ripe, out)
+	}
+	return sum, nil
 }
 
 // shapeText — структура кратко: отношения, иначе первые факты.

@@ -4,19 +4,13 @@
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Rlm     ещё и модуль RLM
-#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Llm     ещё и адаптер своей модели ℒ:
-#       llama\*.py в <Bin>\llm, venv с requirements.txt; -Python — интерпретатор (по умолчанию py -3),
-#       -TorchIndex — индекс pip для torch, например https://download.pytorch.org/whl/cu128
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Uninstall
 #
 # Каталог по умолчанию — %LOCALAPPDATA%\Programs\ochan; другой — -Bin.
 param(
     [string]$Bin = (Join-Path $env:LOCALAPPDATA 'Programs\ochan'),
     [switch]$Uninstall,
-    [switch]$Rlm,
-    [switch]$Llm,
-    [string]$Python = '',
-    [string]$TorchIndex = ''
+    [switch]$Rlm
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -61,32 +55,6 @@ if ($Rlm) {
     & (Join-Path $Bin 'ochan.exe') '!!install' $module
     if ($LASTEXITCODE -ne 0) { throw 'модуль RLM не установился' }
     Write-Host 'Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml'
-}
-
-if ($Llm) {
-    # Адаптер своей модели ℒ: ochan находит его сам — adapter.py в <Bin>\llm,
-    # интерпретатор — venv рядом с ним.
-    $llmDir = Join-Path $Bin 'llm'
-    New-Item -ItemType Directory -Force -Path $llmDir | Out-Null
-    Copy-Item (Join-Path $root 'llama\*.py') $llmDir -Force
-    Copy-Item (Join-Path $root 'llama\requirements.txt') $llmDir -Force
-    Write-Host 'Сборка fpcheck…'
-    Push-Location $root
-    try { go build -trimpath -o (Join-Path $llmDir 'fpcheck.exe') ./llama/fpcheck } finally { Pop-Location }
-    if ($LASTEXITCODE -ne 0) { throw 'сборка fpcheck не удалась' }
-    $venvPython = Join-Path $llmDir 'venv\Scripts\python.exe'
-    if (-not (Test-Path $venvPython)) {
-        Write-Host "Окружение Python: $(Join-Path $llmDir 'venv')"
-        if ($Python) { & $Python -m venv (Join-Path $llmDir 'venv') } else { & py -3 -m venv (Join-Path $llmDir 'venv') }
-        if ($LASTEXITCODE -ne 0) { throw 'venv не создан: нужен Python 3.10 или новее (-Python путь)' }
-    }
-    if ($TorchIndex) {
-        & $venvPython -m pip install torch --index-url $TorchIndex
-        if ($LASTEXITCODE -ne 0) { throw 'torch не установился' }
-    }
-    & $venvPython -m pip install -r (Join-Path $llmDir 'requirements.txt')
-    if ($LASTEXITCODE -ne 0) { throw 'зависимости адаптера не установились' }
-    Write-Host "Адаптер своей модели: $(Join-Path $llmDir 'adapter.py'); в config.yaml — llm.model и llm.endpoint, запуск — ochan llm serve"
 }
 
 if ($parts -notcontains $Bin) {

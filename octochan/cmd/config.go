@@ -101,19 +101,14 @@ func initConfig() error {
 	viper.SetDefault("remote.address", "")
 
 	// Режим модели: protocol | embedded | natural; пусто — по fp.mode.
-	// embedded — своя локальная модель за адаптером по протоколу движка v1.
+	// embedded — своя модель: в процессе ochan (llm.model) или по адресу
+	// другой машины (llm.endpoint, протокол движка v1).
 	viper.SetDefault("llm.mode", "")
 	viper.SetDefault("llm.engine", "")
 	viper.SetDefault("llm.endpoint", "http://127.0.0.1:8080")
 	viper.SetDefault("llm.model", "")
 	// Адаптер своей модели запускает ochan: llm serve, а с autostart —
 	// llm generate и llm run сами, если он не отвечает.
-	viper.SetDefault("llm.adapter.python", "")
-	viper.SetDefault("llm.adapter.script", "")
-	viper.SetDefault("llm.adapter.device", "")
-	viper.SetDefault("llm.adapter.autostart", false)
-	viper.SetDefault("llm.adapter.restarts", 5)
-	viper.SetDefault("llm.adapter.start_timeout", "180s")
 	// Декодер ochan — для чужого локального движка; прежние ключи
 	// (llm.rings.tau, llm.max_tokens, llm.retries, llm.derive) читаются,
 	// пока нового нет (decoderKey).
