@@ -54,9 +54,9 @@ func derivedPlan(t *testing.T, src string) *AnswerPlan {
 func TestDerive(t *testing.T) {
 	plan := derivedPlan(t, deriveTask)
 	want := []Decision{
-		{Target: "Approval", Attr: "size", Value: "4 GB", Basis: "priority(Table < File)"},
-		{Target: "Approval", Attr: "owner", Value: "root", Basis: "relation(database_quota)"},
-		{Target: "h121151", Attr: "window", Value: "night", Basis: "relation(low_nightly)"},
+		{Target: "Approval", Attr: "size", Value: "4 GB", Basis: "priority(Table < File)", Rules: []string{"fp.modifies"}},
+		{Target: "Approval", Attr: "owner", Value: "root", Basis: "relation(database_quota)", Rules: []string{"fp.defines"}},
+		{Target: "h121151", Attr: "window", Value: "night", Basis: "relation(low_nightly)", Rules: []string{"fp.arrow"}},
 	}
 	if !reflect.DeepEqual(plan.Decisions, want) {
 		t.Fatalf("решения:\n%+v\nожидались:\n%+v", plan.Decisions, want)
@@ -100,23 +100,24 @@ func TestDeriveChains(t *testing.T) {
 	}
 	line := "  File --defines--> Approval (database_quota)\n  Approval --modifies--> Probe (low_nightly)\n"
 
+	defines, chain := []string{"fp.defines"}, []string{"fp.defines", "fp.modifies"}
 	check("File → Approval → Probe", derive(line, "  set File.size = 8 GB\n"), []Decision{
-		{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)"},
-		{Target: "Probe", Attr: "size", Value: "8 GB", Basis: "relation(low_nightly)"},
+		{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)", Rules: defines},
+		{Target: "Probe", Attr: "size", Value: "8 GB", Basis: "relation(low_nightly)", Rules: chain},
 	}, nil)
 	check("посылка на середине", derive(line, "  set File.size = 8 GB\n  set Approval.size = 2 GB\n"), []Decision{
-		{Target: "Probe", Attr: "size", Value: "2 GB", Basis: "relation(low_nightly)"},
+		{Target: "Probe", Attr: "size", Value: "2 GB", Basis: "relation(low_nightly)", Rules: []string{"fp.modifies"}},
 	}, nil)
 	check("по кругу", derive(line+"  Probe --limits--> Approval (connection_limit)\n", "  set File.size = 8 GB\n"), []Decision{
-		{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)"},
-		{Target: "Probe", Attr: "size", Value: "8 GB", Basis: "relation(low_nightly)"},
+		{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)", Rules: defines},
+		{Target: "Probe", Attr: "size", Value: "8 GB", Basis: "relation(low_nightly)", Rules: chain},
 	}, nil)
 	// Table → Probe даёт 4 GB на первом шаге, File → Approval → Probe — 8 GB
 	// на втором: приоритета между Approval и Table нет — Probe вопрос
 	// оператору, и до Storage ничего не доходит.
 	check("два пути", derive(line+"  Table --limits--> Probe (log_size)\n  Probe --defines--> Storage (nightly_backup)\n",
 		"  set File.size = 8 GB\n  set Table.size = 4 GB\n"),
-		[]Decision{{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)"}},
+		[]Decision{{Target: "Approval", Attr: "size", Value: "8 GB", Basis: "relation(database_quota)", Rules: defines}},
 		[]OpenQuestion{{Targets: []string{"Probe"}, Attr: "size", Values: []string{"8 GB", "4 GB"}}})
 }
 
@@ -219,7 +220,7 @@ func TestInexactPremises(t *testing.T) {
 
 	plan := PlanAnswer(inexactTask, prog)
 	want := []Decision{{Target: "Approval", Attr: "window", Value: "night", Alternatives: []string{"night", "weekend"},
-		Basis: "relation(database_quota)"}}
+		Basis: "relation(database_quota)", Rules: []string{"fp.defines"}}}
 	if !reflect.DeepEqual(plan.Decisions, want) {
 		t.Fatalf("сужение: %+v", plan.Decisions)
 	}

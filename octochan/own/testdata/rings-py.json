@@ -1,0 +1,64 @@
+{
+ "well_true": 0.5,
+ "prior": [
+  8,
+  8
+ ],
+ "rules": {
+  "fp.defines": [
+   12.5,
+   14.0
+  ],
+  "fp.modifies": [
+   3,
+   9
+  ]
+ },
+ "weights": [
+  0.1,
+  0.9,
+  1.2,
+  -0.8,
+  1.0
+ ],
+ "calibration": [
+  [
+   0.2,
+   0.1
+  ],
+  [
+   0.7,
+   0.75
+  ]
+ ],
+ "history": {
+  "window": {
+   "night": 5,
+   "weekend": 1
+  }
+ },
+ "clusters": {
+  "75cf2d265cfe": {
+   "shape": [
+    "class Config",
+    "relation Limit modifies Config"
+   ],
+   "similarity": 0.8,
+   "instances": [
+    "a1",
+    "b2",
+    "c3"
+   ],
+   "outcomes": [
+    1.0,
+    5.8
+   ],
+   "rules": {
+    "fp.modifies": [
+     1.0,
+     5.8
+    ]
+   }
+  }
+ }
+}

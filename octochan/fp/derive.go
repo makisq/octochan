@@ -42,6 +42,10 @@ type Decision struct {
 	Alternatives []string
 	// Basis — основание в отчёте: relation(имя) или priority(A < B).
 	Basis string
+	// Rules — правила вывода всего пути: перенос цепочкой — fp.<тип> на
+	// каждом шаге, по стрелке — fp.arrow. Кольцо 1 перемножает их
+	// надёжность.
+	Rules []string
 }
 
 // Line — утверждение ячейки с решением.
@@ -104,7 +108,12 @@ func Derive(prog *Program) Derivation {
 		return d, true
 	}
 
-	type source struct{ from, value, label string }
+	type source struct {
+		from, value, label, kind string
+		rules                    []string
+	}
+	// path — правила пути решения: путь источника и шаг переноса.
+	path := func(s source) []string { return append(append([]string(nil), s.rules...), "fp."+s.kind) }
 	distinct := func(sources []source) []string {
 		var values []string
 		for _, s := range sources {
@@ -120,7 +129,8 @@ func Derive(prog *Program) Derivation {
 		outside := &OpenQuestion{Targets: []string{to.target}, Attr: to.attr,
 			Values: append(append([]string(nil), values...), given[to].Text)}
 		if len(values) == 1 {
-			d, ok := narrow(to, Decision{Target: to.target, Attr: to.attr, Value: values[0], Basis: "relation(" + sources[0].label + ")"})
+			d, ok := narrow(to, Decision{Target: to.target, Attr: to.attr, Value: values[0], Basis: "relation(" + sources[0].label + ")",
+				Rules: path(sources[0])})
 			if !ok {
 				return Decision{}, outside
 			}
@@ -150,7 +160,9 @@ func Derive(prog *Program) Derivation {
 				break
 			}
 		}
-		d := Decision{Target: to.target, Attr: to.attr, Value: win.value, Basis: fmt.Sprintf("priority(%s < %s)", win.from, lose)}
+		// Приоритет — посылка оператора, точная: правило шага одно — перенос.
+		d := Decision{Target: to.target, Attr: to.attr, Value: win.value, Basis: fmt.Sprintf("priority(%s < %s)", win.from, lose),
+			Rules: path(*win)}
 		if allNames(values) {
 			d.Alternatives = values
 		}
@@ -168,12 +180,12 @@ func Derive(prog *Program) Derivation {
 	var out Derivation
 	for {
 		decided := map[key]Decision{}
-		valueOf := func(k key) (string, bool) {
+		valueOf := func(k key) (string, []string, bool) {
 			if exact(k) {
-				return given[k].Text, true
+				return given[k].Text, nil, true
 			}
 			d, ok := decided[k]
-			return d.Value, ok
+			return d.Value, d.Rules, ok
 		}
 		var decisions []Decision
 		var open []OpenQuestion
@@ -188,7 +200,7 @@ func Derive(prog *Program) Derivation {
 			carried := map[key][]source{}
 			var targets []key
 			for _, k := range frontier {
-				value, _ := valueOf(k)
+				value, rules, _ := valueOf(k)
 				for _, rel := range prog.Relations {
 					if rel.From != k.target || !carrying[rel.Type] || rel.Label == "" {
 						continue
@@ -200,7 +212,7 @@ func Derive(prog *Program) Derivation {
 					if _, seen := carried[to]; !seen {
 						targets = append(targets, to)
 					}
-					carried[to] = append(carried[to], source{k.target, value, rel.Label})
+					carried[to] = append(carried[to], source{k.target, value, rel.Label, rel.Type, rules})
 				}
 			}
 			frontier = nil
@@ -230,8 +242,8 @@ func Derive(prog *Program) Derivation {
 				if rel.To != to.target || !carrying[rel.Type] || rel.Label == "" {
 					continue
 				}
-				if value, ok := valueOf(key{rel.From, to.attr}); ok {
-					all = append(all, source{rel.From, value, rel.Label})
+				if value, rules, ok := valueOf(key{rel.From, to.attr}); ok {
+					all = append(all, source{rel.From, value, rel.Label, rel.Type, rules})
 				}
 			}
 			other, q := resolve(to, all)
@@ -270,7 +282,7 @@ func Derive(prog *Program) Derivation {
 				continue
 			}
 			if d, ok := narrow(to, Decision{Target: inst.Name, Attr: k.attr, Value: given[k].Text,
-				Basis: "relation(" + k.target + ")"}); ok {
+				Basis: "relation(" + k.target + ")", Rules: []string{"fp.arrow"}}); ok {
 				out.Decisions = append(out.Decisions, d)
 			}
 		}
@@ -461,7 +473,7 @@ func (a *AnswerPlan) Narrowings(statements []string) ([]Decision, error) {
 				return nil, fmt.Errorf("сужение %q: вопрос отчёта %s уже решён иначе — %s.%s = %s", st, m[2], d.Target, d.Attr, d.Value)
 			}
 		}
-		d := Decision{Target: m[1], Attr: m[2], Value: m[3], Basis: "history(" + m[2] + ")"}
+		d := Decision{Target: m[1], Attr: m[2], Value: m[3], Basis: "history(" + m[2] + ")", Rules: []string{"fp.history"}}
 		if len(premise.Variants) > 0 && allNames(premise.Variants) {
 			d.Alternatives = premise.Variants
 		}
