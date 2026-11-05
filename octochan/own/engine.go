@@ -169,6 +169,10 @@ type narrowing struct {
 // только если его нижняя граница выше верхних границ остальных; иначе
 // варианты сопоставимы, и решает оператор.
 func (m *Model) narrowings(a *fp.AnswerPlan, order []string) []narrowing {
+	return narrowingsOf(m.Params, a, order)
+}
+
+func narrowingsOf(params *Params, a *fp.AnswerPlan, order []string) []narrowing {
 	derived, decided := map[string]bool{}, map[string]string{}
 	for _, d := range a.Decisions {
 		derived[d.Target+"."+d.Attr] = true
@@ -178,7 +182,7 @@ func (m *Model) narrowings(a *fp.AnswerPlan, order []string) []narrowing {
 	for _, key := range order {
 		vague := a.Inexact[key]
 		target, attr, _ := strings.Cut(key, ".")
-		counts := m.Params.History[attr]
+		counts := params.History[attr]
 		total := 0.0
 		for _, n := range counts {
 			total += n

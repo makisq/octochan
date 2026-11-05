@@ -68,7 +68,10 @@ var Groups = map[string][]string{
 	// только. Какую роль открывает окно, решает config.yaml, а не он.
 	"trigger": {"trigger.end", "trigger.fire"},
 	"apply":   {"apply", "eval", "patch", "rollback", "run", "srs", "tee"},
-	"install": {"!!install", "!!registry", "!!rin", "inspect"},
+	// llm.init, llm.corpus, llm.fit, llm.learn, llm.quantize — своя модель:
+	// её словарь, корпус, параметры колец и веса. То, как модель решает,
+	// меняется, как то, что ставит !!install.
+	"install": {"!!install", "!!registry", "!!rin", "inspect", "llm.corpus", "llm.fit", "llm.init", "llm.learn", "llm.quantize"},
 	"auth":    {"auth", "timer"},
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
 		"role.scope", "role.undeny", "role.update", "trigger.secret",
@@ -80,7 +83,7 @@ var Groups = map[string][]string{
 	// Ни то ни другое не входит в потолок llm: нейросеть, подключившись
 	// к серверу, где у master нет пароля, стала бы master.
 	// ha.init и ha.promote — пара серверов: настроить узел и переключить.
-	// llm.serve — держать адаптер своей модели: процесс на этой машине.
+	// llm.serve — выставить свою модель по протоколу v1 для других машин.
 	"server": {"ha.init", "ha.promote", "llm.serve", "serve", "tls.init"},
 	"remote": {"agent", "connect", "remote"},
 }

@@ -87,7 +87,7 @@ func TestKnowledgePackage(t *testing.T) {
 	t.Cleanup(func() { viper.Set("llm.mode", ""); viper.Set("llm.endpoint", "http://127.0.0.1:8080") })
 
 	viper.Set("llm.endpoint", blind.URL)
-	if out := e.must("llm"); !strings.Contains(out, "Знания:  пакетов знаний модель не видит (adapter.py serve --modules") {
+	if out := e.must("llm"); !strings.Contains(out, "Знания:  пакетов знаний модель не видит (каталог модулей ochan:") {
 		t.Fatalf("llm без знаний:\n%s", out)
 	}
 	if _, err := e.ochan("llm", "generate", "--prompt", e.path("task.fp")); err == nil ||

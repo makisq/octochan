@@ -15,7 +15,7 @@ import (
 
 // KnowledgeName — знания пакета для своей модели: обобщения задач, которые
 // повторялись, и как на них работали правила вывода. Лежит рядом с
-// package.yaml; пишет его llama/learn.py --package.
+// package.yaml; пишет его ochan llm learn --package.
 const KnowledgeName = "knowledge.yaml"
 
 // KnowledgeProtocol — версия формата знаний, которую понимает эта сборка.

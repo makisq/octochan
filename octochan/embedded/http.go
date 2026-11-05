@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// Протокол движка, версия 1 — то, что адаптер локальной модели (llama/adapter.py:
-// своя модель ℒ или дообученная на fp) отдаёт ochan по HTTP:
+// Протокол движка, версия 1 — то, что модель по адресу отдаёт ochan по HTTP:
+// своя модель ℒ другой машины (ochan llm serve) или чужой движок.
 //
-//	GET  /v1/info  → {"protocol": 1, "engine": "transformers", "model": "own-small"}
+//	GET  /v1/info  → {"protocol": 1, "engine": "ochan", "model": "~/models/own", "generate": true}
 //	POST /v1/next  ← {"prompt": "…", "output": "…", "top": 2}
 //	               → {"candidates": [{"text": "goal", "p": 0.81}, …], "end": 0.001}
 //
@@ -184,8 +184,8 @@ func (s Step) validate() error {
 	return nil
 }
 
-// Handler — сервер протокола v1 вокруг движка: адаптер локальной модели
-// пишется как Engine и выставляется этим обработчиком.
+// Handler — сервер протокола v1 вокруг движка: своя модель (ochan llm
+// serve) или демонстрационный движок выставляются этим обработчиком.
 func Handler(info Info, engine Engine) http.Handler {
 	mux := http.NewServeMux()
 	reply := func(w http.ResponseWriter, code int, v any) {

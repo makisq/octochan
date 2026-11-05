@@ -23,13 +23,9 @@ import (
 //
 //	llm:
 //	  mode: embedded            # protocol | embedded | natural
-//	  engine: transformers      # что за адаптером: для отчёта и сверки
-//	  endpoint: http://127.0.0.1:8093
-//	  model: ./models/own-small # её загружает адаптер (llama/adapter.py)
-//	  adapter:                  # ochan llm serve: запуск и перезапуск адаптера
-//	    python: ./venv/bin/python
-//	    autostart: true
-//	  decoder:                  # декодер ochan — для модели без /v1/generate
+//	  model: ~/models/own       # своя модель ℒ: ochan загружает её в свой процесс
+//	  endpoint: http://127.0.0.1:8093   # без llm.model — модель по адресу (ochan llm serve там)
+//	  decoder:                  # декодер ochan — для чужого движка
 //	    tau: 0.42               # кольцо 0
 //	    derive: true            # выводимое пишет логика ochan
 //
@@ -42,8 +38,8 @@ import (
 // Подходов два, и делятся они не по месту, а по тому, чья модель. Своя
 // модель ℒ (/v1/info: "generate": true) — архитектурная, и режим у неё
 // один: логика и кольца в её коде, ответ она пишет целиком сама, ochan
-// проверяет его снаружи. Её параметры — rings.json рядом с весами (fit.py,
-// learn.py); настройки декодера к ней не применяются. Чужой локальный
+// проверяет его снаружи. Её параметры — rings.json рядом с весами (llm fit,
+// llm learn); настройки декодера к ней не применяются. Чужой локальный
 // движок (только распределение следующего токена) ведёт декодер ochan —
 // это протокольный подход на своей машине: кольцо 0 и маска языка не дают
 // ему напечатать токен ниже порога и утверждение вне ℒ.
@@ -184,11 +180,11 @@ func printApproach(cmd *cobra.Command, info embedded.Info) {
 	set, old := decoderInConfig()
 	if info.Generate {
 		cmd.Println("Подход:  архитектурный — своя модель ℒ: логика и кольца в её коде, ответ она пишет сама, ochan проверяет его снаружи")
-		cmd.Println("Кольца:  параметры модели — rings.json рядом с весами (llama/fit.py, llama/learn.py)")
+		cmd.Println("Кольца:  параметры модели — rings.json рядом с весами (ochan llm fit, ochan llm learn)")
 		if len(info.Knowledge) > 0 {
 			cmd.Printf("Знания:  @%s — пакеты знаний, которые видит модель (import в задаче)\n", strings.Join(info.Knowledge, ", @"))
 		} else {
-			cmd.Printf("Знания:  пакетов знаний модель не видит (adapter.py serve --modules %s)\n", modulesDir())
+			cmd.Printf("Знания:  пакетов знаний модель не видит (каталог модулей ochan: %s)\n", modulesDir())
 		}
 		if len(set) > 0 {
 			cmd.Printf("внимание: %s — настройки декодера ochan для чужого движка; своя модель их не читает\n", strings.Join(set, ", "))
@@ -209,15 +205,6 @@ func printApproach(cmd *cobra.Command, info embedded.Info) {
 			}
 		}
 	}
-}
-
-func llmEngine() (*embedded.HTTP, error) {
-	endpoint := strings.TrimSpace(viper.GetString("llm.endpoint"))
-	if endpoint == "" {
-		return nil, embedded.ErrNoEngine
-	}
-	timeout := viper.GetDuration("llm.timeout")
-	return embedded.NewHTTP(endpoint, timeout), nil
 }
 
 func generationJournal() (*workspace.Generations, error) {
@@ -258,24 +245,18 @@ var llmCmd = &cobra.Command{
 		defer cancel()
 		info, err := engine.Info(ctx)
 		if err != nil {
-			cmd.Printf("Движок:  %s — %v\n", engine.Endpoint, err)
-			if viper.GetBool("llm.adapter.autostart") {
-				cmd.Println("Запуск:  llm generate и llm run запустят адаптер сами (llm.adapter.autostart); держать его постоянно — ochan llm serve")
-			} else {
-				cmd.Println("Запуск:  ochan llm serve — адаптер своей модели с llm.model; llm.adapter.autostart: true — llm generate и llm run запустят его сами")
-			}
+			cmd.Printf("Движок:  %s — %v\n", engine.Where(), err)
+			cmd.Println("Модель:  своя на этой машине — llm.model (каталог её весов); на другой машине — ochan llm serve там")
 		} else {
-			cmd.Printf("Движок:  %s — протокол v%d, %s, модель %s\n", engine.Endpoint, info.Protocol, info.Engine, info.Model)
-			if want := viper.GetString("llm.engine"); want != "" && !strings.EqualFold(want, info.Engine) {
-				cmd.Printf("внимание: llm.engine: %s, а по адресу отвечает %s\n", want, info.Engine)
+			if local, ok := engine.(localBackend); ok {
+				cmd.Printf("Модель:  %s — в процессе ochan\n", describeModel(local.Model))
+			} else {
+				cmd.Printf("Движок:  %s — протокол v%d, %s, модель %s\n", engine.Where(), info.Protocol, info.Engine, info.Model)
+				if want := viper.GetString("llm.engine"); want != "" && !strings.EqualFold(want, info.Engine) {
+					cmd.Printf("внимание: llm.engine: %s, а по адресу отвечает %s\n", want, info.Engine)
+				}
 			}
 			printApproach(cmd, info)
-			if warn := checkModelPath(info); warn != "" {
-				cmd.Printf("внимание: %s\n", warn)
-			}
-		}
-		if model := viper.GetString("llm.model"); model != "" {
-			cmd.Printf("Модель:  %s (её получает адаптер: ochan llm serve)\n", model)
 		}
 		cmd.Println("Язык:    только формальный промпт: в ответе модели — утверждения ℒ, ничего на естественном языке")
 		return err
@@ -320,11 +301,6 @@ var llmGenerateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		stop, err := ensureAdapter(cmd, engine)
-		if err != nil {
-			return err
-		}
-		defer stop()
 		opts, err := fpOptions(cmd, false)
 		if err != nil {
 			return err
@@ -387,7 +363,7 @@ var llmGenerateCmd = &cobra.Command{
 			}
 			if len(lacking) > 0 {
 				return fmt.Errorf("задача подключает знания %s, а модель их не видит — генерации нет: она читает пакеты "+
-					"из каталога модулей ochan (adapter.py serve --modules %s)", strings.Join(lacking, ", "), modulesDir())
+					"из каталога модулей ochan (%s)", strings.Join(lacking, ", "), modulesDir())
 			}
 			return generateArchitectural(cmd, engine, info, prompt, task, opts)
 		}

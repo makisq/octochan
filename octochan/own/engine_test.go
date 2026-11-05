@@ -3,7 +3,6 @@ package own
 import (
 	"context"
 	"encoding/json"
-	"math/rand"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -34,7 +33,7 @@ func testModel(t *testing.T, params *Params) string {
 	if err := cfg.Save(dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteSafetensors(filepath.Join(dir, "model.safetensors"), randomWeights(cfg, 1)); err != nil {
+	if err := WriteRandomWeights(dir, cfg, 1); err != nil {
 		t.Fatal(err)
 	}
 	if params != nil {
@@ -43,39 +42,6 @@ func testModel(t *testing.T, params *Params) string {
 		}
 	}
 	return dir
-}
-
-func randomWeights(cfg Config, seed int64) map[string]*Tensor {
-	rng := rand.New(rand.NewSource(seed))
-	mat := func(rows, cols int) *Tensor {
-		d := make([]float32, rows*cols)
-		for i := range d {
-			d[i] = float32(rng.NormFloat64() * 0.2)
-		}
-		return &Tensor{Shape: []int{rows, cols}, Data: d, DType: "F32"}
-	}
-	ones := func(n int) *Tensor {
-		d := make([]float32, n)
-		for i := range d {
-			d[i] = 1
-		}
-		return &Tensor{Shape: []int{n}, Data: d, DType: "F32"}
-	}
-	h, kv := cfg.HiddenSize, cfg.KVHeads*cfg.HeadDim
-	w := map[string]*Tensor{"model.embed_tokens.weight": mat(cfg.VocabSize, h), "model.norm.weight": ones(h)}
-	for i := 0; i < cfg.Layers; i++ {
-		p := "model.layers." + string(rune('0'+i)) + "."
-		w[p+"self_attn.q_proj.weight"] = mat(cfg.Heads*cfg.HeadDim, h)
-		w[p+"self_attn.k_proj.weight"] = mat(kv, h)
-		w[p+"self_attn.v_proj.weight"] = mat(kv, h)
-		w[p+"self_attn.o_proj.weight"] = mat(h, cfg.Heads*cfg.HeadDim)
-		w[p+"mlp.gate_proj.weight"] = mat(cfg.Intermediate, h)
-		w[p+"mlp.up_proj.weight"] = mat(cfg.Intermediate, h)
-		w[p+"mlp.down_proj.weight"] = mat(h, cfg.Intermediate)
-		w[p+"input_layernorm.weight"] = ones(h)
-		w[p+"post_attention_layernorm.weight"] = ones(h)
-	}
-	return w
 }
 
 // Задача с тремя решениями: перенос по defines и modifies, цепочка в два

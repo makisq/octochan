@@ -8,6 +8,7 @@ import (
 
 	"ochan/arbiter"
 	"ochan/fp"
+	"ochan/own"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -129,56 +130,70 @@ var fpAlphabetCmd = &cobra.Command{
 	Long: "Слова и знаки, из которых складывается текст формального промпта:\n" +
 		"ключевые слова и типы отношений, слова словаря (базового, словарей\n" +
 		"оператора и скиллов), их смыслы-классы, служебные слова, единицы,\n" +
-		"операции скиллов и знаки грамматики. По алфавиту обрезают выходной словарь\n" +
-		"своей модели (llm.mode: embedded): токена вне алфавита у неё нет.\n\n" +
-		"По строке на запись: вид и текст через табуляцию. Имена объектов в языке\n" +
-		"открыты, поэтому модели нужны ещё отдельные буквы и цифры — их добавляет\n" +
-		"тот, кто обрезает словарь.",
+		"операции скиллов и знаки грамматики. Из алфавита строится словарь своей\n" +
+		"модели (ochan llm init): токена вне алфавита у неё нет.\n\n" +
+		"По строке на запись: вид и текст через табуляцию. Имена частных случаев в\n" +
+		"языке открыты: в словаре модели они — переменные, а цифры и разметку строки\n" +
+		"словарь добавляет сам.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		opts, err := fpOptions(cmd, false)
 		if err != nil {
 			return err
 		}
-		entries := map[string]map[string]bool{}
-		add := func(kind string, items ...string) {
-			if entries[kind] == nil {
-				entries[kind] = map[string]bool{}
-			}
-			for _, item := range items {
-				entries[kind][item] = true
-			}
-		}
-		words := func(lex *fp.Lexicon) {
-			for _, word := range lex.Words() {
-				add("word", word)
-				if entry, ok := lex.Lookup(word); ok {
-					add("sense", entry.Senses...)
-				}
-			}
-			add("function", lex.FunctionWords()...)
-			add("unit", lex.Units()...)
-		}
-		add("keyword", fp.Keywords...)
-		add("mark", fp.Punctuation()...)
-		words(opts.Lexicon)
-		if opts.Skills != nil {
-			for _, name := range opts.Skills() {
-				skill, _ := opts.Library(name)
-				add("skill", name)
-				add("op", skill.Ops...)
-				if skill.Lexicon != nil {
-					words(skill.Lexicon)
-				}
-			}
-		}
-		for _, kind := range sortedPaths(entries) {
-			for _, item := range sortedPaths(entries[kind]) {
-				cmd.Printf("%s\t%s\n", kind, item)
-			}
+		for _, e := range alphabetEntries(opts) {
+			cmd.Printf("%s\t%s\n", e.Kind, e.Text)
 		}
 		return nil
 	},
+}
+
+// alphabetEntries — алфавит ℒ: вид и текст, по видам и по тексту. Из него
+// строится словарь своей модели (ochan llm init).
+func alphabetEntries(opts fp.Options) []own.AlphabetEntry {
+	entries := map[string]map[string]bool{}
+	add := func(kind string, items ...string) {
+		if entries[kind] == nil {
+			entries[kind] = map[string]bool{}
+		}
+		for _, item := range items {
+			entries[kind][item] = true
+		}
+	}
+	words := func(lex *fp.Lexicon) {
+		for _, word := range lex.Words() {
+			add("word", word)
+			if entry, ok := lex.Lookup(word); ok {
+				add("sense", entry.Senses...)
+			}
+		}
+		add("function", lex.FunctionWords()...)
+		add("unit", lex.Units()...)
+	}
+	add("keyword", fp.Keywords...)
+	add("mark", fp.Punctuation()...)
+	lex := opts.Lexicon
+	if lex == nil {
+		lex = fp.BaseLexicon()
+	}
+	words(lex)
+	if opts.Skills != nil {
+		for _, name := range opts.Skills() {
+			skill, _ := opts.Library(name)
+			add("skill", name)
+			add("op", skill.Ops...)
+			if skill.Lexicon != nil {
+				words(skill.Lexicon)
+			}
+		}
+	}
+	var out []own.AlphabetEntry
+	for _, kind := range sortedPaths(entries) {
+		for _, item := range sortedPaths(entries[kind]) {
+			out = append(out, own.AlphabetEntry{Kind: kind, Text: item})
+		}
+	}
+	return out
 }
 
 // fpOptions собирает настройки проверки: то, что задаётся в конфигурации,

@@ -275,3 +275,59 @@ func copyFile(from, to string) error {
 	}
 	return out.Close()
 }
+
+// QuantBits — бит на вес квантованной модели; 0 — веса полные.
+func QuantBits(dir string) int {
+	data, err := os.ReadFile(filepath.Join(dir, quantJSON))
+	if err != nil {
+		return 0
+	}
+	var meta quantMeta
+	if json.Unmarshal(data, &meta) != nil {
+		return 0
+	}
+	return meta.Bits
+}
+
+// Compare — сверка двух сетей на парах корпуса с подстановкой верного
+// префикса: доля позиций ответа, где самый вероятный токен тот же, и
+// средние потери на ответе у обеих.
+func Compare(a, b *Net, pairs []Pair) (agree, lossA, lossB float64, err error) {
+	same, total := 0, 0
+	for _, p := range pairs {
+		if p.Start < 1 || p.Start > len(p.IDs) {
+			return 0, 0, 0, fmt.Errorf("пара без токенов ответа")
+		}
+		for pos := p.Start; pos < len(p.IDs); pos++ {
+			pa, err := a.Probs(p.IDs[:pos])
+			if err != nil {
+				return 0, 0, 0, err
+			}
+			pb, err := b.Probs(p.IDs[:pos])
+			if err != nil {
+				return 0, 0, 0, err
+			}
+			if argmax(pa) == argmax(pb) {
+				same++
+			}
+			target := p.IDs[pos]
+			lossA -= math.Log(math.Max(pa[target], 1e-45))
+			lossB -= math.Log(math.Max(pb[target], 1e-45))
+			total++
+		}
+	}
+	if total == 0 {
+		return 0, 0, 0, fmt.Errorf("позиций ответа нет")
+	}
+	return float64(same) / float64(total), lossA / float64(total), lossB / float64(total), nil
+}
+
+func argmax(p []float64) int {
+	best := 0
+	for i, v := range p {
+		if v > p[best] {
+			best = i
+		}
+	}
+	return best
+}

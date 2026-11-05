@@ -61,7 +61,7 @@ type agentState struct {
 type agentRun struct {
 	cmd    *cobra.Command
 	agent  string
-	engine *embedded.HTTP
+	engine llmBackend
 	info   embedded.Info
 	opts   fp.Options
 	state  agentState
@@ -569,8 +569,7 @@ var llmRunCmd = &cobra.Command{
 		"ждёт согласования. Без сценария решение уходит людям: заявку оформит\n" +
 		"человек.\n\n" +
 		"Без --once цикл ходит каждые --every, пока его не остановят; на standby он\n" +
-		"ждёт. С llm.adapter.autostart адаптер модели запускается и держится, пока\n" +
-		"идёт цикл.",
+		"ждёт. Своя модель (llm.model) загружается в процесс один раз на весь цикл.",
 	Args: cobra.NoArgs,
 	Example: "ochan llm run --agent db7\n" +
 		"ochan llm run --agent db7 --once\n" +
@@ -592,11 +591,6 @@ var llmRunCmd = &cobra.Command{
 		}
 		ctx, stopSignals := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stopSignals()
-		stop, err := ensureAdapter(cmd, engine)
-		if err != nil {
-			return err
-		}
-		defer stop()
 		info, err := engine.Info(ctx)
 		if err != nil {
 			return fmt.Errorf("%w — цикла нет: ochan говорит с моделью только по подтверждённому протоколу", err)

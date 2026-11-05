@@ -36,9 +36,6 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(Execute())
 	}
-	if os.Getenv("OCHAN_TEST_FAKE_ADAPTER") == "1" {
-		os.Exit(fakeAdapter())
-	}
 	os.Exit(m.Run())
 }
 

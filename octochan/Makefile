@@ -6,9 +6,7 @@
 #   make vendor                  зависимости в vendor/ — для сборки без сети
 #   make offline                 собрать из vendor/, в сеть не обращаясь
 #   make rlm                     ещё и модуль RLM
-#   make install-llm             ещё и адаптер своей модели ℒ: share/ochan/llm, venv
-#   make fpcheck                 bin/fpcheck — пакетная проверка корпуса (llama/corpus.py)
-#   make llm-test                тесты Python своей модели (нужен venv с requirements.txt)
+#   make llm-test                тест обучения своей модели (llama/train_own.py; нужен venv с requirements.txt)
 #   make dist                    релиз под все платформы в dist/
 #
 # Версия — VERSION; её печатают ochan --version и ochan-mcp --version.
@@ -23,7 +21,7 @@ LDFLAGS     := -X ochan/cmd.Version=$(VERSION) -X ochan/rbac.SystemPolicyPath=$(
 MCP_LDFLAGS := -X main.serverVersion=$(VERSION)
 PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: build install uninstall rlm install-llm fpcheck llm-test vendor offline dist test vet version
+.PHONY: build install uninstall rlm llm-test vendor offline dist test vet version
 
 PYTHON ?= python3
 
@@ -39,12 +37,6 @@ uninstall:
 
 rlm:
 	PREFIX="$(PREFIX)" VERSION="$(VERSION)" sh scripts/install.sh --rlm
-
-install-llm:
-	PREFIX="$(PREFIX)" VERSION="$(VERSION)" PYTHON="$(PYTHON)" sh scripts/install.sh --llm
-
-fpcheck:
-	go build -trimpath -o "$(abspath $(OUT))/fpcheck" ./llama/fpcheck
 
 llm-test:
 	cd llama && $(PYTHON) -m unittest discover -s tests -v
