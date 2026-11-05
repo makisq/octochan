@@ -11,11 +11,17 @@
 | 1 | естественный язык | внешняя | — | промпты готовы, модель не выбрана |
 | 2 | формальный промпт с разбором, арбитрами и отчётом, без колец | внешняя | протокольный | промпты готовы, модель не выбрана |
 | 3 | то же с кольцами 1–3 в режиме протокола | внешняя | протокольный | промпты готовы, модель не выбрана |
-| 4 | своя модель ℒ, логика и кольца в её коде | `llama/own.py` | архитектурный | запускается |
+| 4 | своя модель ℒ, логика и кольца в её коде | пакет `own`, в процессе ochan | архитектурный | запускается |
 
 В условиях 1–3 модель одна и та же — внешняя: в её код не попасть, язык и
-кольца стоят вокруг неё. Её выбирает владелец; до тех пор `run.py run`
+кольца стоят вокруг неё. Её выбирает владелец; до тех пор `experiment run`
 для этих условий отказывает с причиной.
+
+Стенд — на Go (`main.go`, `metrics.go`): задуманный план и веса вопросов
+выводит та же логика, что у ochan и у модели (`fp`). Прежний стенд на
+Python удалён; задачи, подготовленные им, выводятся этой логикой так же
+(`go test ./experiment`), а метрики по прежним прогонам совпали с его
+отчётом.
 
 ## Предрегистрация
 
@@ -27,7 +33,7 @@
   раздел 9.3.
 - **План ответа** — пары «вопрос → ответ» X(I) из отчёта (А.5). Отказ без
   предпосылки — план «⊥undef».
-- **Метрики** (`metrics.py`): ĉ — доля пар прогонов с одинаковым планом,
+- **Метрики** (`experiment metrics`): ĉ — доля пар прогонов с одинаковым планом,
   на одной записи и между записями задачи (H1); p̂ — доля прогонов с
   задуманным планом I*; обе ещё градуированно, 1 − δ, δ — взвешенное
   расстояние Жаккара (А.5); H3 — отказ, а не догадка, на задаче без
@@ -36,14 +42,14 @@
   модели; H6 — калибровка выбора по журналу (`ochan fp journal export`);
   H7 — корреляция ĉ и p̂ по записям; цена — время, утверждения логики и
   выборы сети.
-- **Разметка** — слепая: `metrics.py --blind` пишет планы без условия и
+- **Разметка** — слепая: `experiment metrics --blind` пишет планы без условия и
   модели в случайном порядке, ключ — отдельным файлом. Согласие
   разметчиков считается отдельно — когда их будет больше одного.
 
 ## Задачи
 
 Исходники — формальные промпты `sources/*.fp` и пересказы с доменами
-`natural.yaml`; `run.py prepare` собирает из них `tasks/*.yaml`, одна
+`natural.yaml`; `experiment prepare` собирает из них `tasks/*.yaml`, одна
 задача — файл:
 
 | поле | что |
@@ -65,17 +71,25 @@
 
 Все задачи — **черновики**: эталон I* выведен логикой, пересказы написаны
 черновиком. Утверждает их владелец — правкой `sources/` и `natural.yaml`
-и новым `run.py prepare --force`.
+и новым `go run ./experiment prepare --force`.
 
 ## Запуск
 
+Из каталога `octochan`:
+
 ```
-python run.py prepare --force --from "sources/*.fp" --lexicon ../fp/lexicon.yaml
-python ../llama/adapter.py serve --model G:/fpm-llm/models/own-small-2 --listen 127.0.0.1:8096
-python run.py run --condition architectural --model own-small-2 --endpoint http://127.0.0.1:8096 \
-    --ochan ochan --home G:/fpm-llm/runs/exp-home --out runs/architectural-own-small-2.jsonl
-python metrics.py runs/*.jsonl --journal journal.json --blind results/blind.jsonl --out results/report.md
+go run ./experiment prepare --force --from "experiment/sources/*.fp"
+go run ./experiment run --condition architectural --model own-small-2 --weights G:/fpm-llm/models/own-small-2 \
+    --ochan ochan --home G:/fpm-llm/runs/exp-home --out experiment/runs/architectural-own-small-2.jsonl
+go run ./experiment metrics experiment/runs/*.jsonl --journal journal.json --blind experiment/results/blind.jsonl \
+    --out experiment/results/report.md
 ```
+
+`run` пишет дом ochan для прогонов с `llm.model: --weights`: модель
+загружается в процесс ochan на каждый прогон `ochan llm generate`.
+`--model` — метка версии для H4. Перезапись задач (`prepare`) теперь
+случайна иначе, чем у прежнего стенда: те же задачи с `--force` дадут
+другие перефразировки.
 
 ## Первые результаты, 01.11.2026
 
