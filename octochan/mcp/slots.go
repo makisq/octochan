@@ -141,11 +141,13 @@ func newSandbox(roots, live []string, env ...string) (*sandbox, error) {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("%s — не каталог", root)
 		}
-		if work := ochanDir(); work != "" && within(real, work) {
-			// ochan откажет каждому вызову с такой песочницей: сказать это
-			// сразу понятнее, чем отказом на первом же сценарии.
-			return nil, fmt.Errorf("каталог %s содержит рабочий каталог ochan %s: нейросети туда нельзя; "+
-				"запустите сервер из каталога проекта или укажите --root", root, work)
+		for _, work := range ochanDirs() {
+			if within(real, work) {
+				// ochan откажет каждому вызову с такой песочницей: сказать
+				// это сразу понятнее, чем отказом на первом же сценарии.
+				return nil, fmt.Errorf("каталог %s содержит рабочий каталог ochan %s: нейросети туда нельзя; "+
+					"запустите сервер из каталога проекта или укажите --root", root, work)
+			}
 		}
 		box.roots = append(box.roots, real)
 	}
@@ -445,17 +447,34 @@ func overrides(name string, raw any) ([]string, error) {
 	return args, nil
 }
 
-// ochanDir — рабочий каталог ochan: там роли, ключ сервера и токены.
-func ochanDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+// ochanPathEnv — каталоги узла, вынесенные из рабочего каталога ochan
+// переменными окружения (workspace.Dirs): модули, журналы, отчёты, кеш
+// реестров.
+var ochanPathEnv = []string{"OCTOCHAN_MODULES", "OCTOCHAN_LOGS", "OCTOCHAN_REPORTS", "OCTOCHAN_REGISTRY_CACHE"}
+
+// ochanDirs — каталоги ochan, куда нейросети хода нет: рабочий
+// (OCTOCHAN_HOME, иначе ~/.octochan — там роли, ключ сервера и токены) и
+// вынесенные из него переменными окружения. Сервер передаёт своё окружение
+// ochan, поэтому видит те же пути. Каталоги, вынесенные в config.yaml,
+// знает только сам ochan — он и откажет.
+func ochanDirs() []string {
+	var dirs []string
+	if home := os.Getenv("OCTOCHAN_HOME"); home != "" {
+		dirs = append(dirs, home)
+	} else if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".octochan"))
 	}
-	dir := filepath.Join(home, ".octochan")
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		return real
+	for _, name := range ochanPathEnv {
+		if dir := os.Getenv(name); dir != "" {
+			dirs = append(dirs, dir)
+		}
 	}
-	return dir
+	for i, dir := range dirs {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dirs[i] = real
+		}
+	}
+	return dirs
 }
 
 // within сообщает, что path — это dir или лежит внутри него.

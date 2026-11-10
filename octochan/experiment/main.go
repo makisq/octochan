@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"ochan/fp"
+	"ochan/workspace"
 
 	"gopkg.in/yaml.v3"
 )
@@ -390,6 +391,10 @@ func run(args []string) error {
 		return err
 	}
 	env := append(os.Environ(), "HOME="+*home, "USERPROFILE="+*home, "OCTOCHAN_CONFIG="+config)
+	// Пути из окружения запускающего увели бы ochan из дома стенда.
+	for _, name := range workspace.PathEnv() {
+		env = append(env, name+"=")
+	}
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		return err
 	}

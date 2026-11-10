@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"regexp"
@@ -19,12 +21,111 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 )
 
 var shellCmd = &cobra.Command{
 	Use:   "shell",
-	Short: "Запустить интерактивную оболочку",
-	Args:  cobra.NoArgs,
+	Short: "Запустить оболочку: интерактивную на терминале, построчную без него",
+	Long: "На терминале — интерактивная оболочка с автодополнением и историей.\n\n" +
+		"Без терминала — в конвейере, в задании CI, с вводом из файла — оболочка\n" +
+		"читает stdin построчно и выполняет те же строки: команды ochan и\n" +
+		"инструкции языка алиасов, с переменными между строками и блоками\n" +
+		"{ … } в несколько строк. Пустые строки и строки с # пропускаются, exit\n" +
+		"кончает ввод. Ошибки идут в stderr, вывод команд — в stdout; код\n" +
+		"возврата — 1, если хоть одна строка кончилась ошибкой. С\n" +
+		"--stop-on-error оболочка останавливается на первой. В историю такие\n" +
+		"строки не пишутся, а stdin командам недоступен: из него читаются сами\n" +
+		"команды.",
+	Example: "ochan shell\n" +
+		"echo 'logs rank --min warning' | ochan shell\n" +
+		"ochan shell --stop-on-error < проверки.txt",
+	Args: cobra.NoArgs,
+}
+
+// shellStopOnError — построчная оболочка останавливается на первой ошибке.
+var shellStopOnError bool
+
+// interactiveTerminal — у оболочки есть терминал: и ввод, и вывод. Без него
+// go-prompt открывал /dev/tty и паниковал (no such device or address).
+func interactiveTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// Построчная оболочка: shellLines — она работает; shellErrors — сколько
+// строк кончилось ошибкой.
+var (
+	shellLines  bool
+	shellErrors int
+)
+
+// shellFail сообщает об ошибке строки оболочки и считает её. Без терминала
+// ошибка идёт в stderr — stdout остаётся выводу команд, — а по счёту
+// решается код возврата.
+func shellFail(err error) {
+	shellErrors++
+	out := os.Stdout
+	if shellLines {
+		out = os.Stderr
+	}
+	fmt.Fprintf(out, i18n.T("ошибка: %v\n"), err)
+}
+
+// runLineShell — оболочка без терминала: строки читаются из in и
+// выполняются так же, как набранные. Ошибка — если строка кончилась
+// ошибкой (с stopOnError — на первой же) или ввод оборвался внутри блока.
+func runLineShell(ctx context.Context, in io.Reader, stopOnError bool) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	shellLines, stdinTaken, shellErrors = true, true, 0
+	defer func() { shellLines, stdinTaken = false, false }()
+	shellReset()
+
+	failed := 0
+	scanner := bufio.NewScanner(in)
+	scanner.Buffer(make([]byte, 64<<10), maxTextLine)
+	// Метка порядка байт в начале ввода: её ставят PowerShell в конвейере и
+	// редакторы Windows в файле.
+	bom := string(rune(0xFEFF))
+	for n := 1; scanner.Scan(); n++ {
+		line := scanner.Text()
+		if n == 1 {
+			line = strings.TrimPrefix(line, bom)
+		}
+		if input := strings.TrimSpace(line); shellPending == "" {
+			if input == "" || strings.HasPrefix(input, "#") {
+				continue
+			}
+			if input == "exit" || input == "quit" {
+				break
+			}
+		}
+		before := shellErrors
+		// Строка выполняется в своём контексте: Ctrl+C и SIGTERM прерывают
+		// её, а оболочка узнаёт о них по общему контексту и кончает ввод.
+		executeShellInput(context.WithoutCancel(ctx), line)
+		if ctx.Err() != nil {
+			return context.Canceled
+		}
+		if shellErrors > before {
+			failed++
+			if stopOnError {
+				return i18n.Errorf("строка %d кончилась ошибкой — остановлено (--stop-on-error)", n)
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("ввод оболочки: %w", err)
+	}
+	if shellPending != "" {
+		shellPending = ""
+		return i18n.Errorf("ввод кончился внутри блока: не хватает закрывающей скобки")
+	}
+	if failed > 0 {
+		return i18n.Errorf("строк с ошибкой: %d", failed)
+	}
+	return nil
 }
 
 // commandHistory — команды оболочки: прежних запусков и этого.
@@ -68,7 +169,8 @@ func loadShellHistory() {
 // Строка, начатая с пробела, не запоминается — как в bash с
 // HISTCONTROL=ignorespace: так набирают то, чему не место в истории.
 func rememberCommand(raw, input string) {
-	if strings.HasPrefix(raw, " ") || strings.HasPrefix(input, "!!") {
+	// Строки конвейера и CI — не то, что набирал человек: в историю не идут.
+	if shellLines || strings.HasPrefix(raw, " ") || strings.HasPrefix(input, "!!") {
 		return
 	}
 	input = redactSecrets(input)
@@ -91,6 +193,12 @@ func init() {
 		if shellLogo && shellNoLogo {
 			return i18n.Errorf("--logo и --no-logo вместе: выберите одно")
 		}
+		if shellLines {
+			return i18n.Errorf("оболочка уже читает команды из stdin: вторая читала бы из него же")
+		}
+		if !interactiveTerminal() {
+			return runLineShell(cmd.Context(), os.Stdin, shellStopOnError)
+		}
 		if err := rememberLogo(); err != nil {
 			cmd.PrintErrln(i18n.Sprintf("внимание: выбор логотипа не сохранён: %v", err))
 		}
@@ -98,6 +206,7 @@ func init() {
 	}
 	shellCmd.Flags().BoolVar(&shellNoLogo, "no-logo", false, "не показывать логотип при входе — и в следующих сессиях")
 	shellCmd.Flags().BoolVar(&shellLogo, "logo", false, "показывать логотип при входе — и в следующих сессиях, даже если shell.logo: false")
+	shellCmd.Flags().BoolVar(&shellStopOnError, "stop-on-error", false, "без терминала: остановиться на первой строке с ошибкой")
 }
 
 // shellTerminal — исходный режим терминала; восстанавливается при любом
@@ -201,7 +310,8 @@ func executeShellInput(ctx context.Context, raw string) {
 		}
 		return
 	}
-	if input == "" {
+	// Комментарий — не инструкция: права на язык ему не нужны.
+	if input == "" || strings.HasPrefix(input, "#") {
 		return
 	}
 
@@ -225,6 +335,7 @@ func executeShellInput(ctx context.Context, raw string) {
 		fmt.Println(i18n.T("Сеанс языка сброшен: переменных и алиасов оболочки больше нет"))
 		return
 	case "!clear", "!history":
+		shellErrors++
 		fmt.Println(i18n.Sprintf("ошибка: команды оболочки пишутся с «!!»: !%s — одиночный «!» теперь означает «не»", input))
 		return
 	}
@@ -247,7 +358,7 @@ func executeShellInput(ctx context.Context, raw string) {
 
 	args, err := splitArgs(input)
 	if err != nil {
-		fmt.Printf(i18n.T("ошибка: %v\n"), err)
+		shellFail(err)
 		return
 	}
 
@@ -263,6 +374,9 @@ var shellPrefix = "ochan> "
 // refreshShellPrefix перечитывает роль после каждой команды, а не на
 // каждое нажатие клавиши: приглашение перерисовывается часто.
 func refreshShellPrefix() {
+	if shellLines {
+		return // без терминала приглашения нет
+	}
 	store, _, err := loadRoles()
 	if err != nil {
 		shellPrefix = "ochan> "
@@ -297,14 +411,14 @@ func runShellCommand(base context.Context, args []string) (terminated bool) {
 			return
 		}
 		if err := singleBang(args); err != nil {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			shellFail(err)
 			return
 		}
 		if err := rootCmd.ExecuteContext(ctx); err != nil {
 			if errors.Is(err, context.Canceled) {
 				fmt.Println(i18n.T("Прервано"))
 			} else {
-				fmt.Printf(i18n.T("ошибка: %v\n"), err)
+				shellFail(err)
 			}
 		}
 	})

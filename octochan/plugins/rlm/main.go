@@ -33,6 +33,7 @@ import (
 	"ochan/rlm"
 	"ochan/runnerhost"
 	"ochan/scenario"
+	"ochan/workspace"
 
 	"github.com/spf13/cobra"
 )
@@ -93,10 +94,10 @@ func (module) Runners() []pluginhost.RunnerSpec {
 }
 
 func main() {
-	// Токен, который до 0.2.0 сохранял ochan auth.
-	if home, err := os.UserHomeDir(); err == nil {
-		if err := rlm.LoadTokenFrom(filepath.Join(home, ".octochan", ".env")); err != nil {
-			fmt.Fprintf(os.Stderr, "rlm: прежний токен ~/.octochan/.env не прочитан: %v\n", err)
+	// Токен, который до 0.2.0 сохранял ochan auth, — в рабочем каталоге.
+	if home, err := workspace.HomeDir(); err == nil {
+		if err := rlm.LoadTokenFrom(filepath.Join(home, ".env")); err != nil {
+			fmt.Fprintf(os.Stderr, "rlm: прежний токен %s не прочитан: %v\n", filepath.Join(home, ".env"), err)
 		}
 	}
 	pluginhost.ServeCommandModule(module{})

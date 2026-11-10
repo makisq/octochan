@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"ochan/i18n"
 	"ochan/logs"
@@ -38,6 +39,10 @@ func configPath(fm *workspace.FileManager) string {
 	if env := os.Getenv("OCTOCHAN_CONFIG"); env != "" {
 		return env
 	}
+	return defaultConfigPath(fm)
+}
+
+func defaultConfigPath(fm *workspace.FileManager) string {
 	return filepath.Join(fm.BaseDir(), "config.yaml")
 }
 
@@ -48,13 +53,20 @@ func initConfig() error {
 	}
 	fileManager = fm
 
-	// Все пути живут под ~/.octochan. Прежняя версия держала config.yaml
-	// в ~/octochan, а всё остальное в ~/.octochan.
+	// Все пути живут в рабочем каталоге (~/.octochan или OCTOCHAN_HOME).
+	// Прежняя версия держала config.yaml в ~/octochan, а всё остальное в
+	// ~/.octochan.
+	// Каталоги узла, которые можно вынести из рабочего: пусто — в нём.
+	// Окружение (OCTOCHAN_MODULES…) сильнее этих настроек.
+	for _, d := range workspace.Dirs {
+		viper.SetDefault("paths."+string(d), "")
+	}
 	// Адрес API, время запроса и параллельность — общие умолчания для
 	// исполнителей модулей; свои у исполнителя — executors.<имя>.
 	viper.SetDefault("defaults.api_url", "")
 	viper.SetDefault("defaults.scenario_path", fm.ScenariosDir())
-	viper.SetDefault("defaults.log_path", fm.LogsDir())
+	// Прежний ключ каталога журналов; теперь paths.logs.
+	viper.SetDefault("defaults.log_path", "")
 	viper.SetDefault("defaults.auto_check_status", false)
 	viper.SetDefault("defaults.max_parallel_tasks", 5)
 	viper.SetDefault("defaults.http_timeout", "30s")
@@ -178,6 +190,30 @@ func initConfig() error {
 		return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)
 	}
 
+	if err := applyPaths(fm); err != nil {
+		return err
+	}
+	return fm.Ensure()
+}
+
+// applyPaths выносит каталоги узла по настройкам paths.* из config.yaml.
+// Каталог журналов читается и по прежнему ключу defaults.log_path, пока
+// нового нет.
+func applyPaths(fm *workspace.FileManager) error {
+	for _, d := range workspace.Dirs {
+		key := "paths." + string(d)
+		value := strings.TrimSpace(viper.GetString(key))
+		if value == "" && d == workspace.DirLogs {
+			key = "defaults.log_path"
+			value = strings.TrimSpace(viper.GetString(key))
+		}
+		if value == "" {
+			continue
+		}
+		if err := fm.Relocate(d, expandHome(value), "config.yaml "+key); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -187,14 +223,11 @@ func initConfig() error {
 // в stdout вперемешку с полезным выводом и ломала конвейеры вида
 // `ochan print a.conf | ochan diff -`.
 func initLogger() error {
-	logPath := viper.GetString("defaults.log_path")
-	if logPath == "" {
-		fm, err := mustFileManager()
-		if err != nil {
-			return err
-		}
-		logPath = fm.LogsDir()
+	fm, err := mustFileManager()
+	if err != nil {
+		return err
 	}
+	logPath := fm.LogsDir()
 
 	if err := os.MkdirAll(logPath, 0o700); err != nil {
 		return fmt.Errorf("не удалось создать директорию логов %s: %w", logPath, err)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,8 +22,16 @@ var (
 	stdinErr   error
 )
 
+// stdinTaken — stdin занят оболочкой: без терминала она читает из него
+// команды построчно. Команда, которая прочла бы stdin сама, съела бы
+// остаток сценария.
+var stdinTaken bool
+
 // readStdin читает stdin целиком; повторные вызовы отдают тот же буфер.
 func readStdin() ([]byte, error) {
+	if stdinTaken {
+		return nil, errors.New("stdin занят: из него оболочка читает команды — передайте команде файл")
+	}
 	stdinOnce.Do(func() {
 		stdinBytes, stdinErr = io.ReadAll(os.Stdin)
 		if stdinErr != nil {
@@ -34,6 +43,9 @@ func readStdin() ([]byte, error) {
 
 // stdinIsPipe сообщает, что на stdin подан не терминал.
 func stdinIsPipe() bool {
+	if stdinTaken {
+		return false
+	}
 	// Ошибка Stat раньше игнорировалась, а затем stat.Mode() разыменовывал nil.
 	info, err := os.Stdin.Stat()
 	if err != nil {

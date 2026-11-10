@@ -43,8 +43,9 @@ func init() {
 	// пакет с "initialization cycle".
 	rootCmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		// Без аргументов на терминале открываем интерактивную оболочку,
-		// в конвейере — показываем справку.
-		if stdinIsPipe() {
+		// без терминала — в конвейере, в CI, с stdin из /dev/null —
+		// показываем справку. Команды из конвейера выполняет ochan shell.
+		if !interactiveTerminal() {
 			return cmd.Help()
 		}
 		return runInteractiveShell(cmd.Context())
