@@ -78,7 +78,7 @@
 - [`ochan llm corpus`](#ochan-llm-corpus) — Корпус для обучения своей модели: пары задача → ответ логики ochan
 - [`ochan llm fit`](#ochan-llm-fit) — Параметры колец своей модели по журналу решений
 - [`ochan llm generate`](#ochan-llm-generate) — Локальная модель пишет ответ на языке: своя — сама, чужую ведёт декодер ochan
-- [`ochan llm init`](#ochan-llm-init) — Новая своя модель: словарь из алфавита ℒ и конфигурация сети
+- [`ochan llm init`](#ochan-llm-init) — Своя модель: стартовая с обученными весами или новая под обучение
 - [`ochan llm learn`](#ochan-llm-learn) — Своя модель учится на повторяющихся инцидентах; версии параметров и откат
 - [`ochan llm quantize`](#ochan-llm-quantize) — Квантовать свою модель: int8 или int4 по группам строки
 - [`ochan llm run`](#ochan-llm-run) — Цикл агента своей модели: ответ становится заявкой, шагом инцидента или письмом
@@ -1529,17 +1529,26 @@ ochan llm generate [--prompt задача.fp] [--out файл]
 
 ## ochan llm init
 
-Новая своя модель: словарь из алфавита ℒ и конфигурация сети.
+Своя модель: стартовая с обученными весами или новая под обучение.
 
 ```
-ochan llm init --out каталог [--size tiny|small|base] [--context 1024] [--random-weights]
+ochan llm init --out каталог --pretrained [--full] | init --out каталог [--size tiny|small|base] [--context 1024] [--random-weights]
 ```
 
-Словарь модели — алфавит ℒ (ochan fp alphabet: слова словаря, их смыслы,
-ключевые и служебные слова, единицы, знаки, операции скиллов) с цифрами,
-разметкой строки и переменными для имён частных случаев. Конфигурация —
-архитектура Llama размера --size. Веса сети обучает llama/train_own.py по
-корпусу ochan llm corpus; каталог с весами — llm.model.
+--pretrained — стартовая модель: обученные веса и словарь, которые
+доставляются вместе с ochan (они встроены в бинарник). Учить язык с нуля
+на каждой машине незачем: модель отвечает сразу — без Python, видеокарты
+и сети. Каталог — llm.model. Своё у каждой установки — параметры колец:
+надёжность правил по её журналу и инцидентам (llm fit, llm learn).
+Веса — int8; --full распаковывает их в float32 — с таких идёт дообучение
+сети (llama/train_own.py --init).
+
+Без --pretrained — новая модель под обучение с нуля. Её словарь — алфавит
+ℒ (ochan fp alphabet: слова словаря, их смыслы, ключевые и служебные
+слова, единицы, знаки, операции скиллов) с цифрами, разметкой строки и
+переменными для имён частных случаев. Конфигурация — архитектура Llama
+размера --size. Веса сети обучает llama/train_own.py по корпусу ochan llm
+corpus; каталог с весами — llm.model.
 
 --random-weights — случайные веса: модель отвечает сразу, потому что ответ
 пишет её логика, а сеть только выбирает порядок среди допустимых. Это
@@ -1550,15 +1559,18 @@ ochan llm init --out каталог [--size tiny|small|base] [--context 1024] [-
 Примеры:
 
 ```
-ochan llm init --out ~/models/own --size small
-ochan llm corpus --model ~/models/own --count 60000 --out corpus.jsonl
-python llama/train_own.py --model ~/models/own --corpus corpus.jsonl
+ochan llm init --pretrained --out ~/models/own
+ochan llm init --out ~/models/new --size small
+ochan llm corpus --model ~/models/new --count 60000 --out corpus.jsonl
+python llama/train_own.py --model ~/models/new --corpus corpus.jsonl
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--context` | int | `1024` | контекст: сколько токенов видит модель |
+| `--full` | bool | — | с --pretrained: распаковать веса в float32 — для дообучения сети |
 | `--out` | string | — | каталог новой модели |
+| `--pretrained` | bool | — | стартовая модель: обученные веса и словарь, встроенные в ochan |
 | `--random-weights` | bool | — | случайные веса: проверить контур до обучения |
 | `--size` | string | `small` | размер сети: tiny, small или base |
 

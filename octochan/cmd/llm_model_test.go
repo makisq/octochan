@@ -16,6 +16,41 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Стартовая модель: обученные веса из бинарника — одной командой, и модель
+// отвечает сразу; параметры колец у неё свои, с холодного старта.
+func TestLLMInitPretrained(t *testing.T) {
+	e := newScriptEnv(t)
+	dir := filepath.Join(e.home, "models", "start")
+	out := e.must("llm", "init", "--pretrained", "--out", dir)
+	if !strings.Contains(out, "Стартовая модель (own-small-2, int8): "+dir+": 14.8 млн параметров, словарь 1682") ||
+		!strings.Contains(out, "веса int8") || !strings.Contains(out, "llm.model: "+dir) {
+		t.Fatalf("init --pretrained:\n%s", out)
+	}
+	e.fails("уже модель", "llm", "init", "--pretrained", "--out", dir)
+	e.fails("--size, --context и --random-weights — для новой", "llm", "init", "--pretrained", "--size", "tiny", "--out", dir+"2")
+	e.fails("вместе с --pretrained", "llm", "init", "--full", "--out", dir+"3")
+
+	setting(t, "llm.mode", "embedded")
+	setting(t, "llm.model", dir)
+	t.Cleanup(func() {
+		loadedMu.Lock()
+		delete(loaded, dir)
+		loadedMu.Unlock()
+	})
+	e.write(e.path("task.fp"), loopTask)
+	out = e.must("llm", "generate", "--prompt", e.path("task.fp"))
+	if !strings.Contains(out, "Архитектурная модель: ответ написала она сама") || !strings.Contains(out, "set Approval.limit = 200") {
+		t.Fatalf("generate стартовой моделью:\n%s", out)
+	}
+	// Параметры колец — свои у каждой установки: со стартовыми весами их нет.
+	if _, err := os.Stat(filepath.Join(dir, "rings.json")); err == nil {
+		t.Fatal("со стартовыми весами доставлены чужие параметры колец")
+	}
+	if out := e.must("llm", "fit"); !strings.Contains(out, "Версия параметров 1") {
+		t.Fatalf("fit стартовой модели:\n%s", out)
+	}
+}
+
 // Своя модель целиком в ochan: init (словарь и сеть), generate в процессе,
 // fit по журналу, версии и откат, корпус с токенами, квантование со
 // сверкой.
