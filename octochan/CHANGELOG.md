@@ -4,6 +4,13 @@
 
 Версия 0.3.0-alpha: `ochan --version` и `ochan-mcp --version` печатают её.
 
+### Зависимости
+
+- `google.golang.org/grpc` 1.83.1 → 1.83.2: закрыт отказ в обслуживании
+  серверов xDS при запросе без `:authority` и `Host` (CVE-2026-84445,
+  GHSA-2v4p-qf9q-27wj). Вместе с ним обновлены `golang.org/x/crypto`,
+  `net`, `sys`, `term`, `text`.
+
 ### Текст и сеть
 
 - `ochan text grep|fields|tail` — поиск по шаблону RE2, поля строк (как

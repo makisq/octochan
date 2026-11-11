@@ -7,9 +7,9 @@ require (
 	github.com/hashicorp/go-plugin v1.4.10
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/spf13/cobra v1.9.1
-	golang.org/x/crypto v0.52.0
-	golang.org/x/term v0.43.0
-	google.golang.org/grpc v1.83.1
+	golang.org/x/crypto v0.55.0
+	golang.org/x/term v0.45.0
+	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
 )
 
@@ -21,7 +21,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/mitchellh/go-testing-interface v0.0.0-20171004221916-a61a99592b77 // indirect
 	github.com/oklog/run v1.0.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 )
 
@@ -45,7 +45,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/sys v0.45.0
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sys v0.47.0
+	golang.org/x/text v0.41.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
