@@ -78,11 +78,12 @@
 - [`ochan llm corpus`](#ochan-llm-corpus) — Корпус для обучения своей модели: пары задача → ответ логики ochan
 - [`ochan llm fit`](#ochan-llm-fit) — Параметры колец своей модели по журналу решений
 - [`ochan llm generate`](#ochan-llm-generate) — Локальная модель пишет ответ на языке: своя — сама, чужую ведёт декодер ochan
-- [`ochan llm init`](#ochan-llm-init) — Новая своя модель: словарь из алфавита ℒ и конфигурация сети
+- [`ochan llm init`](#ochan-llm-init) — Своя модель: стартовая с обученными весами или новая под обучение
 - [`ochan llm learn`](#ochan-llm-learn) — Своя модель учится на повторяющихся инцидентах; версии параметров и откат
 - [`ochan llm quantize`](#ochan-llm-quantize) — Квантовать свою модель: int8 или int4 по группам строки
 - [`ochan llm run`](#ochan-llm-run) — Цикл агента своей модели: ответ становится заявкой, шагом инцидента или письмом
 - [`ochan llm serve`](#ochan-llm-serve) — Выставить свою модель по протоколу движка v1 — для ochan на других машинах
+- [`ochan llm train`](#ochan-llm-train) — Обучить веса сети своей модели: градиентный спуск на процессоре
 - [`ochan logs`](#ochan-logs) — Показать журнал работы
 - [`ochan logs files`](#ochan-logs-files) — Показать файлы журнала ochan: текущий и архивы по дате
 - [`ochan logs rank`](#ochan-logs-rank) — Ранжировать строки журнала по уровням важности
@@ -1430,7 +1431,7 @@ embedded, движок: доступен ли, что о себе говорит
 
 Право: `read`.
 
-Подкоманды: [`corpus`](#ochan-llm-corpus), [`fit`](#ochan-llm-fit), [`generate`](#ochan-llm-generate), [`init`](#ochan-llm-init), [`learn`](#ochan-llm-learn), [`quantize`](#ochan-llm-quantize), [`run`](#ochan-llm-run), [`serve`](#ochan-llm-serve).
+Подкоманды: [`corpus`](#ochan-llm-corpus), [`fit`](#ochan-llm-fit), [`generate`](#ochan-llm-generate), [`init`](#ochan-llm-init), [`learn`](#ochan-llm-learn), [`quantize`](#ochan-llm-quantize), [`run`](#ochan-llm-run), [`serve`](#ochan-llm-serve), [`train`](#ochan-llm-train).
 
 ## ochan llm corpus
 
@@ -1448,7 +1449,7 @@ ochan llm corpus --out корпус.jsonl [--model каталог] [--count 5000
 принимает разбор ochan; непрошедшие отбрасываются.
 
 С --model у пары — токены словарём модели (ids, start): по ним учит
-llama/train_own.py. Строка JSON на пару; split — train или test,
+ochan llm train. Строка JSON на пару; split — train или test,
 задача и её близнец — в одной части.
 
 Право: `install`.
@@ -1529,17 +1530,26 @@ ochan llm generate [--prompt задача.fp] [--out файл]
 
 ## ochan llm init
 
-Новая своя модель: словарь из алфавита ℒ и конфигурация сети.
+Своя модель: стартовая с обученными весами или новая под обучение.
 
 ```
-ochan llm init --out каталог [--size tiny|small|base] [--context 1024] [--random-weights]
+ochan llm init --out каталог --pretrained [--full] | init --out каталог [--size tiny|small|base] [--context 1024] [--random-weights]
 ```
 
-Словарь модели — алфавит ℒ (ochan fp alphabet: слова словаря, их смыслы,
-ключевые и служебные слова, единицы, знаки, операции скиллов) с цифрами,
-разметкой строки и переменными для имён частных случаев. Конфигурация —
-архитектура Llama размера --size. Веса сети обучает llama/train_own.py по
-корпусу ochan llm corpus; каталог с весами — llm.model.
+--pretrained — стартовая модель: обученные веса и словарь, которые
+доставляются вместе с ochan (они встроены в бинарник). Учить язык с нуля
+на каждой машине незачем: модель отвечает сразу — без Python, видеокарты
+и сети. Каталог — llm.model. Своё у каждой установки — параметры колец:
+надёжность правил по её журналу и инцидентам (llm fit, llm learn).
+Веса — int8: ochan llm train --init дообучает сеть и с них; --full
+распаковывает их в float32 — такие читает и torch.
+
+Без --pretrained — новая модель под обучение с нуля. Её словарь — алфавит
+ℒ (ochan fp alphabet: слова словаря, их смыслы, ключевые и служебные
+слова, единицы, знаки, операции скиллов) с цифрами, разметкой строки и
+переменными для имён частных случаев. Конфигурация — архитектура Llama
+размера --size. Веса сети обучает ochan llm train по корпусу ochan llm
+corpus; каталог с весами — llm.model.
 
 --random-weights — случайные веса: модель отвечает сразу, потому что ответ
 пишет её логика, а сеть только выбирает порядок среди допустимых. Это
@@ -1550,15 +1560,18 @@ ochan llm init --out каталог [--size tiny|small|base] [--context 1024] [-
 Примеры:
 
 ```
-ochan llm init --out ~/models/own --size small
-ochan llm corpus --model ~/models/own --count 60000 --out corpus.jsonl
-python llama/train_own.py --model ~/models/own --corpus corpus.jsonl
+ochan llm init --pretrained --out ~/models/own
+ochan llm init --out ~/models/new --size small
+ochan llm corpus --model ~/models/new --count 60000 --out corpus.jsonl
+ochan llm train --model ~/models/new --corpus corpus.jsonl
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--context` | int | `1024` | контекст: сколько токенов видит модель |
+| `--full` | bool | — | с --pretrained: распаковать веса в float32 — их читает и torch |
 | `--out` | string | — | каталог новой модели |
+| `--pretrained` | bool | — | стартовая модель: обученные веса и словарь, встроенные в ochan |
 | `--random-weights` | bool | — | случайные веса: проверить контур до обучения |
 | `--size` | string | `small` | размер сети: tiny, small или base |
 
@@ -1579,7 +1592,7 @@ ochan llm learn [--model каталог] [--clusters файл] | --versions | --
 пересчитываются целиком; каждая запись — новая версия rings.json.
 
 Инциденты — этой машины; --clusters — выгрузка ochan incident learn
---export другой. --pairs — пары для дообучения сети (train_own.py --init):
+--export другой. --pairs — пары для дообучения сети (llm train --init):
 задачи, которые модель решила сама, с примесью базового корпуса --replay.
 --package — знания модели пакетом реестра для других машин: обобщения и
 надёжность правил на них, без номеров инцидентов.
@@ -1592,7 +1605,7 @@ ochan llm learn [--model каталог] [--clusters файл] | --versions | --
 | `--description` | string | — | описание пакета знаний одной строкой |
 | `--model` | string | — | каталог своей модели; без флага — llm.model |
 | `--package` | string | — | пакет знаний из кластеров модели; имя пакета — имя каталога |
-| `--pairs` | string | — | записать пары для дообучения сети (train_own.py --init) |
+| `--pairs` | string | — | записать пары для дообучения сети (ochan llm train --init) |
 | `--replay` | string | — | базовый корпус для примеси к парам |
 | `--replay-share` | float64 | `0.9` | доля базового корпуса среди пар обучения |
 | `--rollback` | string | — | откатить параметры к версии N; без N — к предыдущей |
@@ -1695,6 +1708,58 @@ llm.model. На этой машине сервер не нужен: команд
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
 | `--allow-remote` | bool | — | слушать не локальный адрес — только за прокси с TLS и аутентификацией |
+
+## ochan llm train
+
+Обучить веса сети своей модели: градиентный спуск на процессоре.
+
+```
+ochan llm train --corpus корпус.jsonl [--model каталог] [--init каталог] [--epochs 8] [--lr 1e-3] [--resume]
+```
+
+Градиентный спуск по токенам корпуса (ochan llm corpus --model): потери —
+по всей паре <bos> задача <answer> ответ <eos>, батч — по числу токенов
+(--batch-tokens, пары близкой длины вместе), AdamW, обрезка нормы
+градиента, разгон и косинусный спад скорости. Считает процессор, всеми
+ядрами: Python и видеокарта не нужны. Веса пишутся в каталог модели
+(model.safetensors) — это и есть llm.model.
+
+--init — дообучение: веса и словарь готовой модели, полной или
+квантованной (стартовая — ochan llm init --pretrained), например на парах
+кластеров инцидентов с примесью базового корпуса (ochan llm learn
+--pairs). Новые веса пишутся в --model — новый каталог; прежний остаётся
+для отката, параметры колец и их версии переходят с весами.
+
+Каждые --save-every шагов и при прерывании (Ctrl+C) каталог — рабочая
+модель и состояние обучения: --resume продолжает с него с теми же
+параметрами и корпусом, и результат тот же, что без прерывания.
+
+Дообучение на сотнях пар — минуты. Обучение с нуля на десятках тысяч пар
+на процессоре — дни: тот же счёт на видеокарте делает
+llama/train_own.py, каталог модели и корпус у них общие.
+
+Право: `install`.
+
+Примеры:
+
+```
+ochan llm train --init ~/models/own --model ~/models/own-2 --corpus pairs.jsonl --epochs 1 --lr 1e-4
+ochan llm train --model ~/models/new --corpus corpus.jsonl
+ochan llm train --model ~/models/new --corpus corpus.jsonl --resume
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--batch-tokens` | int | `32768` | токенов в батче с выравниванием по самой длинной паре |
+| `--corpus` | string | — | корпус с токенами: ochan llm corpus --model или llm learn --pairs |
+| `--epochs` | float64 | `8` | проходов по корпусу |
+| `--eval-pairs` | int | `200` | сколько отложенных пар мерить; 0 — все |
+| `--init` | string | — | дообучение: начать с весов этой модели; --model — новый каталог |
+| `--lr` | float64 | `0.001` | скорость обучения; для дообучения — меньше (1e-4) |
+| `--model` | string | — | каталог модели, куда пишутся веса; без флага — llm.model |
+| `--resume` | bool | — | продолжить с сохранения в --model |
+| `--save-every` | int | `500` | шагов между сохранениями |
+| `--seed` | int64 | `7` | начало случайной последовательности: тот же seed — те же веса |
 
 ## ochan logs
 

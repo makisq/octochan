@@ -19,8 +19,8 @@ import (
 
 // Своя модель целиком в ochan: словарь (llm init), корпус (llm corpus),
 // параметры колец по журналу и инцидентам (llm fit, llm learn),
-// квантование (llm quantize). Обучение весов сети — llama/train_own.py:
-// единственное, что остаётся вне ochan, потому что считается на видеокарте.
+// квантование (llm quantize), обучение весов сети (llm train, llm_train.go).
+// llama/train_own.py — тот же счёт на видеокарте, для обучения с нуля.
 
 // describeModel — модель одной строкой: каталог, размер, словарь, веса,
 // версия параметров колец.
@@ -58,23 +58,35 @@ var (
 	llmInitContext int
 	llmInitOut     string
 	llmInitRandom  bool
+	llmInitTrained bool
+	llmInitFull    bool
 )
 
 var llmInitCmd = &cobra.Command{
-	Use:   "init --out каталог [--size tiny|small|base] [--context 1024] [--random-weights]",
-	Short: "Новая своя модель: словарь из алфавита ℒ и конфигурация сети",
-	Long: "Словарь модели — алфавит ℒ (ochan fp alphabet: слова словаря, их смыслы,\n" +
-		"ключевые и служебные слова, единицы, знаки, операции скиллов) с цифрами,\n" +
-		"разметкой строки и переменными для имён частных случаев. Конфигурация —\n" +
-		"архитектура Llama размера --size. Веса сети обучает llama/train_own.py по\n" +
-		"корпусу ochan llm corpus; каталог с весами — llm.model.\n\n" +
+	Use: "init --out каталог --pretrained [--full] | " +
+		"init --out каталог [--size tiny|small|base] [--context 1024] [--random-weights]",
+	Short: "Своя модель: стартовая с обученными весами или новая под обучение",
+	Long: "--pretrained — стартовая модель: обученные веса и словарь, которые\n" +
+		"доставляются вместе с ochan (они встроены в бинарник). Учить язык с нуля\n" +
+		"на каждой машине незачем: модель отвечает сразу — без Python, видеокарты\n" +
+		"и сети. Каталог — llm.model. Своё у каждой установки — параметры колец:\n" +
+		"надёжность правил по её журналу и инцидентам (llm fit, llm learn).\n" +
+		"Веса — int8: ochan llm train --init дообучает сеть и с них; --full\n" +
+		"распаковывает их в float32 — такие читает и torch.\n\n" +
+		"Без --pretrained — новая модель под обучение с нуля. Её словарь — алфавит\n" +
+		"ℒ (ochan fp alphabet: слова словаря, их смыслы, ключевые и служебные\n" +
+		"слова, единицы, знаки, операции скиллов) с цифрами, разметкой строки и\n" +
+		"переменными для имён частных случаев. Конфигурация — архитектура Llama\n" +
+		"размера --size. Веса сети обучает ochan llm train по корпусу ochan llm\n" +
+		"corpus; каталог с весами — llm.model.\n\n" +
 		"--random-weights — случайные веса: модель отвечает сразу, потому что ответ\n" +
 		"пишет её логика, а сеть только выбирает порядок среди допустимых. Это\n" +
 		"проверка контура до обучения, а не обученная модель.",
 	Args: cobra.NoArgs,
-	Example: "ochan llm init --out ~/models/own --size small\n" +
-		"ochan llm corpus --model ~/models/own --count 60000 --out corpus.jsonl\n" +
-		"python llama/train_own.py --model ~/models/own --corpus corpus.jsonl",
+	Example: "ochan llm init --pretrained --out ~/models/own\n" +
+		"ochan llm init --out ~/models/new --size small\n" +
+		"ochan llm corpus --model ~/models/new --count 60000 --out corpus.jsonl\n" +
+		"ochan llm train --model ~/models/new --corpus corpus.jsonl",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		out := expandHome(strings.TrimSpace(llmInitOut))
 		if out == "" {
@@ -82,6 +94,29 @@ var llmInitCmd = &cobra.Command{
 		}
 		if own.IsModel(out) {
 			return fmt.Errorf("%s — уже модель: новая модель — в новый каталог, прежняя остаётся", out)
+		}
+		if llmInitFull && !llmInitTrained {
+			return errors.New("--full — для стартовой модели: вместе с --pretrained")
+		}
+		if llmInitTrained {
+			if llmInitRandom || cmd.Flags().Changed("size") || cmd.Flags().Changed("context") {
+				return errors.New("--pretrained — готовая модель: её размер, контекст и веса заданы; " +
+					"--size, --context и --random-weights — для новой")
+			}
+			if err := own.WritePretrained(out, llmInitFull); err != nil {
+				return err
+			}
+			m, err := own.Load(out, modulesDir())
+			if err != nil {
+				return err
+			}
+			cmd.Printf("Стартовая модель (%s): %s\n", own.PretrainedName, describeModel(m))
+			cmd.Printf("Включить: в config.yaml — llm.mode: embedded и llm.model: %s; проверить — ochan llm\n", out)
+			cmd.Printf("Дообучение сети: ochan llm train --init %s --model <новый каталог> --corpus пары.jsonl\n", out)
+			if llmInitFull {
+				cmd.Println("Веса полные (float32): их читает и torch")
+			}
+			return nil
 		}
 		opts, err := fpOptions(cmd, false)
 		if err != nil {
@@ -114,7 +149,7 @@ var llmInitCmd = &cobra.Command{
 		if llmInitRandom {
 			cmd.Println("Веса случайные: модель отвечает сразу — ответ пишет логика, сеть только выбирает порядок; это проверка контура, не обученная модель")
 		}
-		cmd.Printf("Обучение: ochan llm corpus --model %s --out corpus.jsonl, затем python llama/train_own.py --model %s --corpus corpus.jsonl\n", out, out)
+		cmd.Printf("Обучение: ochan llm corpus --model %s --out corpus.jsonl, затем ochan llm train --model %s --corpus corpus.jsonl\n", out, out)
 		return nil
 	},
 }
@@ -139,7 +174,7 @@ var llmCorpusCmd = &cobra.Command{
 		"(⊥undef) — близнец решаемой, её ответ — без решений (H3). Каждую пару\n" +
 		"принимает разбор ochan; непрошедшие отбрасываются.\n\n" +
 		"С --model у пары — токены словарём модели (ids, start): по ним учит\n" +
-		"llama/train_own.py. Строка JSON на пару; split — train или test,\n" +
+		"ochan llm train. Строка JSON на пару; split — train или test,\n" +
 		"задача и её близнец — в одной части.",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
@@ -380,7 +415,7 @@ var llmLearnCmd = &cobra.Command{
 		"исходам, а плохо решённая структура — вопрос оператору. Кластеры\n" +
 		"пересчитываются целиком; каждая запись — новая версия rings.json.\n\n" +
 		"Инциденты — этой машины; --clusters — выгрузка ochan incident learn\n" +
-		"--export другой. --pairs — пары для дообучения сети (train_own.py --init):\n" +
+		"--export другой. --pairs — пары для дообучения сети (llm train --init):\n" +
 		"задачи, которые модель решила сама, с примесью базового корпуса --replay.\n" +
 		"--package — знания модели пакетом реестра для других машин: обобщения и\n" +
 		"надёжность правил на них, без номеров инцидентов.",
@@ -616,6 +651,8 @@ func init() {
 	llmInitCmd.Flags().StringVar(&llmInitSize, "size", "small", "размер сети: tiny, small или base")
 	llmInitCmd.Flags().IntVar(&llmInitContext, "context", 1024, "контекст: сколько токенов видит модель")
 	llmInitCmd.Flags().BoolVar(&llmInitRandom, "random-weights", false, "случайные веса: проверить контур до обучения")
+	llmInitCmd.Flags().BoolVar(&llmInitTrained, "pretrained", false, "стартовая модель: обученные веса и словарь, встроенные в ochan")
+	llmInitCmd.Flags().BoolVar(&llmInitFull, "full", false, "с --pretrained: распаковать веса в float32 — их читает и torch")
 
 	llmCorpusCmd.Flags().IntVar(&llmCorpusCount, "count", 5000, "сколько пар")
 	llmCorpusCmd.Flags().Int64Var(&llmCorpusSeed, "seed", 7, "начало случайной последовательности: тот же seed — тот же корпус")
@@ -628,7 +665,7 @@ func init() {
 	llmFitCmd.Flags().StringVar(&llmFitJournal, "journal", "", "выгрузка ochan fp journal export другой машины; без флага — журнал этой")
 
 	llmLearnCmd.Flags().StringVar(&llmLearnClusters, "clusters", "", "выгрузка ochan incident learn --export; без флага — инциденты этой машины")
-	llmLearnCmd.Flags().StringVar(&llmLearnPairs, "pairs", "", "записать пары для дообучения сети (train_own.py --init)")
+	llmLearnCmd.Flags().StringVar(&llmLearnPairs, "pairs", "", "записать пары для дообучения сети (ochan llm train --init)")
 	llmLearnCmd.Flags().StringVar(&llmLearnReplay, "replay", "", "базовый корпус для примеси к парам")
 	llmLearnCmd.Flags().Float64Var(&llmLearnReplayShare, "replay-share", 0.9, "доля базового корпуса среди пар обучения")
 	llmLearnCmd.Flags().BoolVar(&llmLearnVersions, "versions", false, "версии параметров модели")
