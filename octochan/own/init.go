@@ -6,11 +6,9 @@ import (
 	"path/filepath"
 )
 
-// WriteRandomWeights пишет случайные веса сети конфигурации cfg в каталог
-// модели. Такая модель отвечает сразу: ответ пишет её логика, сеть только
-// выбирает порядок среди допустимых. Это проверка контура до обучения, а
-// не обученная модель.
-func WriteRandomWeights(dir string, cfg Config, seed int64) error {
+// randomWeights — случайные веса сети конфигурации cfg: матрицы — нормальные
+// с отклонением 0,02, нормировки — единицы. С них начинается обучение с нуля.
+func randomWeights(cfg Config, seed int64) map[string]*Tensor {
 	rng := rand.New(rand.NewSource(seed))
 	mat := func(rows, cols int) *Tensor {
 		d := make([]float32, rows*cols)
@@ -40,5 +38,13 @@ func WriteRandomWeights(dir string, cfg Config, seed int64) error {
 		w[p+"input_layernorm.weight"] = ones(h)
 		w[p+"post_attention_layernorm.weight"] = ones(h)
 	}
-	return WriteSafetensors(filepath.Join(dir, "model.safetensors"), w)
+	return w
+}
+
+// WriteRandomWeights пишет случайные веса сети конфигурации cfg в каталог
+// модели. Такая модель отвечает сразу: ответ пишет её логика, сеть только
+// выбирает порядок среди допустимых. Это проверка контура до обучения, а
+// не обученная модель.
+func WriteRandomWeights(dir string, cfg Config, seed int64) error {
+	return WriteSafetensors(filepath.Join(dir, "model.safetensors"), randomWeights(cfg, seed))
 }

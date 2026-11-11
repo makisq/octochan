@@ -16,6 +16,88 @@ import (
 	"github.com/spf13/viper"
 )
 
+// Стартовая модель: обученные веса из бинарника — одной командой, и модель
+// отвечает сразу; параметры колец у неё свои, с холодного старта.
+func TestLLMInitPretrained(t *testing.T) {
+	e := newScriptEnv(t)
+	dir := filepath.Join(e.home, "models", "start")
+	out := e.must("llm", "init", "--pretrained", "--out", dir)
+	if !strings.Contains(out, "Стартовая модель (own-small-2, int8): "+dir+": 14.8 млн параметров, словарь 1682") ||
+		!strings.Contains(out, "веса int8") || !strings.Contains(out, "llm.model: "+dir) {
+		t.Fatalf("init --pretrained:\n%s", out)
+	}
+	e.fails("уже модель", "llm", "init", "--pretrained", "--out", dir)
+	e.fails("--size, --context и --random-weights — для новой", "llm", "init", "--pretrained", "--size", "tiny", "--out", dir+"2")
+	e.fails("вместе с --pretrained", "llm", "init", "--full", "--out", dir+"3")
+
+	setting(t, "llm.mode", "embedded")
+	setting(t, "llm.model", dir)
+	t.Cleanup(func() {
+		loadedMu.Lock()
+		delete(loaded, dir)
+		loadedMu.Unlock()
+	})
+	e.write(e.path("task.fp"), loopTask)
+	out = e.must("llm", "generate", "--prompt", e.path("task.fp"))
+	if !strings.Contains(out, "Архитектурная модель: ответ написала она сама") || !strings.Contains(out, "set Approval.limit = 200") {
+		t.Fatalf("generate стартовой моделью:\n%s", out)
+	}
+	// Параметры колец — свои у каждой установки: со стартовыми весами их нет.
+	if _, err := os.Stat(filepath.Join(dir, "rings.json")); err == nil {
+		t.Fatal("со стартовыми весами доставлены чужие параметры колец")
+	}
+	if out := e.must("llm", "fit"); !strings.Contains(out, "Версия параметров 1") {
+		t.Fatalf("fit стартовой модели:\n%s", out)
+	}
+}
+
+// Обучение весов — в ochan: новая модель учится по корпусу, каталог после
+// обучения — рабочая модель; дообучение пишет новые веса в новый каталог.
+func TestLLMTrain(t *testing.T) {
+	e := newScriptEnv(t)
+	dir := filepath.Join(e.home, "models", "new")
+	out := e.must("llm", "init", "--out", dir, "--size", "tiny")
+	if !strings.Contains(out, "затем ochan llm train --model "+dir+" --corpus corpus.jsonl") {
+		t.Fatalf("init:\n%s", out)
+	}
+	corpus := e.path("corpus.jsonl")
+	e.must("llm", "corpus", "--model", dir, "--count", "30", "--out", corpus)
+	e.fails("--corpus", "llm", "train", "--model", dir)
+	e.fails("задайте его в --model", "llm", "train", "--init", dir, "--corpus", corpus)
+
+	out = e.must("llm", "train", "--model", dir, "--corpus", corpus, "--epochs", "0.1", "--batch-tokens", "900")
+	for _, part := range []string{"Пар: обучение ", "Модель: 5.3 млн параметров; считает процессор", "Потери на отложенных до обучения: пара ",
+		"шаг 2/2", "Потери на отложенных после обучения: пара ", "Сохранено: " + dir} {
+		if !strings.Contains(out, part) {
+			t.Fatalf("train: нет %q\n%s", part, out)
+		}
+	}
+	setting(t, "llm.mode", "embedded")
+	setting(t, "llm.model", dir)
+	t.Cleanup(func() {
+		loadedMu.Lock()
+		delete(loaded, dir)
+		loadedMu.Unlock()
+	})
+	e.write(e.path("task.fp"), loopTask)
+	if out := e.must("llm", "generate", "--prompt", e.path("task.fp")); !strings.Contains(out, "set Approval.limit = 200") {
+		t.Fatalf("generate обученной моделью:\n%s", out)
+	}
+	e.must("llm", "fit")
+
+	next := filepath.Join(e.home, "models", "next")
+	out = e.must("llm", "train", "--init", dir, "--model", next, "--corpus", corpus, "--epochs", "0.05", "--batch-tokens", "900",
+		"--lr", "1e-4")
+	if !strings.Contains(out, "шаг 1/1") || !strings.Contains(out, "Сохранено: "+next) {
+		t.Fatalf("дообучение:\n%s", out)
+	}
+	// Параметры колец перешли с весами; прежний каталог занят — отказ.
+	if _, err := os.Stat(filepath.Join(next, "rings.json")); err != nil {
+		t.Fatalf("параметры колец не перешли: %v", err)
+	}
+	e.fails("уже с весами", "llm", "train", "--init", dir, "--model", next, "--corpus", corpus)
+}
+
 // Своя модель целиком в ochan: init (словарь и сеть), generate в процессе,
 // fit по журналу, версии и откат, корпус с токенами, квантование со
 // сверкой.

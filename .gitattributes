@@ -8,3 +8,5 @@
 *.webp binary
 *.pdf  binary
 *.docx binary
+# Веса стартовой модели ℒ (octochan/own/pretrained): байты как есть.
+*.safetensors binary
