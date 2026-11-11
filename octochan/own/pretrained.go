@@ -19,8 +19,8 @@ import (
 // стартовыми весами их нет — холодный старт с условным счётом автора.
 //
 // Веса — int8: ответы те же, что у полных (тот же токен в 99,99 % позиций
-// ответа), а места вчетверо меньше. Для дообучения сети их распаковывают
-// в float32 (full): обучение идёт с полных весов.
+// ответа), а места вчетверо меньше. Дообучение (Train с Init) распаковывает
+// их само; full пишет float32 в каталог — такие читает и torch.
 
 //go:embed pretrained/config.json pretrained/fpmtok.json pretrained/quant.json pretrained/quant.safetensors
 var pretrained embed.FS
@@ -31,7 +31,7 @@ const PretrainedName = "own-small-2, int8"
 var pretrainedFiles = []string{ConfigFile, TokenizerFile, quantJSON, quantWeights}
 
 // WritePretrained пишет стартовую модель в каталог dir. full — веса
-// распаковываются в float32 (model.safetensors): с них идёт дообучение сети.
+// распаковываются в float32 (model.safetensors): их читает и torch.
 func WritePretrained(dir string, full bool) error {
 	if IsModel(dir) {
 		return fmt.Errorf("%s — уже модель: стартовая — в новый каталог, прежняя остаётся", dir)
