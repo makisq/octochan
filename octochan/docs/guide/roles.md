@@ -19,7 +19,7 @@
 | `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, llm run, mail send, request, watch |
 | `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
-| `install` | !!install, !!registry, !!rin, inspect |
+| `install` | !!install, !!registry, !!rin, inspect, setup |
 | `auth` | auth, timer |
 | `admin` | agents free, ha contour, incident secret, role create, role delete, role deny, role grant, role limit, role revoke, role scope, role undeny, role update, trigger secret |
 | `audit` | audit, audit verify |

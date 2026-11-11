@@ -391,10 +391,13 @@ func run(args []string) error {
 		return err
 	}
 	env := append(os.Environ(), "HOME="+*home, "USERPROFILE="+*home, "OCTOCHAN_CONFIG="+config)
-	// Пути из окружения запускающего увели бы ochan из дома стенда.
+	// Пути из окружения запускающего увели бы ochan из дома стенда; рабочий
+	// каталог задан явно — указатель ochan.home рядом с программой его не
+	// переносит.
 	for _, name := range workspace.PathEnv() {
 		env = append(env, name+"=")
 	}
+	env = append(env, workspace.EnvHome+"="+filepath.Join(*home, ".octochan"))
 	if err := os.MkdirAll(filepath.Dir(*out), 0o755); err != nil {
 		return err
 	}

@@ -452,14 +452,58 @@ func overrides(name string, raw any) ([]string, error) {
 // реестров.
 var ochanPathEnv = []string{"OCTOCHAN_MODULES", "OCTOCHAN_LOGS", "OCTOCHAN_REPORTS", "OCTOCHAN_REGISTRY_CACHE"}
 
+// homePointer — указатель рабочего каталога рядом с программой
+// (workspace.HomeFile): его пишет ochan setup, ochan-mcp ставится рядом с
+// ochan и видит тот же.
+const homePointer = "ochan.home"
+
+// pointedHome — рабочий каталог из указателя рядом с сервером; пусто —
+// указателя нет. Строки с # пропускаются, путь без начала от корня — от
+// папки программы.
+func pointedHome() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	dir := filepath.Dir(exe)
+	data, err := os.ReadFile(filepath.Join(dir, homePointer))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, string(rune(0xFEFF))))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if rest, ok := strings.CutPrefix(line, "~"); ok && (rest == "" || rest[0] == '/' || rest[0] == '\\') {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return ""
+			}
+			line = filepath.Join(home, rest)
+		}
+		if !filepath.IsAbs(line) {
+			line = filepath.Join(dir, line)
+		}
+		return filepath.Clean(line)
+	}
+	return ""
+}
+
 // ochanDirs — каталоги ochan, куда нейросети хода нет: рабочий
-// (OCTOCHAN_HOME, иначе ~/.octochan — там роли, ключ сервера и токены) и
-// вынесенные из него переменными окружения. Сервер передаёт своё окружение
-// ochan, поэтому видит те же пути. Каталоги, вынесенные в config.yaml,
-// знает только сам ochan — он и откажет.
+// (OCTOCHAN_HOME, указатель ochan.home рядом с программой, иначе
+// ~/.octochan — там роли, ключ сервера и токены) и вынесенные из него
+// переменными окружения. Сервер передаёт своё окружение ochan, поэтому
+// видит те же пути. Каталоги, вынесенные в config.yaml, знает только сам
+// ochan — он и откажет.
 func ochanDirs() []string {
 	var dirs []string
 	if home := os.Getenv("OCTOCHAN_HOME"); home != "" {
+		dirs = append(dirs, home)
+	} else if home := pointedHome(); home != "" {
 		dirs = append(dirs, home)
 	} else if home, err := os.UserHomeDir(); err == nil {
 		dirs = append(dirs, filepath.Join(home, ".octochan"))

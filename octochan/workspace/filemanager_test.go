@@ -93,3 +93,38 @@ func TestFileManagerPaths(t *testing.T) {
 		}
 	}
 }
+
+// Указатель рабочего каталога рядом с программой: одна строка с путём;
+// путь без начала от корня — от папки программы, ~ — домашний каталог.
+func TestReadHomeFile(t *testing.T) {
+	dir, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if _, ok, err := ReadHomeFile(dir); ok || err != nil {
+		t.Fatalf("указателя нет: %v, %v", ok, err)
+	}
+	write := func(text string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, HomeFile), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	abs := filepath.Join(t.TempDir(), "state")
+	for text, want := range map[string]string{
+		"# установка\n\n.octochan\n":            filepath.Join(dir, ".octochan"),
+		string(rune(0xFEFF)) + "data/ochan\r\n": filepath.Join(dir, "data", "ochan"),
+		abs + "\n":                              abs,
+		"~/ochan-home\n":                        filepath.Join(home, "ochan-home"),
+		"..\n":                                  filepath.Dir(dir),
+	} {
+		write(text)
+		got, ok, err := ReadHomeFile(dir)
+		if err != nil || !ok || got != want {
+			t.Fatalf("указатель %q: %q, %v, %v — ожидался %q", text, got, ok, err, want)
+		}
+	}
+	write("# только комментарий\n")
+	if _, _, err := ReadHomeFile(dir); err == nil || !strings.Contains(err.Error(), "в указателе нет пути") {
+		t.Fatalf("пустой указатель: %v", err)
+	}
+}

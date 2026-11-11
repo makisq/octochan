@@ -124,6 +124,12 @@ func Execute() int {
 	rootCmd.SetOut(os.Stdout)
 	rootCmd.SetErr(os.Stderr)
 
+	// Установка идёт до рабочего каталога и ролей: там, где ochan ещё не
+	// установлен, их может быть не создать.
+	if code, ok := setupStandalone(os.Args[1:]); ok {
+		return code
+	}
+
 	if err := initConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)
 		return 1

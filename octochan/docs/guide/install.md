@@ -18,17 +18,46 @@ ochan --version
 ochan 0.3.0-alpha
 ```
 
-`make install` собирает `ochan` и сервер MCP `ochan-mcp` и кладёт их в
-`~/.local/bin` — дальше они вызываются по имени из любого каталога, без
-`./` и пути. Если этого каталога ещё нет в `PATH`, установщик скажет, какую
-строку добавить в профиль оболочки; сам профиль он не правит.
+`make install` собирает `ochan` и сервер MCP `ochan-mcp` и спрашивает, как
+ставить:
+
+```
+Установка ochan. Как ставить?
+  1 — быстрая: всё в этой папке — /srv/work/octochan
+      программы, рабочий каталог (.octochan) и модули; ochan находит своё сам
+  2 — ручная: каждый путь задаёте сами, Enter — путь по умолчанию
+Выбор, 1 или 2:
+```
+
+- **Быстрая — всё в одной папке.** Программы, рабочий каталог и модули
+  лежат в папке, из которой запущена установка; `ochan` запускают из неё
+  (`./ochan`). Она для машин, где политика разрешает работать и запускать
+  программы только в одной папке: ни `~/.local/bin`, ни `~/.octochan` там
+  не годятся. Рядом с программой остаётся указатель `ochan.home`, и
+  переменные окружения не нужны ([«Установка в одну папку»](#установка-в-одну-папку)).
+- **Ручная — каждый путь отдельно:** программы, рабочий каталог, модули,
+  журналы, отчёты, кеш реестров. Enter оставляет путь по умолчанию: все
+  шесть Enter — обычная установка, программы в `~/.local/bin`, остальное в
+  `~/.octochan`. Если каталога программ нет в `PATH`, установка скажет об
+  этом; профиль оболочки она не правит.
+
+Вопросы задаёт сам `ochan` (`ochan setup`) и читает ответы из stdin
+построчно — с терминала и из конвейера одинаково; без ответа (CI,
+`< /dev/null`) ставит в каталоги по умолчанию. Всё то же задаётся без
+вопросов:
 
 | | |
 |---|---|
-| `make install` | в `~/.local/bin` |
-| `make install PREFIX=/usr/local` | в `/usr/local/bin`; копирование — через `sudo`, сборка — от вашего имени |
-| `scripts/install.sh` | то же без `make` |
-| `make uninstall` | убрать |
+| `make install` | спросит: быстрая или ручная |
+| `make install HERE=1` | быстрая: всё в этой папке |
+| `make install HERE=/srv/work/ochan` | быстрая в другую папку |
+| `make install BIN_DIR=… HOME_DIR=… MODULES_DIR=… LOGS_DIR=… REPORTS_DIR=… REGISTRY_CACHE_DIR=…` | ручная; незаданное — по умолчанию |
+| `make install PREFIX=/usr/local` | программы в `/usr/local/bin` (копирование — через `sudo`, сборка — от вашего имени), остальное по умолчанию |
+| `scripts/install.sh [--here[=папка]] [--bin=…] [--home=…] [--modules=…]` | то же без `make` |
+| `printf '1\nда\n' \| scripts/install.sh` | ответы конвейером |
+| `make install HERE=1 DESKTOP=1` | ещё и [значок](#значок): меню приложений и рабочий стол |
+| `ochan setup` | то же готовой программой, без сборки: скачанный `ochan` ставит себя сам |
+| `make uninstall` | убрать программы из `~/.local/bin` (или `PREFIX/bin`) |
 | `make build` | только собрать в `bin/` каталога репозитория |
 | `make build OUT=$HOME/tools` | собрать в любой каталог, куда можно писать |
 | `make vendor`, `make offline` | зависимости в `vendor/` и сборка из них без сети |
@@ -41,9 +70,86 @@ ochan 0.3.0-alpha
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 ```
 
-Программы ставятся в `%LOCALAPPDATA%\Programs\ochan`, каталог
-добавляется в `PATH` пользователя; в новом окне терминала `ochan` и
+Вопрос тот же. Без него: `-Here` — всё в текущей папке; `-Bin`,
+`-HomeDir`, `-Modules`, `-Logs`, `-Reports`, `-RegistryCache` — пути по
+одному; `-Standard` — программы в `%LOCALAPPDATA%\Programs\ochan`, каталог
+добавляется в `PATH` пользователя, и в новом окне терминала `ochan` и
 `ochan-mcp` вызываются по имени. Убрать — с `-Uninstall`.
+
+### Установка в одну папку
+
+Бывают машины, где политика разрешает работать и запускать программы
+только в одной папке. `~/.octochan/modules` там не годится: модуль не
+запустится (`operation not permitted`), и `!!install` откажет. Переменные
+окружения (`OCTOCHAN_HOME`, `OCTOCHAN_MODULES`) это решают, но их надо
+задавать в каждом окне. Быстрая установка кладёт всё в эту папку и
+записывает, где что лежит:
+
+```
+$ make install HERE=1          # или: ./ochan setup --here — готовой программой
+Программы:        /srv/work/octochan
+Рабочий каталог:  /srv/work/octochan/.octochan
+Модули:           /srv/work/octochan/.octochan/modules (в рабочем каталоге)
+…
+Установлено: /srv/work/octochan/ochan
+Установлено: /srv/work/octochan/ochan-mcp
+Указатель: /srv/work/octochan/ochan.home → .octochan (путь от папки программы: её можно переносить целиком)
+
+Рабочий каталог      /srv/work/octochan/.octochan
+                       файл ochan.home рядом с программой
+…
+Запуск: ./ochan из папки /srv/work/octochan
+```
+
+`ochan.home` — указатель рабочего каталога: файл рядом с программой, в нём
+одна строка с путём (строки с `#` — комментарии). Путь без начала от корня
+считается от папки программы, поэтому папку можно переносить и копировать
+целиком. `ochan` читает указатель при каждом запуске — `export` не нужен;
+переменная `OCTOCHAN_HOME` сильнее указателя. Указатель можно написать и
+руками:
+
+```bash
+echo /srv/work/ochan-state > ochan.home     # рядом с ochan
+```
+
+Папка должна быть вашей: она и каталоги над ней закрыты для записи группе
+и остальным, иначе `ochan` откажется работать и скажет, что закрыть
+(`chmod go-w …`), — в открытую папку другой пользователь подложил бы свой
+модуль.
+
+Когда годится всё, кроме модулей, переносят только их — ручной установкой
+(`make install MODULES_DIR=/opt/ochan/modules`) или строкой в `config.yaml`
+(`paths.modules`, [«Пути»](#пути)).
+
+### Значок
+
+У `ochan` есть значок — эмблема логотипа. Установка ставит его по просьбе:
+в разговоре она спрашивает «Значок в меню приложений и на рабочем столе?»,
+без вопросов — `--desktop` (`make install DESKTOP=1`, `install.ps1
+-Desktop`):
+
+```
+$ ochan setup --here --desktop
+…
+Значок: /home/ops/.local/share/applications/ochan.desktop
+Значок: /home/ops/Desktop/ochan.desktop
+```
+
+| | |
+|---|---|
+| Linux | запись меню приложений `~/.local/share/applications/ochan.desktop`, картинка в `~/.local/share/icons/hicolor/256x256/apps/`, копия записи на рабочем столе, если он есть |
+| Windows | ярлыки `ochan.lnk` в меню «Пуск» и на рабочем столе; значок встроен в сам `ochan.exe` и виден в проводнике и поиске |
+| macOS | пока нет: `ochan` запускают из терминала |
+
+Значок открывает оболочку `ochan shell` в терминале; `ochan` находится
+поиском системы по имени. Для уже установленной программы — `ochan setup
+--desktop=only`, убрать — `ochan setup --desktop=remove` (`make uninstall`
+убирает и его).
+
+Картинку делает `make icon` (`tools/icongen`) из `docs/assets/logo.png`:
+`cmd/icon.png` несёт в себе `ochan`, а `rsrc_windows_amd64.syso` — ресурс
+значка, который `go build` сам прилинковывает к `ochan.exe`. Оба файла
+лежат в репозитории; после смены логотипа их пересобирают.
 
 ### go build — без make
 
@@ -119,7 +225,8 @@ go build -ldflags "-X ochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o o
    зависимостей во время работы у ochan нет. Суммы — в `dist/SHA256SUMS`.
 
 Рабочий каталог ochan — `$HOME/.octochan`. Если домашний каталог на
-закрытой машине не годится, рабочий каталог переносят целиком —
+закрытой машине не годится, рабочий каталог переносят целиком — установкой
+в одну папку ([выше](#установка-в-одну-папку)) или
 `OCTOCHAN_HOME=/srv/ochan`, — а каталог модулей, если нужно, отдельно
 ([«Пути»](#пути)); путь только к конфигу меняют `--config` и
 `OCTOCHAN_CONFIG`.
@@ -170,7 +277,7 @@ go build -ldflags "-X ochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o o
 ```
 $ OCTOCHAN_MODULES=/opt/ochan/modules ochan paths
 Рабочий каталог      /home/ops/.octochan
-                       по умолчанию; меняется: OCTOCHAN_HOME
+                       по умолчанию; меняется: OCTOCHAN_HOME, ochan.home рядом с программой (ochan setup)
 Конфиг               /home/ops/.octochan/config.yaml
                        по умолчанию; меняется: --config, OCTOCHAN_CONFIG
 Модули               /opt/ochan/modules
@@ -182,7 +289,7 @@ $ OCTOCHAN_MODULES=/opt/ochan/modules ochan paths
 
 | Что | Чем меняется |
 |---|---|
-| Рабочий каталог целиком | `OCTOCHAN_HOME` |
+| Рабочий каталог целиком | указатель `ochan.home` рядом с программой (`ochan setup`), `OCTOCHAN_HOME` — она сильнее |
 | Конфиг | `--config`, `OCTOCHAN_CONFIG` |
 | Модули и пакеты алиасов | `OCTOCHAN_MODULES`, `paths.modules` |
 | Журналы ochan | `OCTOCHAN_LOGS`, `paths.logs` (прежний ключ — `defaults.log_path`) |
@@ -197,6 +304,9 @@ paths:
   modules: /opt/ochan/modules
   logs: /var/log/ochan
 ```
+
+Настройки `paths.*` и указатель пишет и установка: `ochan setup --modules
+/opt/ochan/modules` — то же, что строка выше.
 
 - **Рабочий каталог — одно целое.** Роли, журнал аудита, заявки, история,
   решения, политики, алиасы, сценарии, инциденты, почта и токены

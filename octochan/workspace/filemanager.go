@@ -75,25 +75,97 @@ type FileManager struct {
 	sources map[Dir]string
 }
 
-// HomeDir — рабочий каталог ochan: EnvHome, иначе ~/.octochan. Ничего не
-// создаёт — для тех, кому нужен только путь (модуль, сервер MCP).
+// HomeFile — указатель рабочего каталога: файл рядом с программой ochan.
+// В нём одна строка — путь; относительный считается от каталога программы,
+// поэтому папку с ochan и его рабочим каталогом можно переносить целиком.
+// Указатель пишет установка (ochan setup): там, где политика хоста
+// разрешает работать только в одной папке, ochan находит своё без
+// переменных окружения. Окружение (EnvHome) сильнее указателя.
+const HomeFile = "ochan.home"
+
+// SourceHomeFile — рабочий каталог взят из указателя.
+const SourceHomeFile = "файл " + HomeFile + " рядом с программой"
+
+// exported — рабочий каталог из указателя, переданный потомкам через
+// окружение: модуль и дочерний ochan должны работать в том же каталоге.
+var exported string
+
+// HomeDir — рабочий каталог ochan: EnvHome, указатель рядом с программой,
+// иначе ~/.octochan. Ничего не создаёт — для тех, кому нужен только путь
+// (модуль, сервер MCP).
 func HomeDir() (string, error) {
 	base, _, err := homeDir()
 	return base, err
 }
 
-func homeDir() (base, source string, err error) {
-	if base = os.Getenv(EnvHome); base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", "", fmt.Errorf("не удалось определить домашнюю директорию: %w (рабочий каталог можно задать в %s)", err, EnvHome)
+// ReadHomeFile — рабочий каталог из указателя в каталоге dir; ok — указатель
+// есть. Строки с # и пустые пропускаются; ~/ — домашний каталог.
+func ReadHomeFile(dir string) (path string, ok bool, err error) {
+	file := filepath.Join(dir, HomeFile)
+	data, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	for _, line := range strings.Split(strings.TrimPrefix(string(data), string(rune(0xFEFF))), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
-		return filepath.Join(home, ".octochan"), SourceDefault, nil
+		if rest, tilde := strings.CutPrefix(line, "~"); tilde && (rest == "" || rest[0] == '/' || rest[0] == '\\') {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", false, fmt.Errorf("%s: %w", file, err)
+			}
+			line = filepath.Join(home, rest)
+		}
+		if !filepath.IsAbs(line) {
+			line = filepath.Join(dir, line)
+		}
+		return filepath.Clean(line), true, nil
 	}
-	if !filepath.IsAbs(base) {
-		return "", "", fmt.Errorf("%s=%s: нужен полный путь — относительный зависел бы от каталога, из которого запущен ochan", EnvHome, base)
+	return "", false, fmt.Errorf("%s: в указателе нет пути — одна строка с рабочим каталогом ochan", file)
+}
+
+// ProgramDir — каталог, где лежит программа; ссылка раскрывается: указатель
+// ищут рядом с самой программой, а не со ссылкой на неё.
+func ProgramDir() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
 	}
-	return filepath.Clean(base), sourceEnv + EnvHome, nil
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	return filepath.Dir(exe), nil
+}
+
+func homeDir() (base, source string, err error) {
+	if base = os.Getenv(EnvHome); base != "" {
+		if !filepath.IsAbs(base) {
+			return "", "", fmt.Errorf("%s=%s: нужен полный путь — относительный зависел бы от каталога, из которого запущен ochan", EnvHome, base)
+		}
+		if base = filepath.Clean(base); base == exported {
+			return base, SourceHomeFile, nil
+		}
+		return base, sourceEnv + EnvHome, nil
+	}
+	if dir, err := ProgramDir(); err == nil {
+		base, ok, err := ReadHomeFile(dir)
+		if err != nil {
+			return "", "", err
+		}
+		if ok {
+			return base, SourceHomeFile, nil
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", "", fmt.Errorf("не удалось определить домашнюю директорию: %w (рабочий каталог можно задать в %s)", err, EnvHome)
+	}
+	return filepath.Join(home, ".octochan"), SourceDefault, nil
 }
 
 // NewFileManager определяет рабочий каталог (EnvHome, иначе ~/.octochan) и
@@ -109,9 +181,21 @@ func NewFileManager() (*FileManager, error) {
 		return nil, fmt.Errorf("не удалось создать директорию %s: %w", base, err)
 	}
 	if source != SourceDefault {
-		if err := checkPrivate(base); err != nil {
-			return nil, fmt.Errorf("%s: %w", EnvHome, err)
+		what := EnvHome
+		if source == SourceHomeFile {
+			what = HomeFile
 		}
+		if err := checkPrivate(base); err != nil {
+			return nil, fmt.Errorf("%s: %w", what, err)
+		}
+	}
+	if source == SourceHomeFile {
+		// Потомки — модули и дочерний ochan — получают тот же каталог: рядом
+		// с модулем указателя нет.
+		if err := os.Setenv(EnvHome, base); err != nil {
+			return nil, err
+		}
+		exported = base
 	}
 
 	fm := &FileManager{

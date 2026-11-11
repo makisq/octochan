@@ -11,7 +11,8 @@ import (
 
 // Пути ochan — где что лежит и чем каждый путь меняется.
 //
-//	OCTOCHAN_HOME=/srv/ochan              # рабочий каталог целиком
+//	ochan.home рядом с программой         # рабочий каталог целиком (ochan setup)
+//	OCTOCHAN_HOME=/srv/ochan              # то же окружением: оно сильнее
 //	OCTOCHAN_MODULES=/opt/ochan/modules   # каталог узла — отдельно
 //
 //	paths:                                # то же в config.yaml
@@ -36,11 +37,13 @@ var dirNames = map[workspace.Dir]string{
 var pathsCmd = &cobra.Command{
 	Use:   "paths",
 	Short: "Где лежит то, чем пользуется ochan, и чем меняется каждый путь",
-	Long: "Рабочий каталог (по умолчанию ~/.octochan) переносится целиком —\n" +
-		"OCTOCHAN_HOME: в нём роли, журнал аудита, заявки, история, решения,\n" +
-		"политики, алиасы, инциденты, почта и токены. Это одно целое: его зеркалит\n" +
-		"резервный узел пары и закрывает от сценариев и ролей защита рабочего\n" +
-		"каталога.\n\n" +
+	Long: "Рабочий каталог (по умолчанию ~/.octochan) переносится целиком: в нём\n" +
+		"роли, журнал аудита, заявки, история, решения, политики, алиасы,\n" +
+		"инциденты, почта и токены. Это одно целое: его зеркалит резервный узел\n" +
+		"пары и закрывает от сценариев и ролей защита рабочего каталога. Где он —\n" +
+		"говорит указатель ochan.home рядом с программой (его пишет ochan setup;\n" +
+		"путь в нём может быть от папки программы) или переменная OCTOCHAN_HOME —\n" +
+		"она сильнее указателя.\n\n" +
 		"Каталоги узла выносятся отдельно — переменной окружения или настройкой\n" +
 		"paths.* в config.yaml (окружение сильнее): модули (OCTOCHAN_MODULES,\n" +
 		"paths.modules), журналы (OCTOCHAN_LOGS, paths.logs), отчёты\n" +
@@ -65,7 +68,7 @@ var pathsCmd = &cobra.Command{
 			cmd.Printf("%-20s %s\n%-20s   %s\n", name, path, "", source)
 		}
 		home := fm.Home()
-		row("Рабочий каталог", home.Path, home.Source, workspace.EnvHome)
+		row("Рабочий каталог", home.Path, home.Source, workspace.EnvHome+", "+workspace.HomeFile+" рядом с программой (ochan setup)")
 		configSource := workspace.SourceDefault
 		switch {
 		case cfgFile != "":
