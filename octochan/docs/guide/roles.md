@@ -13,13 +13,13 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, policy, print, requests, sandbox, services, stats, status, text, trigger, validate |
+| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, paths, policy, print, requests, sandbox, services, stats, status, text, trigger, validate |
 | `net` | net port, net dns, net http, net tls — проверять сеть с машины ochan; выдаётся явно, в `read` не входит |
 | `plan` | llm generate, plan |
 | `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, llm run, mail send, request, watch |
 | `approve` | agents forget, approve, fp journal amend, inventory ack, policy add, policy revoke, reject |
 | `apply` | apply, eval, patch, rollback, run, srs, tee |
-| `install` | !!install, !!registry, !!rin, inspect |
+| `install` | !!install, !!registry, !!rin, inspect, setup |
 | `auth` | auth, timer |
 | `admin` | agents free, ha contour, incident secret, role create, role delete, role deny, role grant, role limit, role revoke, role scope, role undeny, role update, trigger secret |
 | `audit` | audit, audit verify |

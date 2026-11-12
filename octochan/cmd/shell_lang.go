@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode"
 
-	"ochan/i18n"
 	"ochan/lang"
 )
 
@@ -131,21 +130,21 @@ func runShellStatement(base context.Context, src string) (terminated bool) {
 	return runInterruptible(base, func(ctx context.Context) {
 		// Права и журнал аудита — как у eval.
 		if err := authorize(evalCmd, []string{src}); err != nil {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			shellFail(err)
 			return
 		}
 		file, err := lang.Parse("<shell>", src)
 		if err != nil {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			shellFail(err)
 			return
 		}
 		registry, _ := aliases()
 		if err := registry.AddFile("", withoutRedeclared(shellDecls, file)); err != nil {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			shellFail(err)
 			return
 		}
 		if err := registry.AddFile("", file); err != nil {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			shellFail(err)
 			return
 		}
 		interp := lang.NewInterpreter(ctx, registry, os.Stdout)
@@ -159,7 +158,7 @@ func runShellStatement(base context.Context, src string) (terminated bool) {
 		shellDecls.Records = append(shellDecls.Records, file.Records...)
 		shellDecls.Interfaces = append(shellDecls.Interfaces, file.Interfaces...)
 		if err != nil {
-			fmt.Printf(i18n.T("ошибка: %v\n"), err)
+			shellFail(err)
 			return
 		}
 		if _, null := value.(lang.NullValue); !null {

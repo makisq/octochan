@@ -8,5 +8,8 @@
 *.webp binary
 *.pdf  binary
 *.docx binary
+# Ресурс значка Windows (octochan/rsrc_windows_amd64.syso): объектный файл.
+*.syso binary
+*.ico  binary
 # Веса стартовой модели ℒ (octochan/own/pretrained): байты как есть.
 *.safetensors binary

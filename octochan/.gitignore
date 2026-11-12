@@ -28,6 +28,9 @@ diff_report_*.txt
 snapshot_*.json
 ochan-mcp
 ochan-mcp.exe
+# Быстрая установка в папку репозитория (ochan setup --here)
+/ochan.home
+/.octochan/
 mcp/ochan-mcp
 /octochan
 /octochan.exe

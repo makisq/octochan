@@ -165,13 +165,19 @@ func scopeOf(role *rbac.Role) []string {
 }
 
 // protectedPaths — рабочий каталог ochan и то, что лежит вне его, но так
-// же важно: конфиг, указанный окружением, и ключ TLS сервера.
+// же важно: конфиг, указанный окружением, ключ TLS сервера и каталоги,
+// вынесенные из рабочего (модули, журналы, отчёты, кеш реестров). Перенос
+// каталога защиту с него не снимает: сценарий, записавший в модули, подложил
+// бы плагин, который ochan запустит.
 func protectedPaths() []string {
 	fm, err := mustFileManager()
 	if err != nil {
 		return nil
 	}
 	paths := []string{fm.BaseDir(), configPath(fm)}
+	for _, dir := range fm.Relocatable() {
+		paths = append(paths, dir.Path)
+	}
 	if key := viper.GetString("tls.key"); key != "" {
 		paths = append(paths, key)
 	}

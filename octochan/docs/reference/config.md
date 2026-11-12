@@ -10,6 +10,22 @@
 |---|---|---|
 | `lang` | `ru` | язык справки и сообщений: `ru`, `eng` (`en`) или язык модуля; см. [«Язык интерфейса»](../guide/languages.md) |
 
+## paths — каталоги узла
+
+Каталоги, которые можно вынести из рабочего каталога (`~/.octochan`,
+целиком он переносится указателем `ochan.home` рядом с программой или `OCTOCHAN_HOME`). Пусто — в рабочем каталоге. Путь
+полный, `~` раскрывается; переменная окружения сильнее настройки.
+Вынесенный каталог и каталоги над ним должны принадлежать вам или root и
+быть закрыты для записи группе и остальным. Что где лежит — `ochan paths`;
+подробно — [«Пути»](../guide/install.md#пути).
+
+| Ключ | Окружение | По умолчанию | |
+|---|---|---|---|
+| `paths.modules` | `OCTOCHAN_MODULES` | `""` | модули (`*.hcplugin`) и пакеты алиасов; выносят туда, где хост разрешает запуск |
+| `paths.logs` | `OCTOCHAN_LOGS` | `""` | журнал ochan и его архивы |
+| `paths.reports` | `OCTOCHAN_REPORTS` | `""` | отчёты `ochan diff` |
+| `paths.registry_cache` | `OCTOCHAN_REGISTRY_CACHE` | `""` | клоны git-реестров пакетов |
+
 ## defaults
 
 | Ключ | По умолчанию | |
@@ -21,7 +37,7 @@
 | `token_lifetime` | `20m` | время жизни токена для напоминания, от его сохранения |
 | `max_parallel_tasks` | `5` | одновременных итераций `parallel for` и запросов исполнителя к API |
 | `scenario_path` | `~/.octochan/scenarios` | куда `ochan srs` сохраняет сценарии |
-| `log_path` | `~/.octochan/logs` | каталог журнала ochan |
+| `log_path` | `""` | прежний ключ каталога журнала ochan; читается, пока не задан `paths.logs` |
 | `module_command_timeout` | `10m` | предел времени команды модуля |
 | `plugin_log_level` | `warn` | уровень журнала внутри процессов модулей |
 | `allow_unverified_modules` | `false` | загружать модули без контрольной суммы — только для разработки |
@@ -245,6 +261,8 @@ secret`). Подробнее — [«Роли»](../guide/roles.md#по-собы�
 
 | Переменная | |
 |---|---|
+| `OCTOCHAN_HOME` | рабочий каталог ochan вместо `~/.octochan` — целиком: роли, аудит, заявки, история, алиасы, токены; сильнее указателя `ochan.home` рядом с программой, который пишет `ochan setup` |
+| `OCTOCHAN_MODULES`, `OCTOCHAN_LOGS`, `OCTOCHAN_REPORTS`, `OCTOCHAN_REGISTRY_CACHE` | каталоги узла отдельно от рабочего — см. [paths](#paths--каталоги-узла) |
 | `OCTOCHAN_CONFIG` | путь до `config.yaml` |
 | `OCTOCHAN_TOKEN_<ИМЯ>` | токен исполнителя модуля (`OCTOCHAN_TOKEN_RLM`) — вместо `ochan auth --executor <имя>` |
 | `OCTOCHAN_API_TOKEN` | прежний токен RLM: модуль RLM его понимает; новый — `OCTOCHAN_TOKEN_RLM` |

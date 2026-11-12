@@ -1147,4 +1147,24 @@ func TestSandboxRefusesOchanDirectory(t *testing.T) {
 	if _, err := newSandbox([]string{project}, nil); err != nil {
 		t.Fatalf("каталог проекта отвергнут: %v", err)
 	}
+
+	// Рабочий каталог и модули, перенесённые окружением, закрыты так же.
+	moved, modules := filepath.Join(project, "state"), filepath.Join(project, "modules")
+	for _, dir := range []string{moved, modules} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("OCTOCHAN_HOME", moved)
+	if _, err := newSandbox([]string{project}, nil); err == nil || !strings.Contains(err.Error(), "рабочий каталог ochan") {
+		t.Fatalf("корень поверх OCTOCHAN_HOME принят: %v", err)
+	}
+	if _, err := newSandbox([]string{home}, nil); err == nil {
+		t.Fatal("корень поверх перенесённого рабочего каталога принят")
+	}
+	t.Setenv("OCTOCHAN_HOME", "")
+	t.Setenv("OCTOCHAN_MODULES", modules)
+	if _, err := newSandbox([]string{project}, nil); err == nil || !strings.Contains(err.Error(), "рабочий каталог ochan") {
+		t.Fatalf("корень поверх OCTOCHAN_MODULES принят: %v", err)
+	}
 }

@@ -43,8 +43,9 @@ func init() {
 	// пакет с "initialization cycle".
 	rootCmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		// Без аргументов на терминале открываем интерактивную оболочку,
-		// в конвейере — показываем справку.
-		if stdinIsPipe() {
+		// без терминала — в конвейере, в CI, с stdin из /dev/null —
+		// показываем справку. Команды из конвейера выполняет ochan shell.
+		if !interactiveTerminal() {
 			return cmd.Help()
 		}
 		return runInteractiveShell(cmd.Context())
@@ -122,6 +123,12 @@ func Execute() int {
 	// а перенаправление в файл давало пустой файл.
 	rootCmd.SetOut(os.Stdout)
 	rootCmd.SetErr(os.Stderr)
+
+	// Установка идёт до рабочего каталога и ролей: там, где ochan ещё не
+	// установлен, их может быть не создать.
+	if code, ok := setupStandalone(os.Args[1:]); ok {
+		return code
+	}
 
 	if err := initConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)

@@ -22,9 +22,6 @@ var (
 
 // journalDir — каталог журнала ochan.
 func journalDir() (string, error) {
-	if dir := viper.GetString("defaults.log_path"); dir != "" {
-		return dir, nil
-	}
 	fm, err := mustFileManager()
 	if err != nil {
 		return "", err

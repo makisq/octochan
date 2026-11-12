@@ -38,7 +38,9 @@ var Groups = map[string][]string{
 		// !!search только читает реестры из настроек.
 		"!!search", "incident", "llm", "mail",
 		// text — поиск, поля и хвост файлов: читает, как print.
-		"text"},
+		"text",
+		// paths — где лежит то, чем пользуется ochan: только показывает.
+		"paths"},
 	// net — проверка сети с машины ochan: порт, DNS, HTTP, TLS. Не read:
 	// это возможность, которую выдают явно, — нейросети, которой подсунули
 	// вредную инструкцию, незачем сканировать внутренние порты.
@@ -71,7 +73,7 @@ var Groups = map[string][]string{
 	// llm.init, llm.corpus, llm.train, llm.fit, llm.learn, llm.quantize — своя модель:
 	// её словарь, корпус, параметры колец и веса. То, как модель решает,
 	// меняется, как то, что ставит !!install.
-	"install": {"!!install", "!!registry", "!!rin", "inspect", "llm.corpus", "llm.fit", "llm.init", "llm.learn", "llm.quantize", "llm.train"},
+	"install": {"!!install", "!!registry", "!!rin", "inspect", "llm.corpus", "llm.fit", "llm.init", "llm.learn", "llm.quantize", "llm.train", "setup"},
 	"auth":    {"auth", "timer"},
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
 		"role.scope", "role.undeny", "role.update", "trigger.secret",

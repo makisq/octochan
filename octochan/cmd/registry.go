@@ -109,7 +109,7 @@ func registryClient() (*registry.Client, error) {
 		timeout = 30 * time.Second
 	}
 	return &registry.Client{HTTP: &http.Client{Timeout: timeout}, Keys: keys,
-		Cache: filepath.Join(fm.BaseDir(), "registry", "cache")}, nil
+		Cache: fm.RegistryCacheDir()}, nil
 }
 
 // fetched — индексы источников; failed — источники, которые не ответили.
