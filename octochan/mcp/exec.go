@@ -17,6 +17,12 @@ import (
 // llmRole — роль, в которой сервер запускает ochan.
 const llmRole = "OCTOCHAN_ROLE=llm"
 
+// pathsWarned — ochan не повторяет модели предупреждение об открытых
+// каталогах (workspace.EnvWarned): оно — хозяину установки, который видит
+// его при установке и в своей консоли. Модель каталог не закроет, а
+// замечания из stderr дописываются к каждому её ответу.
+const pathsWarned = "OCTOCHAN_PATHS_WARNED=1"
+
 // runner запускает ochan.
 type runner struct {
 	// binary — путь к исполняемому файлу ochan.
@@ -55,7 +61,7 @@ func (r *runner) run(ctx context.Context, args []string, stdin string) outcome {
 	// и что бы ни стояло в окружении сервера: из повторяющихся переменных
 	// действует последняя. Права роли проверяет сам ochan — это второй
 	// рубеж за закрытой таблицей инструментов.
-	cmd.Env = append(os.Environ(), llmRole)
+	cmd.Env = append(os.Environ(), llmRole, pathsWarned)
 	if client := clientAddr(ctx); client != "" {
 		// Адрес удалённого клиента — в журнал аудита ochan.
 		cmd.Env = append(cmd.Env, "OCTOCHAN_REMOTE_ADDR=mcp "+client)

@@ -54,6 +54,10 @@ func PathEnv() []string {
 	return names
 }
 
+// EnvWarned — предупреждение об открытых каталогах уже показано: потомок —
+// модуль, дочерний ochan — его не повторяет. Ставит тот, кто показал.
+const EnvWarned = "OCTOCHAN_PATHS_WARNED"
+
 // Откуда взят путь.
 const (
 	SourceDefault = "по умолчанию"
@@ -73,7 +77,15 @@ type FileManager struct {
 	// dirs — выносные каталоги; sources — откуда взят каждый.
 	dirs    map[Dir]string
 	sources map[Dir]string
+	// openHome, openDirs — замечания о рабочем и вынесенных каталогах,
+	// открытых для чужой записи (OpenDirs).
+	openHome *openDir
+	openDirs []openDir
 }
+
+// openDir — замечание о каталоге: source — откуда взят путь, note — что
+// открыто и чем закрыть.
+type openDir struct{ source, note string }
 
 // HomeFile — указатель рабочего каталога: файл рядом с программой ochan.
 // В нём одна строка — путь; относительный считается от каталога программы,
@@ -180,13 +192,20 @@ func NewFileManager() (*FileManager, error) {
 	if err := os.MkdirAll(base, dirPerm); err != nil {
 		return nil, fmt.Errorf("не удалось создать директорию %s: %w", base, err)
 	}
+	// Рабочий каталог не по умолчанию бывает общей папкой. Открытый для
+	// чужой записи — замечание, а не отказ: закрыть его можно не всегда.
+	var openHome *openDir
 	if source != SourceDefault {
 		what := EnvHome
 		if source == SourceHomeFile {
 			what = HomeFile
 		}
-		if err := checkPrivate(base); err != nil {
+		note, err := checkPrivate(base, true)
+		if err != nil {
 			return nil, fmt.Errorf("%s: %w", what, err)
+		}
+		if note != "" {
+			openHome = &openDir{what, note}
 		}
 	}
 	if source == SourceHomeFile {
@@ -201,6 +220,7 @@ func NewFileManager() (*FileManager, error) {
 	fm := &FileManager{
 		baseDir:      base,
 		baseSource:   source,
+		openHome:     openHome,
 		scenariosDir: filepath.Join(base, "scenarios"),
 		snapshotsDir: filepath.Join(base, "snapshots"),
 		aliasesDir:   filepath.Join(base, "aliases"),
@@ -256,10 +276,11 @@ func inside(dir, path string) bool {
 	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// Ensure создаёт каталоги и проверяет вынесенные: каталог вне рабочего
-// должен принадлежать вам или root и быть закрыт для записи остальным — как
-// и каждый каталог над ним. Иначе другой пользователь машины подложил бы в
-// модули свой плагин, а ochan его запустил бы.
+// Ensure создаёт каталоги и смотрит на вынесенные: каталогу вне рабочего
+// надёжнее принадлежать вам или root и быть закрытым для записи остальным —
+// как и каждому каталогу над ним. Иначе другой пользователь машины подложил
+// бы в модули свой плагин, а ochan его запустил бы. Открытый каталог —
+// замечание (OpenDirs), а не отказ.
 func (fm *FileManager) Ensure() error {
 	dirs := []string{fm.scenariosDir, fm.snapshotsDir, fm.aliasesDir, fm.historyDir, fm.requestsDir, fm.decisionsDir}
 	for _, d := range Dirs {
@@ -270,16 +291,64 @@ func (fm *FileManager) Ensure() error {
 			return fmt.Errorf("не удалось создать директорию %s: %w", dir, err)
 		}
 	}
+	fm.openDirs = nil
 	for _, d := range Dirs {
 		// Каталог внутри рабочего закрыт вместе с ним.
 		if fm.sources[d] == SourceDefault || inside(fm.baseDir, fm.dirs[d]) {
 			continue
 		}
-		if err := checkPrivate(fm.dirs[d]); err != nil {
+		note, err := checkPrivate(fm.dirs[d], true)
+		if err != nil {
 			return fmt.Errorf("%s: %w", fm.sources[d], err)
+		}
+		if note != "" {
+			fm.openDirs = append(fm.openDirs, openDir{fm.sources[d], note})
 		}
 	}
 	return nil
+}
+
+// OpenDirs — замечания о каталогах, открытых для чужой записи: рабочем (не
+// по умолчанию) и вынесенных. В каждом — откуда взят путь, что открыто и чем
+// закрыть. ochan с такими каталогами работает: о них предупреждают при
+// установке и при запуске, пока хозяин не выключит предупреждение.
+func (fm *FileManager) OpenDirs() []string {
+	all := fm.openDirs
+	if fm.openHome != nil {
+		all = append([]openDir{*fm.openHome}, all...)
+	}
+	// Два каталога под одним открытым — одно замечание: открыт он один.
+	var notes []string
+	seen := map[string]bool{}
+	for _, d := range all {
+		if !seen[d.note] {
+			seen[d.note] = true
+			notes = append(notes, d.source+": "+d.note)
+		}
+	}
+	return notes
+}
+
+// OpenToOthers — замечание о каталоге dir, если в нём другой пользователь
+// машины мог бы подменить файлы (см. OpenDirs); пустое — каталог закрыт.
+// Каталога ещё нет — смотрят на каталоги над ним: сам он будет создан
+// закрытым. Для установки: она спрашивает до того, как что-то записать.
+func OpenToOthers(dir string) (string, error) {
+	dir, self := filepath.Clean(dir), true
+	for {
+		_, err := os.Stat(dir)
+		if err == nil {
+			return checkPrivate(dir, self)
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", nil
+		}
+		dir, self = parent, false
+	}
 }
 
 // PathInfo — путь ochan для команды paths: что это, где и откуда взято.
