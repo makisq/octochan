@@ -61,6 +61,8 @@ func initConfig() error {
 	for _, d := range workspace.Dirs {
 		viper.SetDefault("paths."+string(d), "")
 	}
+	// Предупреждать при запуске о каталогах, открытых для чужой записи.
+	viper.SetDefault(pathsWarnOpen, true)
 	// Адрес API, время запроса и параллельность — общие умолчания для
 	// исполнителей модулей; свои у исполнителя — executors.<имя>.
 	viper.SetDefault("defaults.api_url", "")
@@ -193,7 +195,32 @@ func initConfig() error {
 	if err := applyPaths(fm); err != nil {
 		return err
 	}
-	return fm.Ensure()
+	if err := fm.Ensure(); err != nil {
+		return err
+	}
+	warnOpenDirs(fm)
+	return nil
+}
+
+// pathsWarnOpen — настройка: предупреждать ли при запуске о рабочем и
+// вынесенных каталогах, открытых для чужой записи. Выключает её хозяин
+// установки — ответом ochan setup или строкой в config.yaml.
+const pathsWarnOpen = "paths.warn_open"
+
+// warnOpenDirs предупреждает о каталогах, в которых другой пользователь
+// машины мог бы подменить файлы. Это предупреждение, а не отказ: закрыть
+// общую папку можно не всегда и не всегда нужно. Раз на дерево процессов:
+// потомки — модули, дочерний ochan — его не повторяют.
+func warnOpenDirs(fm *workspace.FileManager) {
+	notes := fm.OpenDirs()
+	if len(notes) == 0 || !viper.GetBool(pathsWarnOpen) || os.Getenv(workspace.EnvWarned) != "" {
+		return
+	}
+	for _, note := range notes {
+		fmt.Fprintf(os.Stderr, "предупреждение: %s\n", note)
+	}
+	fmt.Fprintf(os.Stderr, "  ochan работает и так; больше не показывать — %s: false в %s\n", pathsWarnOpen, configPath(fm))
+	_ = os.Setenv(workspace.EnvWarned, "1")
 }
 
 // applyPaths выносит каталоги узла по настройкам paths.* из config.yaml.

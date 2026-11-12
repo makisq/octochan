@@ -75,6 +75,10 @@ var setupCmd = &cobra.Command{
 		"быстрой установке путь в указателе относительный — папку можно переносить\n" +
 		"целиком). Вынесенные каталоги узла записываются в config.yaml (paths.*).\n" +
 		"Что получилось — ochan paths.\n\n" +
+		"Папка, открытая для записи группе или остальным (или чужая), — не отказ:\n" +
+		"установка предупреждает, спрашивает, продолжить ли, и показывать ли\n" +
+		"предупреждение дальше — при каждом запуске ochan. Ответ «не показывать»\n" +
+		"записывается в config.yaml (paths.warn_open: false).\n\n" +
 		"--desktop — ещё и значок: запись в меню приложений и ярлык на рабочем\n" +
 		"столе, ochan находится поиском системы и открывается в своей оболочке\n" +
 		"(Linux и Windows). --desktop=only — только значок для уже установленной\n" +
@@ -140,6 +144,57 @@ type setupPlan struct {
 	home    string
 	dirs    map[workspace.Dir]string // вынесенные каталоги узла; нет — в рабочем
 	desktop bool                     // значок в меню приложений и на рабочем столе
+	// warned — об открытых каталогах предупредили здесь; quiet — хозяин
+	// просил больше не предупреждать (paths.warn_open: false).
+	warned, quiet bool
+}
+
+// openDirs — замечания о каталогах установки, открытых для чужой записи:
+// рабочем, если он не по умолчанию, и вынесенных — тех же, на которые
+// посмотрит установленный ochan. Каталогов может ещё не быть — тогда
+// смотрят на каталоги над ними.
+func (p setupPlan) openDirs() ([]string, error) {
+	var notes []string
+	seen := map[string]bool{}
+	check := func(what, dir string) error {
+		note, err := workspace.OpenToOthers(dir)
+		if err != nil {
+			return fmt.Errorf("%s: %w", what, err)
+		}
+		if note != "" && !seen[note] {
+			seen[note] = true
+			notes = append(notes, what+": "+note)
+		}
+		return nil
+	}
+	if p.here || p.home != defaultHome() {
+		if err := check("Рабочий каталог", p.home); err != nil {
+			return nil, err
+		}
+	}
+	for _, d := range setupDirFlags {
+		if path := p.dirs[d.dir]; path != "" {
+			if err := check(dirNames[d.dir], path); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return notes, nil
+}
+
+// warnOpenOff — предупреждение об открытых каталогах в этом config.yaml уже
+// выключено: прежний ответ установки или строка, вписанная руками.
+func warnOpenOff(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var config struct {
+		Paths struct {
+			WarnOpen *bool `yaml:"warn_open"`
+		} `yaml:"paths"`
+	}
+	return yaml.Unmarshal(data, &config) == nil && config.Paths.WarnOpen != nil && !*config.Paths.WarnOpen
 }
 
 // desktopSupported — значок на этой системе ставится.
@@ -309,9 +364,33 @@ func runSetup(cmd *cobra.Command) error {
 		answer, _ := ask("Значок в меню приложений и на рабочем столе? да или нет", "нет")
 		plan.desktop = isYes(answer)
 	}
-	if dialog && !setupYes {
-		if answer, _ := ask("Установить? да или нет", "да"); !isYes(answer) {
+	// Открытая папка — предупреждение, а не отказ: закрыть её можно не
+	// всегда и не всегда нужно. Спрашиваем до того, как что-то записать.
+	notes, err := plan.openDirs()
+	if err != nil {
+		return err
+	}
+	if len(notes) > 0 && warnOpenOff(filepath.Join(plan.home, "config.yaml")) {
+		// Хозяин уже просил не показывать: предупреждение выключено в конфиге.
+		notes = nil
+	}
+	confirm := "Установить? да или нет"
+	if len(notes) > 0 {
+		plan.warned = true
+		fmt.Fprintln(out)
+		for _, note := range notes {
+			fmt.Fprintf(out, "Предупреждение: %s\n", note)
+		}
+		fmt.Fprintln(out, "  ochan будет работать и так: закрыть папку можно не всегда и не всегда нужно.")
+		confirm = "Продолжить установку? да или нет"
+	}
+	if (dialog || plan.warned) && !setupYes {
+		if answer, _ := ask(confirm, "да"); !isYes(answer) {
 			return errors.New("установка отменена")
+		}
+		if plan.warned {
+			answer, _ := ask("Больше не показывать это предупреждение? да или нет", "нет")
+			plan.quiet = isYes(answer)
 		}
 	}
 	// Окружение сильнее указателя и config.yaml: с ним установка не та,
@@ -407,8 +486,11 @@ func (p setupPlan) install(cmd *cobra.Command) error {
 			fmt.Fprintf(out, "Прежний указатель %s убран: рабочий каталог — по умолчанию\n", pointer)
 		}
 	}
-	if err := setupConfig(filepath.Join(p.home, "config.yaml"), p.dirs); err != nil {
+	if err := setupConfig(filepath.Join(p.home, "config.yaml"), p.dirs, p.quiet); err != nil {
 		return err
+	}
+	if p.quiet {
+		fmt.Fprintf(out, "config.yaml: %s: false — предупреждение об открытой папке больше не показывается; вернуть — true\n", pathsWarnOpen)
 	}
 	for _, d := range setupDirFlags {
 		if path := p.dirs[d.dir]; path != "" {
@@ -420,13 +502,17 @@ func (p setupPlan) install(cmd *cobra.Command) error {
 	}
 
 	// Проверка — установленной программой: она видит то же, что увидит
-	// пользователь, и отказывает, если каталог открыт для чужой записи.
+	// пользователь.
 	installed := filepath.Join(p.bin, "ochan"+ext)
 	env := os.Environ()
 	for _, name := range workspace.PathEnv() {
 		env = append(env, name+"=")
 	}
 	env = append(env, "OCTOCHAN_CONFIG=")
+	if p.warned {
+		// Об открытой папке только что предупредили: проверка не повторяет.
+		env = append(env, workspace.EnvWarned+"=1")
+	}
 	run := func(args ...string) error {
 		c := exec.Command(installed, args...)
 		c.Env, c.Stdout, c.Stderr = env, out, cmd.ErrOrStderr()
@@ -491,9 +577,10 @@ func writeHomeFile(path, home string) error {
 }
 
 // setupConfig записывает вынесенные каталоги в config.yaml: прежние
-// настройки остаются, paths.* без нового значения — тоже.
-func setupConfig(path string, dirs map[workspace.Dir]string) error {
-	if len(dirs) == 0 {
+// настройки остаются, paths.* без нового значения — тоже. quiet — хозяин
+// просил больше не предупреждать об открытых каталогах.
+func setupConfig(path string, dirs map[workspace.Dir]string, quiet bool) error {
+	if len(dirs) == 0 && !quiet {
 		return nil
 	}
 	config := map[string]any{}
@@ -512,6 +599,9 @@ func setupConfig(path string, dirs map[workspace.Dir]string) error {
 	}
 	for d, dir := range dirs {
 		paths[string(d)] = dir
+	}
+	if quiet {
+		paths[strings.TrimPrefix(pathsWarnOpen, "paths.")] = false
 	}
 	config["paths"] = paths
 	if data, err = yaml.Marshal(config); err != nil {
