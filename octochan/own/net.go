@@ -62,7 +62,7 @@ func NewConfig(tok *Tokenizer, size string, context int) (Config, error) {
 	return c, nil
 }
 
-// Save пишет config.json — его читает и обучение (llama/train_own.py).
+// Save пишет config.json — его читает и обучение: ochan llm train и torch.
 func (c Config) Save(dir string) error {
 	out := map[string]any{
 		"architectures": []string{"LlamaForCausalLM"}, "model_type": "llama", "hidden_act": "silu",
