@@ -127,6 +127,11 @@ func initConfig() error {
 	for name, v := range decoderDefaults {
 		viper.SetDefault("llm.decoder."+name, v)
 	}
+	// Разговор с внешней моделью из оболочки (ask, opmode llm): поставщик,
+	// модель, каталоги для неё. Ключа здесь нет: ochan auth --executor llm.
+	for name, v := range chatDefaults {
+		viper.SetDefault("llm.chat."+name, v)
+	}
 	// Обучение по инцидентам — порог как у autovacuum в PostgreSQL.
 	viper.SetDefault("incidents.learn.scale_factor", 0.2)
 	viper.SetDefault("incidents.learn.threshold", 5)

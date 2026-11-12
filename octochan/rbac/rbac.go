@@ -40,7 +40,9 @@ var Groups = map[string][]string{
 		// text — поиск, поля и хвост файлов: читает, как print.
 		"text",
 		// paths — где лежит то, чем пользуется ochan: только показывает.
-		"paths"},
+		"paths",
+		// search — найти файл или заявку и показать: читает, как print и requests.
+		"search"},
 	// net — проверка сети с машины ochan: порт, DNS, HTTP, TLS. Не read:
 	// это возможность, которую выдают явно, — нейросети, которой подсунули
 	// вредную инструкцию, незачем сканировать внутренние порты.
@@ -79,6 +81,11 @@ var Groups = map[string][]string{
 		"role.scope", "role.undeny", "role.update", "trigger.secret",
 		// agents.free — только master: команда проверяет это сама.
 		"agents.free", "ha.contour", "incident.secret"},
+	// ask — разговор с внешней нейросетью из оболочки (ask, opmode llm).
+	// Отдельная группа: содержимое файлов, которые модель читает, уходит
+	// её поставщику, и это право выдают явно. Сама модель работает в роли
+	// llm и больше, чем llm, не может.
+	"ask": {"ask", "opmode"},
 	// audit — журнал аудита: кто, что и когда пытался выполнить.
 	"audit": {"audit"},
 	// server — держать общий оркестратор; remote — подключаться к чужому.
@@ -93,7 +100,8 @@ var Groups = map[string][]string{
 // Free — команды, доступные любой роли: без них нельзя узнать, кто ты,
 // и вернуться обратно. Сравнение точное: role здесь не открывает
 // role.create.
-var Free = []string{"back.role", "completion", "completion.bash", "completion.fish", "completion.powershell",
+// exmode — выйти из режима нейросети: вернуться можно всегда.
+var Free = []string{"back.role", "completion", "completion.bash", "completion.fish", "completion.powershell", "exmode",
 	"completion.zsh", "help", "ping", "role", "role.list", "role.proof", "role.show", "set.role", "shell"}
 
 // LLMCeiling — потолок роли llm. Нейросеть предлагает, человек решает

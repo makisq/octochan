@@ -28,6 +28,7 @@ ochan requests 3ff2                                карточка: план, �
 ochan approve 3ff2 --comment "окно с 02:00"        согласовать
 ochan reject 3ff2 --reason "нет окна"              отказать (причина обязательна)
 ochan apply --request 3ff2                         выполнить согласованное
+ochan apply --approve 3ff2                         согласовать и сразу выполнить
 ochan compensate 3ff2                              оформить обратное действие во внешней системе
 ochan request deploy.yaml --after 3ff2             выполнить только после 3ff2
 ochan requests --ready                             что можно выполнять сейчас

@@ -161,10 +161,26 @@ func runShellStatement(base context.Context, src string) (terminated bool) {
 			shellFail(err)
 			return
 		}
-		if _, null := value.(lang.NullValue); !null {
+		// Значение строки оболочка показывает, как любой REPL; print своё уже
+		// напечатал — второй раз то же самое не нужно.
+		if _, null := value.(lang.NullValue); !null && !endsWithPrint(file) {
 			fmt.Println(lang.Display(value))
 		}
 	})
+}
+
+// endsWithPrint — последняя инструкция строки — вызов print: он возвращает
+// то, что напечатал.
+func endsWithPrint(file *lang.File) bool {
+	if len(file.Stmts) == 0 {
+		return false
+	}
+	stmt, ok := file.Stmts[len(file.Stmts)-1].(*lang.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := stmt.Expr.(*lang.Call)
+	return ok && call.Receiver == nil && call.Callee != nil && call.Callee.Module == "" && call.Callee.Name == "print"
 }
 
 // withoutRedeclared — объявления оболочки без тех, что строка объявляет

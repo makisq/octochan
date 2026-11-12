@@ -69,6 +69,11 @@ var authCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if executor == chatKeyName {
+			// Ключ внешней модели — не исполнитель сценариев: его читают ask и opmode llm.
+			cmd.Printf("Ключ модели сохранён: %s — его читают ask и opmode llm\n", path)
+			return nil
+		}
 		cmd.Printf("Токен исполнителя %s сохранён: %s\n", executor, path)
 		if !slices.Contains(executors, executor) {
 			cmd.PrintErrf("внимание: исполнителя %s сейчас нет; токен подействует, когда его модуль будет установлен\n",

@@ -133,6 +133,10 @@ func setupStandalone(args []string) (code int, ok bool) {
 	return 0, true
 }
 
+// setupWorkDir — подпапка быстрой установки для файлов, с которыми
+// работает нейросеть.
+const setupWorkDir = "work"
+
 // setupPlan — что и куда ставится.
 type setupPlan struct {
 	here    bool
@@ -407,8 +411,20 @@ func (p setupPlan) install(cmd *cobra.Command) error {
 			fmt.Fprintf(out, "Прежний указатель %s убран: рабочий каталог — по умолчанию\n", pointer)
 		}
 	}
-	if err := setupConfig(filepath.Join(p.home, "config.yaml"), p.dirs); err != nil {
+	// Папка программы содержит рабочий каталог — нейросети её не открыть
+	// (ask, opmode llm): файлам для модели — своя подпапка.
+	work := ""
+	if p.here {
+		work = filepath.Join(p.bin, setupWorkDir)
+		if err := os.MkdirAll(work, 0o755); err != nil {
+			return err
+		}
+	}
+	if err := setupConfig(filepath.Join(p.home, "config.yaml"), p.dirs, work != ""); err != nil {
 		return err
+	}
+	if work != "" {
+		fmt.Fprintf(out, "Файлы для нейросети: %s — ask и opmode llm читают только её (config.yaml: llm.chat.root: [%s])\n", work, setupWorkDir)
 	}
 	for _, d := range setupDirFlags {
 		if path := p.dirs[d.dir]; path != "" {
@@ -492,8 +508,8 @@ func writeHomeFile(path, home string) error {
 
 // setupConfig записывает вынесенные каталоги в config.yaml: прежние
 // настройки остаются, paths.* без нового значения — тоже.
-func setupConfig(path string, dirs map[workspace.Dir]string) error {
-	if len(dirs) == 0 {
+func setupConfig(path string, dirs map[workspace.Dir]string, work bool) error {
+	if len(dirs) == 0 && !work {
 		return nil
 	}
 	config := map[string]any{}
@@ -513,7 +529,25 @@ func setupConfig(path string, dirs map[workspace.Dir]string) error {
 	for d, dir := range dirs {
 		paths[string(d)] = dir
 	}
-	config["paths"] = paths
+	if len(dirs) > 0 {
+		config["paths"] = paths
+	}
+	if work {
+		// Каталог модели — подпапка: путь от папки, из которой запускают
+		// ochan. Уже заданный остаётся.
+		llm, _ := config["llm"].(map[string]any)
+		if llm == nil {
+			llm = map[string]any{}
+		}
+		chat, _ := llm["chat"].(map[string]any)
+		if chat == nil {
+			chat = map[string]any{}
+		}
+		if roots, _ := chat["root"].([]any); len(roots) == 0 {
+			chat["root"] = []string{setupWorkDir}
+		}
+		llm["chat"], config["llm"] = chat, llm
+	}
 	if data, err = yaml.Marshal(config); err != nil {
 		return err
 	}
