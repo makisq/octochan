@@ -235,6 +235,9 @@ func authorize(cmd *cobra.Command, args []string) error {
 
 // requiredPerm называет право, которое открыло бы команду.
 func requiredPerm(key string) string {
+	if class := rbac.ClassOf(key); class != "" {
+		return class
+	}
 	top := key
 	if i := strings.IndexByte(key, '.'); i > 0 {
 		top = key[:i]

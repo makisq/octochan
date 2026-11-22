@@ -196,6 +196,10 @@ func blocks(perm, command string) bool {
 	if perm == All || perm == command || perm == top {
 		return true
 	}
+	// Запрет группы закрывает и команды модулей её класса.
+	if class := ClassOf(command); class != "" && perm == class {
+		return true
+	}
 	for _, member := range Groups[perm] {
 		if member == command || member == top {
 			return true
@@ -208,6 +212,8 @@ func blocks(perm, command string) bool {
 // команда верхнего уровня (fp открывает fp.check) или группа, в которой
 // есть одно из них. Вложенная команда, у которой своя группа, открывается
 // только ею: право inventory (чтение) не открывает inventory.ack (решение).
+// Команду модуля открывает и группа её класса (classes.go): read — команды
+// модулей класса read.
 func Covers(perm, command string) bool {
 	top := command
 	if i := strings.IndexByte(command, '.'); i > 0 {
@@ -215,6 +221,9 @@ func Covers(perm, command string) bool {
 	}
 	own := top != command && grouped(command)
 	if perm == All || perm == command || (perm == top && !own) {
+		return true
+	}
+	if class := ClassOf(command); class != "" && perm == class {
 		return true
 	}
 	for _, member := range Groups[perm] {
@@ -225,8 +234,12 @@ func Covers(perm, command string) bool {
 	return false
 }
 
-// grouped — команда сама названа в какой-нибудь группе.
+// grouped — команда сама названа в какой-нибудь группе или у неё, команды
+// модуля, свой класс.
 func grouped(command string) bool {
+	if ownClass(command) {
+		return true
+	}
 	for _, members := range Groups {
 		if contains(members, command) {
 			return true
@@ -282,6 +295,11 @@ func GroupNames() []string {
 func withinCeiling(perm string) bool {
 	if contains(LLMCeiling, perm) {
 		return true
+	}
+	// Команда модуля — по своему классу: read-команду выдать можно,
+	// исполнительную — нет.
+	if class := ClassOf(perm); class != "" {
+		return contains(LLMCeiling, class)
 	}
 	for _, group := range LLMCeiling {
 		if contains(Groups[group], perm) {

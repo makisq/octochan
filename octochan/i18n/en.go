@@ -83,6 +83,7 @@ var english = map[string]string{
 	"Выполнить сценарий или алиас":                       "Run a script or an alias",
 	"Вычислить выражение языка алиасов":                  "Evaluate an alias-language expression",
 	"До встречи!": "Goodbye!",
+	"команды модулей в JSON: путь, класс, описание и собственные флаги (для ochan-mcp и других программ)":                                      "module commands as JSON: path, class, description and own flags (for ochan-mcp and other programs)",
 	"ochan ask какие заявки ждут решения и что в них\nochan ask возьми server1 и server2 из postgres.csv и поставь им work_mem = 32MB":         "ochan ask which requests await a decision and what is in them\nochan ask take server1 and server2 from postgres.csv and set work_mem = 32MB on them",
 	"opmode llm\nвозьми server1 и server2 из postgres.csv и поставь им work_mem = 32MB\n?search work_mem\n?apply --approve 7f3a2c\nexmode llm": "opmode llm\ntake server1 and server2 from postgres.csv and set work_mem = 32MB on them\n?search work_mem\n?apply --approve 7f3a2c\nexmode llm",
 	"согласовать заявку и сразу выполнить её":                                                                                                  "approve the request and run it at once",

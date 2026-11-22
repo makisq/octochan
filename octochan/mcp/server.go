@@ -240,7 +240,7 @@ func (s *server) handle(ctx context.Context, raw json.RawMessage) *response {
 	case "ping":
 		return result(msg.ID, map[string]any{})
 	case "tools/list":
-		return s.listTools(msg)
+		return s.listTools(ctx, msg)
 	case "tools/call":
 		return s.callTool(ctx, msg)
 	default:
@@ -352,11 +352,17 @@ func (s *server) instructions() string {
 		s.protocol
 }
 
-func (s *server) listTools(msg message) *response {
+func (s *server) listTools(ctx context.Context, msg message) *response {
 	liveEnabled := len(s.box.liveAllow) > 0
-	descriptors := make([]map[string]any, 0, len(s.tools))
+	descriptors := make([]map[string]any, 0, len(s.tools)+1)
 	for i := range s.tools {
 		descriptors = append(descriptors, s.tools[i].descriptor(liveEnabled))
+	}
+	// Команды модулей класса read — у ochan, на этот момент.
+	if commands, err := s.moduleCommands(ctx); err != nil {
+		s.logger.Printf("команды модулей не получены: %v", err)
+	} else if d := moduleDescriptor(commands); d != nil {
+		descriptors = append(descriptors, d)
 	}
 	return result(msg.ID, map[string]any{"tools": descriptors})
 }
@@ -370,19 +376,26 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 		return errorResponse(msg.ID, codeInvalidParams, "malformed tools/call params: "+err.Error())
 	}
 
-	t, ok := s.byName[params.Name]
-	if !ok {
-		return errorResponse(msg.ID, codeInvalidParams, "unknown tool: "+params.Name)
-	}
 	if params.Arguments == nil {
 		params.Arguments = map[string]any{}
 	}
-
-	// Ошибка в аргументах — результат с isError, а не ошибка протокола:
-	// так её видит модель и может исправить вызов сама.
-	args, stdin, err := t.argv(s.box, params.Arguments)
+	var (
+		args  []string
+		stdin string
+		err   error
+	)
+	name := params.Name
+	if t, ok := s.byName[params.Name]; ok {
+		// Ошибка в аргументах — результат с isError, а не ошибка протокола:
+		// так её видит модель и может исправить вызов сама.
+		args, stdin, err = t.argv(s.box, params.Arguments)
+	} else if params.Name == moduleTool {
+		args, err = s.moduleArgv(ctx, params.Arguments)
+	} else {
+		return errorResponse(msg.ID, codeInvalidParams, "unknown tool: "+params.Name)
+	}
 	if err != nil {
-		s.logger.Printf("%s: отказ: %v", t.Name, err)
+		s.logger.Printf("%s: отказ: %v", name, err)
 		return toolResult(msg.ID, "The call was rejected before it ran: "+err.Error(), true)
 	}
 
@@ -404,7 +417,7 @@ func (s *server) callTool(ctx context.Context, msg message) *response {
 	if stdin != "" {
 		script = fmt.Sprintf(" (stdin %d байт)", len(stdin))
 	}
-	s.logger.Printf("%s: ochan %s%s → код %d за %s", t.Name, maskSecrets(strings.Join(args, " ")),
+	s.logger.Printf("%s: ochan %s%s → код %d за %s", name, maskSecrets(strings.Join(args, " ")),
 		script, outcome.code, time.Since(started).Round(time.Millisecond))
 
 	// Отменённый вызов остаётся без ответа: так требует протокол, клиент
