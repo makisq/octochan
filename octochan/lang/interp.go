@@ -369,6 +369,9 @@ func (in *Interpreter) execStmt(stmt Stmt, env *scope) error {
 	case *For:
 		return in.execFor(s, env)
 
+	case *While:
+		return in.execWhile(s, env)
+
 	case *Try:
 		return in.execTry(s, env)
 
@@ -535,6 +538,31 @@ func (in *Interpreter) execFor(node *For, env *scope) error {
 		}
 	}
 	return nil
+}
+
+// execWhile выполняет тело, пока условие истинно. Прервать бесконечный цикл
+// можно, как любой сценарий, — Ctrl+C или сроком выполнения.
+func (in *Interpreter) execWhile(node *While, env *scope) error {
+	for {
+		if err := in.ctx.Err(); err != nil {
+			return in.errorf(node.Pos, "выполнение прервано: %v", err)
+		}
+		cond, err := in.eval(node.Cond, env)
+		if err != nil {
+			return err
+		}
+		if !cond.Truthy() {
+			return nil
+		}
+		err = in.execStmt(node.Body, newScope(env))
+		switch {
+		case err == nil, errors.Is(err, errContinue):
+		case errors.Is(err, errBreak):
+			return nil
+		default:
+			return err
+		}
+	}
 }
 
 // iterate превращает значение в последовательность.
@@ -951,9 +979,23 @@ func (in *Interpreter) evalIndex(e *Index, env *scope) (Value, error) {
 		return nil, in.errorf(e.Pos, "индекс должен быть числом, получено %s", indexValue.TypeName())
 	}
 
+	// Строка индексируется символом: s[0] — первый, s[-1] — последний.
+	// Символ — буква целиком, а не байт: байты — bytes(s).
+	if text, ok := target.(StringValue); ok {
+		runes := []rune(string(text))
+		index := int(n)
+		if index < 0 {
+			index += len(runes)
+		}
+		if index < 0 || index >= len(runes) {
+			return nil, in.errorf(e.Pos, "индекс %d вне строки длиной %d", int(n), len(runes))
+		}
+		return StringValue(string(runes[index])), nil
+	}
+
 	list, ok := target.(ListValue)
 	if !ok {
-		return nil, in.errorf(e.Pos, "индексировать можно список, словарь или конфиг, получено %s", target.TypeName())
+		return nil, in.errorf(e.Pos, "индексировать можно список, строку, словарь или конфиг, получено %s", target.TypeName())
 	}
 
 	index := int(n)

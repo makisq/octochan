@@ -76,6 +76,8 @@ const (
 	// TokenBang — «!»: отрицание, как not, но связывает теснее: !a == b —
 	// это (!a) == b, как в C-подобных языках.
 	TokenBang
+	// TokenWhile — while: цикл по условию.
+	TokenWhile
 )
 
 var tokenNames = map[TokenKind]string{
@@ -135,6 +137,7 @@ var tokenNames = map[TokenKind]string{
 	TokenCompose:   ">>",
 	TokenArrow:     "->",
 	TokenBang:      "!",
+	TokenWhile:     "while",
 }
 
 func (k TokenKind) String() string {
@@ -152,6 +155,7 @@ var keywords = map[string]TokenKind{
 	"if":        TokenIf,
 	"else":      TokenElse,
 	"for":       TokenFor,
+	"while":     TokenWhile,
 	"in":        TokenIn,
 	"return":    TokenReturn,
 	"try":       TokenTry,

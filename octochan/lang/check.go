@@ -507,6 +507,10 @@ func (c *checker) stmt(stmt Stmt, scope *checkScope, f flow) {
 	case *For:
 		c.forLoop(s, scope, f)
 
+	case *While:
+		c.expr(s.Cond, scope)
+		c.stmts(s.Body.Stmts, newCheckScope(scope), flow{loop: true, parallel: f.parallel, topLevel: f.topLevel})
+
 	case *Try:
 		c.stmt(s.Body, newCheckScope(scope), f)
 		catchScope := newCheckScope(scope)
@@ -699,9 +703,9 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		target := c.expr(x.Target, scope)
 		c.expr(x.Index, scope)
 		switch target {
-		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
-			c.report(x.Pos, "индексировать можно список, словарь или конфиг, получено %s", target.Russian())
-		case TypeConfig:
+		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
+			c.report(x.Pos, "индексировать можно список, строку, словарь или конфиг, получено %s", target.Russian())
+		case TypeConfig, TypeString:
 			return TypeString
 		}
 		return ""

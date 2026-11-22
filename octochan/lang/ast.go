@@ -227,6 +227,14 @@ type For struct {
 	Parallel bool
 }
 
+// While — цикл по условию: while условие { … }. Условие проверяется перед
+// каждой итерацией; break и continue — как в for.
+type While struct {
+	Pos  Position
+	Cond Expr
+	Body *Block
+}
+
 // Try — выполнение с перехватом ошибки.
 //
 // Нужен для основного сценария предметной области: раскатать изменение
@@ -267,6 +275,7 @@ func (s *Assign) Position() Position   { return s.Pos }
 func (s *Block) Position() Position    { return s.Pos }
 func (s *If) Position() Position       { return s.Pos }
 func (s *For) Position() Position      { return s.Pos }
+func (s *While) Position() Position    { return s.Pos }
 func (s *Try) Position() Position      { return s.Pos }
 func (s *Return) Position() Position   { return s.Pos }
 func (s *Break) Position() Position    { return s.Pos }
@@ -278,6 +287,7 @@ func (*Assign) stmtNode()   {}
 func (*Block) stmtNode()    {}
 func (*If) stmtNode()       {}
 func (*For) stmtNode()      {}
+func (*While) stmtNode()    {}
 func (*Try) stmtNode()      {}
 func (*Return) stmtNode()   {}
 func (*Break) stmtNode()    {}
