@@ -78,6 +78,8 @@ const (
 	TokenBang
 	// TokenWhile — while: цикл по условию.
 	TokenWhile
+	// TokenAt — @: общий множитель f @ (a | b).
+	TokenAt
 )
 
 var tokenNames = map[TokenKind]string{
@@ -138,6 +140,7 @@ var tokenNames = map[TokenKind]string{
 	TokenArrow:     "->",
 	TokenBang:      "!",
 	TokenWhile:     "while",
+	TokenAt:        "@",
 }
 
 func (k TokenKind) String() string {

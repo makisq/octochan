@@ -930,6 +930,15 @@ func (p *Parser) parsePostfix() (Expr, error) {
 			}
 			expr = &Index{Pos: openTok.Pos, Target: expr, Index: index}
 
+		case p.check(TokenAt):
+			// f @ (a | b): общий множитель.
+			atTok := p.advance()
+			group, err := p.parseAtGroup(atTok.Pos, expr)
+			if err != nil {
+				return nil, err
+			}
+			expr = group
+
 		default:
 			return expr, nil
 		}

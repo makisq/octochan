@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"ochan/lang"
 	"ochan/rbac"
 
 	"github.com/spf13/cobra"
@@ -92,6 +93,21 @@ func (scriptCommands) Run(ctx context.Context, argv []string) (string, error) {
 	}()
 	err = rootCmd.ExecuteContext(ctx)
 	return strings.TrimRight(out.String(), "\n"), err
+}
+
+// Shared — общие строки команды модуля для f @ (…): аннотация shared у
+// неё или у команды над ней (lang.SharedAnnotation).
+func (scriptCommands) Shared(argv []string) []lang.SharedKey {
+	target, _, err := rootCmd.Find(argv)
+	if err != nil {
+		return nil
+	}
+	for c := target; c != nil && c != rootCmd; c = c.Parent() {
+		if text := c.Annotations[lang.SharedAnnotation]; text != "" {
+			return lang.ParseShared(text)
+		}
+	}
+	return nil
 }
 
 // saveContexts запоминает контексты команд дерева и возвращает, чем их

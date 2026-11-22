@@ -658,6 +658,12 @@ func (in *Interpreter) eval(expr Expr, env *scope) (Value, error) {
 	case *Index:
 		return in.evalIndex(e, env)
 
+	case *AtExpr:
+		if e.Fn == nil {
+			return nil, in.errorf(e.Pos, "группа (a | b) без функции имеет смысл только внутри f @ (…)")
+		}
+		return in.evalAt(e, env)
+
 	case *FuncLit:
 		return &FuncValue{
 			Name:       e.Name,

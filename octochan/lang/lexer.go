@@ -296,6 +296,8 @@ func (l *Lexer) lexOperator(pos Position) (Token, error) {
 		return simple(TokenSlash)
 	case '%':
 		return simple(TokenPercent)
+	case '@':
+		return simple(TokenAt)
 	case '|':
 		if l.peek() == '|' {
 			l.advance()

@@ -8,18 +8,32 @@
 //   - pgstat show — класс read: её выполняет любая роль с правом read, в том
 //     числе llm;
 //   - pgstat reset — класс execution (то же, что apply): только роль с apply;
-//   - pgstat raw — без класса: как раньше, только по имени или с all.
+//   - pgraw — без класса: как раньше, только по имени или с all.
 //
-// Сборка и установка:
+// И общие строки для f @ (…): node call <плейбук> изображает узел с API.
+// Ответ на плейбук сервиса node_login несёт string_i, а плейбук сервиса
+// node_tune без верного string_i получает 500. Аннотация shared
+// «node_tune:string_i» говорит ядру, что string_i у node_tune — общая
+// строка: ochan сам поставит ? и подставит её из ответа node_login:
+//
+//	ochan shell
+//	> node.call @ ("tune.yaml" | "login.yaml")
+//
+// // Сборка и установка:
 //
 //	go build -o pgstat.hcplugin ./examples/classmodule
 //	ochan '!!install' pgstat.hcplugin
 package main
 
 import (
+	"fmt"
+	"os"
+	"strings"
+
 	"ochan/pluginhost"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 type module struct{}
@@ -50,7 +64,45 @@ func (module) GetCommands() []*cobra.Command {
 			return nil
 		},
 	})
-	return []*cobra.Command{root, {
+	node := &cobra.Command{Use: "node", Short: "Узел с API — пример общих строк для f @ (…)"}
+	node.AddCommand(&cobra.Command{
+		Use:   "call <плейбук>",
+		Short: "Отправить плейбук узлу и напечатать ответ",
+		Args:  cobra.ExactArgs(1),
+		Annotations: map[string]string{
+			"class":  "execution",
+			"shared": "node_tune:string_i",
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var playbook struct {
+				Service    string            `yaml:"service"`
+				Parameters map[string]string `yaml:"parameters"`
+			}
+			data, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+			// «ключ: ?» — общая строка, которую ждут; YAML без кавычек её не читает.
+			data = []byte(strings.ReplaceAll(string(data), ": ?\n", ": \"?\"\n"))
+			if err := yaml.Unmarshal(data, &playbook); err != nil {
+				return err
+			}
+			switch playbook.Service {
+			case "node_login":
+				cmd.Println("HTTP 200")
+				cmd.Println("string_i: k-42-session")
+			case "node_tune":
+				if playbook.Parameters["string_i"] != "k-42-session" {
+					return fmt.Errorf("HTTP 500: нет верного string_i (получено %q)", playbook.Parameters["string_i"])
+				}
+				cmd.Println("HTTP 200: параметры применены")
+			default:
+				return fmt.Errorf("HTTP 404: сервис %q", playbook.Service)
+			}
+			return nil
+		},
+	})
+	return []*cobra.Command{root, node, {
 		Use:   "pgraw",
 		Short: "Команда без класса: только по имени или с all",
 		RunE: func(cmd *cobra.Command, _ []string) error {
