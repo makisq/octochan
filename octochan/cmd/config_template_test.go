@@ -3,6 +3,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -170,5 +171,64 @@ func TestNewConfigIsTemplate(t *testing.T) {
 	t.Cleanup(func() { viper.Set("defaults.token_timer_enabled", false) })
 	if got := flatten(t, readFile(t, path)); len(got) != 1 || got["defaults.token_timer_enabled"] != true {
 		t.Fatalf("после timer on: %v\n%s", got, readFile(t, path))
+	}
+}
+
+// shell.goodbye: по умолчанию exit прощается, false — молча; на языке
+// ochan.
+func TestShellGoodbye(t *testing.T) {
+	newScriptEnv(t)
+	if got := goodbye(); got != "До встречи!" {
+		t.Fatalf("по умолчанию: %q", got)
+	}
+	setting(t, "shell.goodbye", false)
+	if got := goodbye(); got != "" {
+		t.Fatalf("shell.goodbye: false, а прощание %q", got)
+	}
+}
+
+// Сменили lang — сменились пояснения config.yaml, а значения, свои
+// комментарии пользователя и текст автора модуля остались; обратно — тот
+// же файл байт в байт.
+func TestConfigFollowsLanguage(t *testing.T) {
+	newScriptEnv(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := writeConfigTemplate(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := setConfigValues(path, map[string]any{"lang": "eng", "shell.goodbye": false, "llm.chat.provider": "anthropic"}); err != nil {
+		t.Fatal(err)
+	}
+	module := "\n# " + templateText(modulesTitle) + "\nmodules:\n  # demo 1.0\n  demo:\n    # текст автора модуля" +
+		templateText(requiredSuffix) + "\n    url: x\n"
+	data := readFile(t, path) + module + "# свой комментарий\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ru := readFile(t, path)
+
+	english, ok := retranslateConfig(ru, "en")
+	if !ok {
+		t.Fatal("конфиг по шаблону не узнан")
+	}
+	for _, want := range []string{"# ochan config.yaml.", "# Shell", "  # say goodbye on exit", "  goodbye: false",
+		"lang: eng", "    provider: anthropic", "# Module settings — written by !!install", "    # текст автора модуля (required)",
+		"# свой комментарий"} {
+		if !strings.Contains(english, want) {
+			t.Fatalf("после перевода нет %q:\n%s", want, english)
+		}
+	}
+	if strings.Contains(english, "Оболочка") || strings.Contains(english, "(обязательно)") {
+		t.Fatalf("остались русские пояснения:\n%s", english)
+	}
+	if !reflect.DeepEqual(flatten(t, ru), flatten(t, english)) {
+		t.Fatalf("перевод изменил настройки:\n%v\n%v", flatten(t, ru), flatten(t, english))
+	}
+	back, _ := retranslateConfig(english, "ru")
+	if back != ru {
+		t.Fatalf("обратный перевод — не тот же файл:\n%s", back)
+	}
+	if _, ok := retranslateConfig("# свой конфиг\nlang: eng\n", "en"); ok {
+		t.Fatal("конфиг не по шаблону принят за шаблон")
 	}
 }

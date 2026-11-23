@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
+
+	"ochan/core/i18n"
 
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -70,6 +73,7 @@ var configSections = []configSection{
 	{"Оболочка", []configEntry{
 		{"shell.logo", "логотип при входе", nil},
 		{"shell.history_size", "сколько команд помнить между запусками", nil},
+		{"shell.goodbye", "прощаться при exit («До встречи!»); false — выйти молча", nil},
 	}},
 	{"Формальный промпт", []configEntry{
 		{"fp.mode", "formal — модели ставят задачу формальным промптом, natural — обычным языком", nil},
@@ -115,10 +119,10 @@ const configHeader = `# config.yaml ochan.
 // задать (без #): ключ через точку → значение.
 func renderConfigTemplate(set map[string]any) (string, error) {
 	var b strings.Builder
-	b.WriteString(configHeader)
+	b.WriteString(templateText(strings.TrimRight(configHeader, "\n")) + "\n")
 	used := map[string]bool{}
 	for _, section := range configSections {
-		b.WriteString("\n# " + section.title + "\n")
+		b.WriteString("\n# " + templateText(section.title) + "\n")
 		// Заголовки (paths:, llm:, chat:) — без #, если под ними что-то
 		// задано.
 		active := func(prefix string) bool {
@@ -151,7 +155,7 @@ func renderConfigTemplate(set map[string]any) (string, error) {
 			if active(strings.Join(parts[:len(parts)-1], ".")) || len(parts) == 1 {
 				mark = ""
 			}
-			fmt.Fprintf(&b, "%s%s# %s\n", mark, indent, entry.comment)
+			fmt.Fprintf(&b, "%s%s# %s\n", mark, indent, templateText(entry.comment))
 			value, isSet := set[entry.key]
 			if isSet {
 				used[entry.key] = true
@@ -192,7 +196,7 @@ func renderConfigTemplate(set map[string]any) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		b.WriteString("\n# Задано установкой\n")
+		b.WriteString("\n# " + templateText("Задано установкой") + "\n")
 		b.Write(data)
 	}
 	return b.String(), nil
@@ -443,3 +447,125 @@ func uncommentLine(line, indent string) (string, bool) {
 var commentedLine = regexp.MustCompile(`^( *)# ( *)(.*)$`)
 
 func leadingSpaces(line string) int { return len(line) - len(strings.TrimLeft(line, " ")) }
+
+// Язык пояснений config.yaml — язык ochan (lang). Пояснения шаблона —
+// русский текст с переводами (core/i18n), как и вся справка.
+
+// templateText — пояснение шаблона на текущем языке.
+func templateText(text string) string { return i18n.T(text) }
+
+// Пояснения модулей, которые пишет ochan (module_settings.go).
+const (
+	modulesTitle    = "Настройки модулей — их пишет !!install: modules.<модуль>.<настройка>"
+	requiredSuffix  = " (обязательно)"
+	moduleNoComment = "настройка модуля"
+)
+
+// templateSources — все пояснения шаблона на языке исходника.
+func templateSources() []string {
+	out := []string{"Задано установкой", modulesTitle, moduleNoComment}
+	for _, section := range configSections {
+		out = append(out, section.title)
+		for _, entry := range section.entries {
+			out = append(out, entry.comment)
+		}
+	}
+	return out
+}
+
+// templateVariants — пояснение на любом языке → оно же на языке code.
+// Перевода на code нет — остаётся исходник.
+func templateVariants(sources []string, code string) map[string]string {
+	variants := map[string]string{}
+	to := func(text string) string {
+		if t, ok := i18n.Lookup(code, text); ok {
+			return t
+		}
+		return text
+	}
+	for _, text := range sources {
+		target := to(text)
+		variants[text] = target
+		for _, lang := range i18n.Languages() {
+			if t, ok := i18n.Lookup(lang.Code, text); ok {
+				variants[t] = target
+			}
+		}
+	}
+	return variants
+}
+
+// templateComment — строка-пояснение шаблона: всё до текста и сам текст
+// («# », «#   # », «  # »). ok — это пояснение, а не настройка под #.
+var templateComment = regexp.MustCompile(`^((?: *# +)?(?: *))# (\S.*)$`)
+
+// retranslateConfig переводит пояснения конфига, сделанного по шаблону, на
+// язык code: шапку, заголовки разделов и строки «что это». Меняются только
+// они — значения, порядок, заданное и свои комментарии пользователя
+// остаются: сменили lang — сменились пояснения, а не настройки. ok —
+// конфиг сделан по шаблону (по шапке на любом из языков).
+func retranslateConfig(text, code string) (string, bool) {
+	header := strings.TrimRight(configHeader, "\n")
+	headers := templateVariants([]string{header}, code)
+	var found string
+	for variant := range headers {
+		if strings.HasPrefix(text, variant+"\n") || text == variant {
+			found = variant
+			break
+		}
+	}
+	if found == "" {
+		return text, false
+	}
+	text = headers[found] + strings.TrimPrefix(text, found)
+
+	variants := templateVariants(templateSources(), code)
+	required := templateVariants([]string{requiredSuffix}, code)
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		m := templateComment.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		body := m[2]
+		if target, ok := variants[body]; ok {
+			lines[i] = m[1] + "# " + target
+			continue
+		}
+		// Пояснение модуля с пометкой «обязательно»: переводится пометка,
+		// текст модуля — как его написал автор.
+		for variant, target := range required {
+			if base, ok := strings.CutSuffix(body, variant); ok {
+				if t, ok := variants[base]; ok {
+					base = t
+				}
+				lines[i] = m[1] + "# " + base + target
+				break
+			}
+		}
+	}
+	return strings.Join(lines, "\n"), true
+}
+
+// translateConfigFile переводит пояснения config.yaml на язык ochan, если
+// конфиг сделан по шаблону и пояснения на другом языке. Значения не
+// меняются; файл переписывается, только если перевод что-то поменял.
+func translateConfigFile(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	text, ok := retranslateConfig(string(data), i18n.Current())
+	if !ok || text == string(data) {
+		return nil
+	}
+	before, err := parseYAML(string(data))
+	if err != nil {
+		return nil // сломанный конфиг ochan не трогает: о нём скажет чтение
+	}
+	after, err := parseYAML(text)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		return i18n.Errorf("перевод пояснений изменил бы настройки — %s оставлен как есть", path)
+	}
+	return os.WriteFile(path, []byte(text), 0o600)
+}

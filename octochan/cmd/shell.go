@@ -292,6 +292,15 @@ func runInteractiveShell(ctx context.Context) error {
 	return nil
 }
 
+// goodbye — что сказать при exit: «До встречи!» или ничего, если
+// shell.goodbye: false (выйти молча).
+func goodbye() string {
+	if !viper.GetBool("shell.goodbye") {
+		return ""
+	}
+	return i18n.T("До встречи!")
+}
+
 // exitShell завершает процесс из оболочки.
 //
 // go-prompt не умеет прерывать Run() изнутри executor'а, поэтому выход —
@@ -390,7 +399,9 @@ func executeShellLine(ctx context.Context, raw string, remember bool) {
 
 	switch input {
 	case "exit", "quit":
-		fmt.Println(i18n.T("До встречи!"))
+		if msg := goodbye(); msg != "" {
+			fmt.Println(msg)
+		}
 		exitShell(0)
 		return
 	case "!!clear", "clr":

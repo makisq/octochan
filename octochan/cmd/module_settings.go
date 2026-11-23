@@ -125,10 +125,10 @@ func declareModuleSettings(path string, info pluginhost.ModuleInfo) ([]string, e
 		}
 		comment := s.Description
 		if comment == "" {
-			comment = i18n.T("настройка модуля")
+			comment = templateText(moduleNoComment)
 		}
 		if s.Required {
-			comment += i18n.T(" (обязательно)")
+			comment += templateText(requiredSuffix)
 			if s.Default == "" {
 				required = append(required, key)
 			}
@@ -179,7 +179,7 @@ func insertModuleBlock(text, module, title string, entries []configEntry) string
 		}
 	}
 	if header < 0 {
-		lines = append(lines, "", "# "+i18n.T("Настройки модулей — их пишет !!install: modules.<модуль>.<настройка>"),
+		lines = append(lines, "", "# "+templateText(modulesTitle),
 			"# "+modulesKey+":")
 		header = len(lines) - 1
 	}

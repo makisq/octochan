@@ -163,6 +163,13 @@ func applyLanguage() {
 		}
 	}
 	localizeCommands(rootCmd)
+	// Пояснения config.yaml — на том же языке: сменили lang — сменились
+	// пояснения, а значения остались.
+	if path := viper.ConfigFileUsed(); path != "" {
+		if err := translateConfigFile(path); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", i18n.Sprintf("внимание: %v", err))
+		}
+	}
 }
 
 func languageCodes() []string {

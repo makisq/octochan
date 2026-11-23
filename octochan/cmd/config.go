@@ -106,6 +106,8 @@ func setConfigDefaults(base string) {
 	// логотип при входе.
 	viper.SetDefault("shell.history_size", 1000)
 	viper.SetDefault("shell.logo", true)
+	// Прощаться ли при exit: «До встречи!» или выйти молча.
+	viper.SetDefault("shell.goodbye", true)
 
 	// Адрес общего оркестратора по умолчанию: ochan remote ping без адреса.
 	viper.SetDefault("remote.address", "")
