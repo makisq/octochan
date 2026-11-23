@@ -7,8 +7,8 @@
 
 Модуль — отдельная программа на Go, реализующая
 `pluginhost.CommandModule`. Обвязка go-plugin, gRPC и перенос команд cobra
-живут в `pluginhost`; модулю достаточно отдать команды. Пример — `dwd` в
-репозитории:
+живут в `pluginhost`; модулю достаточно отдать команды. Пример —
+`examples/testmodule` в репозитории:
 
 ```go
 package main
@@ -25,7 +25,7 @@ type TestModule struct{}
 
 func (t *TestModule) Name() string                { return "test-module" }
 func (t *TestModule) Version() string             { return "1.3.0" }
-func (t *TestModule) Init(_ map[string]any) error { return nil }
+func (t *TestModule) Init(_ map[string]any) error { return nil } // сюда приходят значения настроек
 
 func (t *TestModule) GetCommands() []*cobra.Command {
     testCmd := &cobra.Command{
@@ -77,8 +77,10 @@ func main() { pluginhost.ServeCommandModule(&TestModule{}) }
 $ go build -o test-module.hcplugin ./examples/testmodule
 $ ochan '!!install' test-module.hcplugin
 Модуль test-module.hcplugin установлен и загружен
+  команд: 1 — ochan inspect test-module.hcplugin
 $ ochan modules
-  test-module.hcplugin             test-module v1.3.0 (команд: 1)
+Модули:
+  test-module.hcplugin         test-module v1.3.0 — команд: 1
 $ ochan test generate -n 2
 Generating 2 test items...
 Item 1
@@ -114,13 +116,18 @@ Item 1
 - **Время** команды ограничено `defaults.module_command_timeout` (10m).
 - **Язык**: реализовав ещё и `Translations()`, модуль приносит язык
   интерфейса — см. [«ochan на своём языке»](translate.md).
-- **Оболочка** перезагружает изменившиеся модули сама, без перезапуска.
+- **Оболочка** перезагружает изменившиеся модули сама, без перезапуска;
+  `!!reload` — загрузить все модули заново и перечитать `config.yaml`.
 - **Настройки**: реализовав `Settings() []pluginhost.Setting`, модуль
   объявляет, что в нём настраивается, — `!!install` сам пишет это в
   `config.yaml` (раздел `modules.<модуль>`), а значения приходят в `Init`.
-  См. [«Настройки модуля»](../guide/modules.md#настройки-модуля-settings).
+  Пошагово — рецепт [«Настройки своего модуля»](module-settings.md).
+- **Права**: аннотация `class` у команды (`read`, `execution`) открывает её
+  правом группы, без `role grant` по имени — см.
+  [«Класс команды»](../guide/modules.md#класс-команды-read-или-execution).
 
 ## Смотрите также
 
 - [Модули и пакеты](../guide/modules.md)
+- [Настройки своего модуля](module-settings.md)
 - [modules/pluginhost/command.proto](../../modules/pluginhost/command.proto) — контракт модуля.
