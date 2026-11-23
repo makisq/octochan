@@ -97,6 +97,11 @@ message CommandRequest {
     string name = 1;
     repeated string args = 2;
     map<string, string> flags = 3;
+    // Настройки модуля сейчас (modules.<модуль> в config.yaml, иначе
+    // умолчания модуля) и его токен (ochan auth --executor <модуль>) — как
+    // у исполнителя в RunnerCall. ochan до 0.3.1 их не шлёт: пусто.
+    map<string, string> settings = 4;
+    map<string, string> credentials = 5;
 }
 
 // Runner — исполнитель сценариев, которого приносит модуль: SSH, Ansible,

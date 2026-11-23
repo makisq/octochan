@@ -38,6 +38,8 @@
 - [`ochan back role`](#ochan-back-role) — Вернуться к прошлой роли
 - [`ochan check`](#ochan-check) — Проверить сценарий языка алиасов, ничего не выполняя
 - [`ochan compensate`](#ochan-compensate) — Оформить обратное действие выполненной заявки — второй согласованной операцией
+- [`ochan config`](#ochan-config) — Настройки ochan: что действует и откуда
+- [`ochan config show`](#ochan-config-show) — Показать действующие настройки и откуда каждая
 - [`ochan connect`](#ochan-connect) — Подключиться к общему оркестратору
 - [`ochan diff`](#ochan-diff) — Сравнить две конфигурации или два файла
 - [`ochan else`](#ochan-else) — Альтернативная проверка, если предыдущий if не сработал
@@ -71,7 +73,7 @@
 - [`ochan incident resolve`](#ochan-incident-resolve) — Инцидент решён
 - [`ochan incident secret`](#ochan-incident-secret) — Создать секрет вебхука мониторинга
 - [`ochan incident stats`](#ochan-incident-stats) — Статистика инцидентов: что решила модель, что ушло инженерам, что не решено
-- [`ochan inspect`](#ochan-inspect) — Показать информацию о модуле
+- [`ochan inspect`](#ochan-inspect) — Показать, что модуль объявляет, — без установки
 - [`ochan inventory`](#ochan-inventory) — Цели: хосты инвентаря, их группы и переменные
 - [`ochan inventory ack`](#ochan-inventory-ack) — Отметить новые хосты увиденными
 - [`ochan lang`](#ochan-lang) — Показать языки: текущий, встроенные и из модулей
@@ -707,6 +709,50 @@ ochan compensate 7a8f
 ochan approve <id обратного действия>
 ochan apply --request <id обратного действия>
 ```
+
+## ochan config
+
+Настройки ochan: что действует и откуда.
+
+```
+ochan config
+```
+
+Настройки ochan — config.yaml. Файл с пояснениями ochan пишет сам при
+первом запуске; модули дописывают в него свои настройки при !!install.
+
+Право: `read`.
+
+Подкоманды: [`show`](#ochan-config-show).
+
+## ochan config show
+
+Показать действующие настройки и откуда каждая.
+
+```
+ochan config show [раздел]
+```
+
+Показывает каждую настройку с её значением сейчас и источником:
+config.yaml, умолчание ochan или умолчание модуля (modules.<модуль>).
+Раздел — начало ключа: defaults, shell, modules.pgstat. Значение
+настройки, похожей на секрет (token, password, secret, cookie, key и
+подобные, кроме путей к файлам), скрыто: config show можно показать
+другому. Токены исполнителей живут не в конфиге — ochan auth.
+
+Право: `read`.
+
+Примеры:
+
+```
+ochan config show
+ochan config show defaults
+ochan config show --json modules
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--json` | bool | — | вывести JSON — для программ |
 
 ## ochan connect
 
@@ -1381,13 +1427,33 @@ incidents.report.every или 7d.
 
 ## ochan inspect
 
-Показать информацию о модуле.
+Показать, что модуль объявляет, — без установки.
 
 ```
-ochan inspect <module_path>
+ochan inspect <модуль.hcplugin>
 ```
+
+Запускает модуль из файла отдельно — установленный или ещё нет — и
+показывает, что он объявляет: имя и версию, размер и SHA-256 файла,
+команды с классами прав, исполнителей с сервисами и операциями,
+настройки (раздел modules.<модуль> в config.yaml) и откуда исполнитель
+берёт токен. Набор команд текущей сессии не меняется. Файл, который не
+модуль (архив пакета вместо программы, нет рукопожатия, паника при
+запуске), — отказ с причиной и stderr модуля: так модуль проверяют до
+!!install.
 
 Право: `install`.
+
+Примеры:
+
+```
+ochan inspect pgstat.hcplugin
+ochan inspect --json pgstat.hcplugin
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--json` | bool | — | вывести JSON — для программ |
 
 ## ochan inventory
 

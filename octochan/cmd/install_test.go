@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,4 +131,52 @@ func setting(t *testing.T, key string, value any) {
 	old := viper.Get(key)
 	viper.Set(key, value)
 	t.Cleanup(func() { viper.Set(key, old) })
+}
+
+// inspect показывает, что модуль объявляет, не ставя его: размер, сумму,
+// исполнителя с сервисами и операциями, настройки; --json — то же для
+// программ. Не модуль — отказ с причиной.
+func TestInspectModule(t *testing.T) {
+	runner := buildModule(t, "ochan/examples/runnermodule", "demo-runner")
+	module := buildModule(t, "ochan/examples/classmodule", "pgstat")
+	e := newScriptEnv(t)
+	t.Cleanup(func() {
+		pluginhost.GetModuleManager().Cleanup()
+		refreshModuleCommands()
+		syncRunners()
+	})
+
+	out := e.must("inspect", runner)
+	for _, want := range []string{"Имя:       demo-runner", "SHA-256:", "Установлен: нет",
+		"Исполнитель Demo (demo):", "умеет:     plan, apply", "ochan auth --executor demo (или OCTOCHAN_TOKEN_DEMO)",
+		"modules.demo-runner.region = eu-1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("в выводе inspect нет %q:\n%s", want, out)
+		}
+	}
+	if _, err := scenario.Resolve("demo"); err == nil {
+		t.Fatal("inspect подключил исполнителя модуля")
+	}
+
+	e.must("!!install", module)
+	out = e.must("inspect", "--json", module)
+	var report inspectReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("inspect --json: %v\n%s", err, out)
+	}
+	sum, _ := pluginhost.FileChecksum(module)
+	if report.Name != "pgstat" || report.SHA256 != hex.EncodeToString(sum) || !report.Same || report.InstalledPath == "" {
+		t.Fatalf("inspect --json: %+v", report)
+	}
+	required := false
+	for _, s := range report.Settings {
+		required = required || s.Key == "modules.pgstat.cluster" && s.Required
+	}
+	if !required || len(report.Commands) == 0 || len(report.Runners) != 0 {
+		t.Fatalf("inspect --json: %+v", report)
+	}
+
+	lib := e.path("lib" + pluginhost.ModuleExtension)
+	e.write(lib, "!<arch>\nне программа")
+	e.fails("архив пакета Go", "inspect", lib)
 }

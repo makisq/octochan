@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -49,9 +50,41 @@ func shellReload(out io.Writer) error {
 	// Модули — все заново: пересобранный файл с тем же именем наблюдатель
 	// видит не всегда (замена переименованием, сетевой диск), а новый
 	// процесс модуля — единственный способ получить его новый код.
+	// Прежний процесс гасится, только когда новый ответил: сломанный модуль
+	// на диске не уносит рабочий — он остаётся, и об этом сказано.
 	mm := pluginhost.GetModuleManager()
-	mm.Cleanup()
-	loadErr := mm.LoadModulesFromDir(fm.ModulesDir())
+	var loadErr error
+	present := map[string]bool{}
+	entries, err := os.ReadDir(fm.ModulesDir())
+	if err != nil {
+		loadErr = err
+	}
+	loaded := map[string]bool{}
+	for _, info := range mm.LoadedModules() {
+		loaded[info.Path] = true
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != pluginhost.ModuleExtension {
+			continue
+		}
+		path := filepath.Join(fm.ModulesDir(), entry.Name())
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+		present[path] = true
+		if err := mm.LoadModule(path); err != nil {
+			if loaded[path] {
+				err = i18n.Errorf("%s: %v — оставлена прежняя, загруженная версия", entry.Name(), err)
+			}
+			loadErr = errors.Join(loadErr, err)
+		}
+	}
+	// Файла модуля больше нет — модуль выгружается.
+	for path := range loaded {
+		if !present[path] {
+			mm.UnloadModule(path)
+		}
+	}
 	refreshModuleCommands()
 	warnings := syncRunners()
 
@@ -233,7 +266,9 @@ func withRedirect(ctx context.Context, r *redirection, run func()) {
 		rootCmd.SetOut(savedOut)
 	}()
 
+	failed := shellErrors
 	run()
+	failed = shellErrors - failed
 
 	if err := file.Close(); err != nil {
 		shellFail(i18n.Errorf("вывод в %s не записан до конца: %v", target, err))
@@ -255,8 +290,24 @@ func withRedirect(ctx context.Context, r *redirection, run func()) {
 	if shellLines {
 		note = os.Stderr
 	}
+	// Пустой вывод — не успех молча: по «0 байт» не понять, что команда
+	// ничего не напечатала.
 	if r.append {
+		if size == before {
+			if failed > 0 {
+				return // о строке с ошибкой уже сказано: «вывод пуст» сверху — шум
+			}
+			fmt.Fprintln(os.Stderr, i18n.Sprintf("внимание: вывод пуст — %s не изменился", shown))
+			return
+		}
 		fmt.Fprintln(note, i18n.Sprintf("Вывод дописан в %s: +%d байт, всего %d", shown, size-before, size))
+		return
+	}
+	if size == 0 {
+		if failed > 0 {
+			return
+		}
+		fmt.Fprintln(os.Stderr, i18n.Sprintf("внимание: вывод пуст — %s пуст", shown))
 		return
 	}
 	fmt.Fprintln(note, i18n.Sprintf("Вывод записан в %s: %d байт", shown, size))

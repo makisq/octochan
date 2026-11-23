@@ -571,6 +571,10 @@ func (p setupPlan) install(cmd *cobra.Command) error {
 	default:
 		fmt.Fprintln(out, "Запуск: ochan")
 	}
+	// Что дальше: после установки неясно, чем ochan выполняет сценарии и
+	// как его настроить.
+	fmt.Fprintln(out, "Дальше: ochan services — чем выполняются сценарии (свои исполнители — модулями, !!install);")
+	fmt.Fprintln(out, "  ochan config show — действующие настройки; токен исполнителя — ochan auth --executor <имя>")
 	return nil
 }
 

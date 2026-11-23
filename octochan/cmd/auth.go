@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"ochan/modules/httpexec"
+	"ochan/modules/pluginhost"
 )
 
 var authExecutor string
@@ -83,6 +84,13 @@ var authCmd = &cobra.Command{
 			// Ключ внешней модели — не исполнитель сценариев: его читают ask и opmode llm.
 			cmd.Printf("Ключ модели сохранён: %s — его читают ask и opmode llm\n", path)
 			return nil
+		}
+		// Модуль команд получает токен под своим именем (pluginhost.Token).
+		for _, info := range pluginhost.GetModuleManager().LoadedModules() {
+			if info.Name == executor && !slices.Contains(executors, executor) {
+				cmd.Printf("Токен модуля %s сохранён: %s — его команды получают токен в каждом вызове\n", executor, path)
+				return nil
+			}
 		}
 		cmd.Printf("Токен исполнителя %s сохранён: %s\n", executor, path)
 		if !slices.Contains(executors, executor) {

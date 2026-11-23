@@ -116,6 +116,36 @@ func CheckSettings(settings []Setting) error {
 // настройки без значения.
 var SettingValues func(module string, declared []Setting) (values map[string]string, missing []string)
 
+// CommandSupply — что ochan передаёт команде модуля в каждом вызове:
+// настройки модуля сейчас и его токен. nil — ничего.
+var CommandSupply func(module string, declared []Setting) Supply
+
+// supplyKey — ключ Supply в контексте команды модуля.
+type supplyKey struct{}
+
+// Token — токен модуля в команде: ochan auth --executor <модуль> или
+// OCTOCHAN_TOKEN_<МОДУЛЬ>; пусто — не задан или ochan старше 0.3.1. ctx —
+// cmd.Context() команды.
+func Token(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	supply, _ := ctx.Value(supplyKey{}).(Supply)
+	return supply.Credentials["token"]
+}
+
+// Settings — настройки модуля в команде, как сейчас в config.yaml
+// (modules.<модуль>), иначе умолчания модуля: правка конфига видна без
+// перезагрузки модуля. Пусто — ochan старше 0.3.1: берите то, что пришло
+// в Init. ctx — cmd.Context() команды.
+func Settings(ctx context.Context) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	supply, _ := ctx.Value(supplyKey{}).(Supply)
+	return supply.Settings
+}
+
 // CommandPlugin связывает CommandModule с go-plugin.
 type CommandPlugin struct {
 	plugin.NetRPCUnsupportedPlugin
@@ -255,6 +285,63 @@ const outputTrailer = "ochan-output-bin"
 // метаданные gRPC — не для мегабайтов.
 const maxTrailerOutput = 4 << 20
 
+// commandMu — команды модуля выполняются по одной: stdout процесса на время
+// команды — её, и двух сразу он не различит.
+var commandMu sync.Mutex
+
+// lockedBuffer — вывод команды из двух мест сразу: cmd и stdout процесса.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Bytes()
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// captureStdout направляет stdout процесса модуля в w до вызова stop: stop
+// дожидается всего, что успели напечатать, и возвращает stdout на место.
+// Не вышло завести трубу — stdout остаётся как был.
+func captureStdout(w io.Writer) (stop func()) {
+	r, pw, err := os.Pipe()
+	if err != nil {
+		return func() {}
+	}
+	saved := os.Stdout
+	os.Stdout = pw
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(w, r)
+		close(done)
+	}()
+	return func() {
+		os.Stdout = saved
+		_ = pw.Close()
+		<-done
+		_ = r.Close()
+	}
+}
+
 // runCommand — общая реализация для Run/PreRun/PostRun. Вывод команды
 // (cmd.Println, cmd.OutOrStdout()) возвращается хосту в trailer.
 func (s *CommandGRPCServer) runCommand(ctx context.Context, req *CommandRequest, phase string) (*Empty, error) {
@@ -262,9 +349,24 @@ func (s *CommandGRPCServer) runCommand(ctx context.Context, req *CommandRequest,
 	if err != nil {
 		return nil, err
 	}
-	var output bytes.Buffer
+	// Вывод команды — и cmd.Println, и fmt.Println мимо cmd (stdout
+	// процесса модуля): всё уходит хосту вместе с ответом. Раньше stdout
+	// процесса go-plugin пересылал отдельно и позже ответа, и строка
+	// попадала туда, куда хост смотрел в момент пересылки: «строка >| файл»
+	// получала 0 байт, а вывод — следующий файл или экран.
+	commandMu.Lock()
+	defer commandMu.Unlock()
+	// Настройки и токен модуля — в контексте команды: pluginhost.Settings
+	// и pluginhost.Token.
+	prevCtx := cmd.Context()
+	cmd.SetContext(context.WithValue(ctx, supplyKey{}, Supply{Credentials: req.GetCredentials(),
+		Settings: req.GetSettings()}))
+	defer cmd.SetContext(prevCtx)
+	var output lockedBuffer
 	cmd.SetOut(&output)
+	stopCapture := captureStdout(&output)
 	defer func() {
+		stopCapture()
 		cmd.SetOut(nil)
 		if output.Len() == 0 {
 			return
@@ -336,6 +438,10 @@ func (s *CommandGRPCServer) PostRunCommand(ctx context.Context, req *CommandRequ
 // CommandGRPCClient — представление модуля на стороне хоста.
 type CommandGRPCClient struct {
 	Client CommandModuleClient
+	// module и settings — имя модуля и его настройки: по ним команде
+	// выдаются значения и токен (CommandSupply).
+	module   string
+	settings []Setting
 }
 
 // commandTimeout — предельное время выполнения команды модуля.
@@ -441,12 +547,13 @@ func (c *CommandGRPCClient) remoteRunner(path string, call remoteCall) func(*cob
 
 		// Вывод команды приходит в trailer (outputTrailer); модуль, собранный
 		// до этого, печатает в свой stdout, и trailer пуст.
+		req := &CommandRequest{Name: path, Args: args, Flags: flags}
+		if CommandSupply != nil && c.module != "" {
+			supply := CommandSupply(c.module, c.settings)
+			req.Settings, req.Credentials = supply.Settings, supply.Credentials
+		}
 		var trailer metadata.MD
-		_, err := call(ctx, &CommandRequest{
-			Name:  path,
-			Args:  args,
-			Flags: flags,
-		}, grpc.Trailer(&trailer))
+		_, err := call(ctx, req, grpc.Trailer(&trailer))
 		for _, chunk := range trailer.Get(outputTrailer) {
 			_, _ = io.WriteString(cmd.OutOrStdout(), chunk)
 		}
@@ -665,6 +772,114 @@ func (currentStdout) Write(p []byte) (int, error) { return os.Stdout.Write(p) }
 // Раньше загружалось всё, что появилось в директории модулей, без проверок,
 // а go-plugin настраивался без SecureConfig и AutoMTLS.
 func (m *ModuleManager) LoadModule(path string) error {
+	return m.load(path, nil)
+}
+
+// Probe запускает модуль из файла, который ещё не установлен, — как
+// установленный, с суммой самого файла, — и гасит его: так !!install узнаёт,
+// модуль ли это, до того как что-то скопировано, а прежняя версия цела.
+// Возвращает то, что модуль объявил.
+func Probe(path string) (ModuleInfo, error) {
+	probe, err := OpenProbe(path)
+	if err != nil {
+		return ModuleInfo{}, err
+	}
+	defer probe.Cleanup()
+	infos := probe.LoadedModules()
+	if len(infos) == 0 {
+		return ModuleInfo{}, errors.New("модуль не сообщил о себе ничего")
+	}
+	return infos[0], nil
+}
+
+// OpenProbe запускает модуль из файла в отдельном менеджере — с суммой
+// самого файла, без установки — и отдаёт менеджер: команды, исполнители и
+// настройки модуля. Гасит его Cleanup вызывающего.
+func OpenProbe(path string) (*ModuleManager, error) {
+	sum, err := FileChecksum(path)
+	if err != nil {
+		return nil, err
+	}
+	probe := NewModuleManager()
+	if err := probe.load(path, &plugin.SecureConfig{Checksum: sum, Hash: sha256.New()}); err != nil {
+		probe.Cleanup()
+		return nil, err
+	}
+	return probe, nil
+}
+
+// ErrNotModule — файл не модуль ochan: его не запустить или он не отвечает
+// рукопожатием модуля.
+var ErrNotModule = errors.New("не модуль ochan")
+
+// buildHint — как собрать модуль.
+const buildHint = "соберите модуль: package main и main() { pluginhost.ServeCommandModule(…) }"
+
+// CheckModuleFile смотрит на файл до запуска: программа ли это вообще.
+// go build пакета не main пишет не программу, а архив пакета (!<arch>), и
+// запуск его кончался голым «exec format error».
+func CheckModuleFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	head := make([]byte, 8)
+	n, _ := io.ReadFull(f, head)
+	head = head[:n]
+	switch {
+	case bytes.HasPrefix(head, []byte("!<arch>\n")):
+		return fmt.Errorf("%w: %s — архив пакета Go, а не программа: собран пакет не main (go build пакета-библиотеки "+
+			"даёт архив); %s", ErrNotModule, filepath.Base(path), buildHint)
+	case bytes.HasPrefix(head, []byte("\x7fELF")), bytes.HasPrefix(head, []byte("MZ")), bytes.HasPrefix(head, []byte("#!")),
+		len(head) >= 4 && (bytes.Equal(head[:4], []byte{0xcf, 0xfa, 0xed, 0xfe}) || bytes.Equal(head[:4], []byte{0xce, 0xfa, 0xed, 0xfe}) ||
+			bytes.Equal(head[:4], []byte{0xca, 0xfe, 0xba, 0xbe})):
+		return nil
+	}
+	return fmt.Errorf("%w: %s — не программа (не ELF, Mach-O, PE и не сценарий с #!); %s", ErrNotModule, filepath.Base(path), buildHint)
+}
+
+// stderrTail — последние строки stderr процесса модуля: их показывает
+// ошибка загрузки — паника или сообщение модуля, а не голый «exit status 2».
+type stderrTail struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+func (t *stderrTail) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.data = append(t.data, p...)
+	if over := len(t.data) - 16<<10; over > 0 {
+		t.data = t.data[over:]
+	}
+	return len(p), nil
+}
+
+// lines — последние n строк.
+func (t *stderrTail) lines(n int) []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	all := strings.Split(strings.TrimRight(string(t.data), "\n"), "\n")
+	if len(all) == 1 && all[0] == "" {
+		return nil
+	}
+	if len(all) > n {
+		all = all[len(all)-n:]
+	}
+	return all
+}
+
+// withStderr дописывает к ошибке запуска хвост stderr модуля.
+func (t *stderrTail) withStderr(err error) error {
+	lines := t.lines(20)
+	if len(lines) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w\n  stderr модуля:\n    %s", err, strings.Join(lines, "\n    "))
+}
+
+func (m *ModuleManager) load(path string, secure *plugin.SecureConfig) error {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return fmt.Errorf("не удалось определить путь модуля: %w", err)
@@ -678,10 +893,16 @@ func (m *ModuleManager) LoadModule(path string) error {
 		return fmt.Errorf("%s — это директория, а не модуль", absPath)
 	}
 
-	secureConfig, err := m.secureConfigFor(absPath)
-	if err != nil {
+	if err := CheckModuleFile(absPath); err != nil {
 		return err
 	}
+	secureConfig := secure
+	if secureConfig == nil {
+		if secureConfig, err = m.secureConfigFor(absPath); err != nil {
+			return err
+		}
+	}
+	stderr := &stderrTail{}
 
 	logger := hclog.New(&hclog.LoggerOptions{
 		Name: "plugin-loader",
@@ -709,6 +930,9 @@ func (m *ModuleManager) LoadModule(path string) error {
 		// на уровне debug, то есть в никуда.
 		SyncStdout: currentStdout{},
 		SyncStderr: os.Stderr,
+		// Сырой stderr процесса — и до рукопожатия: паника при запуске видна
+		// в ошибке загрузки.
+		Stderr: stderr,
 	})
 
 	// Процесс гасится на любом пути выхода, кроме успешного: до этого
@@ -723,7 +947,18 @@ func (m *ModuleManager) LoadModule(path string) error {
 
 	module, err := dispenseCommandModule(client)
 	if err != nil {
-		return err
+		// go-plugin объясняет отказ рукопожатия на десяток строк про
+		// архитектуру и права; суть — одна строка, а причина — в stderr.
+		reason := strings.SplitN(err.Error(), "\n", 2)[0]
+		switch {
+		case client.Exited():
+			err = fmt.Errorf("%w: %s завершился, не ответив рукопожатием модуля (%s); %s", ErrNotModule,
+				filepath.Base(absPath), strings.TrimSuffix(strings.TrimSpace(reason), ":"), buildHint)
+		case strings.Contains(reason, "Unrecognized remote plugin") || strings.Contains(reason, "Incompatible"):
+			err = fmt.Errorf("%w: %s не ответил рукопожатием модуля (%s); %s", ErrNotModule, filepath.Base(absPath),
+				strings.TrimSuffix(strings.TrimSpace(reason), ":"), buildHint)
+		}
+		return stderr.withStderr(err)
 	}
 
 	name, err := moduleName(module)
@@ -789,6 +1024,9 @@ func (m *ModuleManager) LoadModule(path string) error {
 	}
 	if err := module.Init(init); err != nil {
 		return fmt.Errorf("модуль %s не принял настройки: %w", name, err)
+	}
+	if client, ok := module.(*CommandGRPCClient); ok {
+		client.module, client.settings = name, settings
 	}
 
 	m.mu.Lock()
