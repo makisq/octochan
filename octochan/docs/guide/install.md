@@ -199,7 +199,7 @@ make build VERSION=0.3.0-alpha+site     # то же через make
 
 ```bash
 make build SYSTEM_ROLES=/opt/octochan/roles.yaml
-go build -ldflags "-X ochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o ochan .
+go build -ldflags "-X ochan/core/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o ochan .
 ```
 
 По умолчанию — `/etc/octochan/roles.yaml`; файла нет — политики нет.

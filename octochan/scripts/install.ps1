@@ -60,7 +60,10 @@ $out = Join-Path $root 'bin'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 Write-Host 'Сборка ochan…'
 Push-Location $root
-try { go build -trimpath -o (Join-Path $out 'ochan.exe') . } finally { Pop-Location }
+# SourceDir — где эти исходники: по нему ochan new module пишет replace в
+# go.mod заготовки.
+$ldflags = "-X 'ochan/cmd.SourceDir=$root'"
+try { go build -trimpath -ldflags $ldflags -o (Join-Path $out 'ochan.exe') . } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw 'сборка ochan не удалась' }
 Write-Host 'Сборка ochan-mcp…'
 Push-Location (Join-Path $root 'mcp')

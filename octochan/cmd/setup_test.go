@@ -46,7 +46,28 @@ func setupEnv(t *testing.T) *scriptEnv {
 	e := newScriptEnv(t)
 	t.Setenv("OCHAN_TEST_AS_OCHAN", "1")
 	t.Setenv("LOCALAPPDATA", filepath.Join(e.home, "AppData", "Local"))
+	hideInstalledOchan(t)
 	return e
+}
+
+// hideInstalledOchan убирает из PATH каталоги с ochan: setup ищет
+// установленный ochan и в PATH, и без этого «обновлял» настоящую установку
+// машины, где идут тесты, — ставил на её место тестовую программу.
+func hideInstalledOchan(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", pathWithoutOchan())
+}
+
+// pathWithoutOchan — PATH без каталогов, где лежит ochan.
+func pathWithoutOchan() string {
+	var kept []string
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if _, err := os.Stat(filepath.Join(dir, "ochan"+programExt())); err == nil {
+			continue
+		}
+		kept = append(kept, dir)
+	}
+	return strings.Join(kept, string(os.PathListSeparator))
 }
 
 func (e *scriptEnv) answers(text string) {

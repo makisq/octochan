@@ -48,3 +48,43 @@ func TestNewModule(t *testing.T) {
 		t.Fatal("неверное имя создало каталог")
 	}
 }
+
+// Заготовка не указывает на старые исходники: в них нет
+// pluginhost.Settings и Token, и make упал бы с undefined. Вне дерева
+// исходников путь берётся из сборки (SourceDir), а не угадывается.
+func TestNewModuleSource(t *testing.T) {
+	src, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newScriptEnv(t) // и переходит в свой каталог: исходников вокруг нет
+	old := e.path("old-octochan")
+	if err := os.MkdirAll(filepath.Join(old, "modules", "pluginhost"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.write(filepath.Join(old, "go.mod"), "module ochan\n\ngo 1.26.0\n")
+	e.write(filepath.Join(old, "modules", "pluginhost", "modulemanager.go"), "package pluginhost\n")
+	e.fails("старше этого ochan", "new", "module", "m1", "--dir", e.path("m1"), "--src", old)
+	if _, err := os.Stat(e.path("m1")); err == nil {
+		t.Fatal("отказ создал каталог")
+	}
+
+	prev := SourceDir
+	t.Cleanup(func() { SourceDir = prev })
+	SourceDir = src
+	out := e.must("new", "module", "m2", "--dir", e.path("m2"))
+	if strings.Contains(out, "путь угадан") {
+		t.Fatalf("путь угадан, хотя сборка знает исходники:\n%s", out)
+	}
+	if gomod := readFile(t, filepath.Join(e.path("m2"), "go.mod")); !strings.Contains(gomod, "replace ochan => "+filepath.ToSlash(src)) {
+		t.Fatalf("go.mod:\n%s", gomod)
+	}
+
+	// Исходники неизвестны и угаданный путь пуст — заготовка пишется, но
+	// с предупреждением, что make её не соберёт.
+	SourceDir = ""
+	out = e.must("new", "module", "m3", "--dir", e.path("m3"))
+	if !strings.Contains(out, "путь угадан") || !strings.Contains(out, "make не соберёт") {
+		t.Fatalf("new module без исходников:\n%s", out)
+	}
+}
