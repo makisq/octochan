@@ -222,3 +222,34 @@ func TestSharedInApplyReply(t *testing.T) {
 		t.Fatalf("обратно: %+v %v", result, err)
 	}
 }
+
+// respondingRunner пишет ответ системы так, как его записал бы HTTP-клиент
+// модуля: scenario.RecordResponse.
+type respondingRunner struct{}
+
+func (respondingRunner) Kind() string { return "Resp" }
+func (respondingRunner) Plan(context.Context, *scenario.Scenario) (*config.Plan, error) {
+	return &config.Plan{Command: "apply"}, nil
+}
+func (respondingRunner) Apply(ctx context.Context, _ *scenario.Scenario, _ *config.Plan) (*scenario.Result, error) {
+	scenario.RecordResponse(ctx, []byte(`{"string_i": "k-9"}`))
+	return &scenario.Result{Refs: []string{"t1"}}, nil
+}
+
+// Ответы, записанные исполнителем модуля, уходят ядру в поле responses.
+func TestExposeCarriesResponses(t *testing.T) {
+	spec := Expose(respondingRunner{}, "resp")
+	payload, _ := json.Marshal(scenarioRequest{Scenario: &scenario.Scenario{Service: "resp"}, Plan: &config.Plan{}})
+	data, err := spec.Handle(context.Background(), pluginhost.RunnerRequest{Op: pluginhost.OpApply, Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reply applyReply
+	if err := json.Unmarshal(data, &reply); err != nil {
+		t.Fatal(err)
+	}
+	result, _ := fromReply(reply)
+	if len(result.Responses) != 1 || !strings.Contains(result.Responses[0], "k-9") {
+		t.Fatalf("ответы: %+v", result)
+	}
+}

@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
+
+	"ochan/httpexec"
 )
 
 var authExecutor string
@@ -27,7 +29,8 @@ var authCmd = &cobra.Command{
 		"~/.octochan/tokens/<имя> с правами 0600; вместо файла — переменная\n" +
 		"окружения OCTOCHAN_TOKEN_<ИМЯ>. Ядро передаёт токен исполнителю при\n" +
 		"каждом вызове; в config.yaml токены не попадают.\n\n" +
-		"Без --executor — единственный подключённый исполнитель.",
+		"Без --executor — единственный исполнитель из модулей; исполнителю ядра\n" +
+		"http (запрос к API узла) токен задают явно: --executor http.",
 	Example: "ochan auth --executor rlm\n" +
 		"ochan auth",
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -36,14 +39,21 @@ var authCmd = &cobra.Command{
 			return err
 		}
 		executor := strings.ToLower(strings.TrimSpace(authExecutor))
-		executors := sortedPaths(scenario.Executors())
+		// Исполнитель ядра http — только явно (--executor http): иначе с
+		// одним модулем-исполнителем токен ушёл бы не туда.
+		var executors []string
+		for _, name := range sortedPaths(scenario.Executors()) {
+			if name != httpexec.Service {
+				executors = append(executors, name)
+			}
+		}
 		if executor == "" {
 			switch len(executors) {
 			case 1:
 				executor = executors[0]
 			case 0:
-				return errors.New("исполнителей нет: укажите --executor <имя> — токен подействует, " +
-					"когда модуль исполнителя будет установлен")
+				return errors.New("исполнителей нет среди модулей: укажите --executor <имя> — токен подействует, " +
+					"когда модуль исполнителя будет установлен; исполнитель ядра — --executor http")
 			default:
 				return fmt.Errorf("исполнителей несколько (%s): укажите --executor", strings.Join(executors, ", "))
 			}
@@ -251,5 +261,5 @@ func stopTokenReminder() {
 }
 
 func init() {
-	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: rlm, ssh…; без флага — единственный подключённый")
+	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: http, rlm, ssh…; без флага — единственный из модулей")
 }

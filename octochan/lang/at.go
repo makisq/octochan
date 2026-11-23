@@ -44,6 +44,8 @@ import (
 	"sort"
 	"strings"
 
+	"ochan/scenario"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -84,7 +86,9 @@ type SharedCommands interface {
 // SharedResults — команды ochan, которые отдают общие строки отдельно от
 // вывода: apply — из ответа исполнителя (scenario.Result.Shared).
 type SharedResults interface {
-	TakeShared() map[string]string
+	// TakeShared — общие строки, которые исполнитель выделил сам, и тела
+	// ответов системы, в которых @ ищет нужные строки.
+	TakeShared() (shared map[string]string, responses []string)
 }
 
 // ParseShared разбирает аннотацию shared: «[сервис:]параметр[=ключ_ответа]»
@@ -209,7 +213,15 @@ func (in *Interpreter) evalAt(e *AtExpr, env *scope) (Value, error) {
 		// вывода: в выводе их нет — это могут быть секреты.
 		if c.fn.value == nil {
 			if sr, ok := in.commands.(SharedResults); ok {
-				for key, v := range sr.TakeShared() {
+				shared, responses := sr.TakeShared()
+				for _, body := range responses {
+					for key := range wanted {
+						if v, ok := sharedInText(body, key); ok {
+							found[key] = v
+						}
+					}
+				}
+				for key, v := range shared {
 					if v != "" && v != sharedPlaceholder {
 						found[key] = v
 					}
@@ -462,7 +474,7 @@ func (in *Interpreter) atLeaf(expr Expr, env *scope) (*atLeaf, error) {
 			if err != nil {
 				return nil, in.wrap(expr.Position(), err)
 			}
-			data = quotePlaceholders(data)
+			data = scenario.QuotePlaceholders(data)
 			leaf.path, leaf.data, leaf.name = name, data, filepath.Base(name)
 			var doc any
 			if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -476,15 +488,6 @@ func (in *Interpreter) atLeaf(expr Expr, env *scope) (*atLeaf, error) {
 		}
 	}
 	return leaf, nil
-}
-
-// barePlaceholder — «ключ: ?» в YAML: ? без кавычек YAML читает как начало
-// сложного ключа, а пишут его именно так.
-var barePlaceholder = regexp.MustCompile(`(?m)^(\s*(?:-\s+)?[^\s#:][^#\n]*?:[ \t]+)\?([ \t]*(?:#.*)?)$`)
-
-// quotePlaceholders — «ключ: ?» → «ключ: "?"»: так плейбук разбирается.
-func quotePlaceholders(data []byte) []byte {
-	return barePlaceholder.ReplaceAll(data, []byte(`${1}"?"${2}`))
 }
 
 // collectKeys — все ключи плейбука на любой глубине.
@@ -560,6 +563,9 @@ func (in *Interpreter) atInvoke(c atCall, found map[string]string) (Value, error
 			args = append(args, list...)
 		} else {
 			args = append(args, arg)
+		}
+		if sr, ok := in.commands.(SharedResults); ok {
+			sr.TakeShared() // ответы прежних команд — не этого вызова
 		}
 		value, err = builtinOchan(in, args)
 		if err != nil {

@@ -255,7 +255,7 @@ var evalCmd = &cobra.Command{
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
-		interp.SetCommands(scriptCommands{})
+		interp.SetCommands(scriptCommands{shell: true})
 
 		// Одиночное выражение печатаем: иначе eval был бы бесполезен.
 		if len(file.Stmts) == 1 {

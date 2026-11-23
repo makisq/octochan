@@ -55,3 +55,14 @@ targets:
 		}
 	})
 }
+
+// «ключ: ?» без кавычек — общая строка, которую ждут: сценарий разбирается.
+func TestBarePlaceholder(t *testing.T) {
+	s, err := Parse("c.yaml", []byte("service: http\ntargets:\n  - ip: 10.0.0.1\nparameters:\n  string_i: ?\n  note: \"a: ?\"  # строка, не трогать\n  tail: ?   # комментарий\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Parameters["string_i"] != "?" || s.Parameters["tail"] != "?" || s.Parameters["note"] != "a: ?" {
+		t.Fatalf("параметры: %v", s.Parameters)
+	}
+}

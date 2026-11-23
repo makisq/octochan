@@ -28,6 +28,10 @@ func (x *nodeExecutor) Apply(_ context.Context, s *scenario.Scenario, _ *config.
 	case "at-login":
 		return &scenario.Result{Summary: "вход выполнен", Refs: []string{"login-1"},
 			Shared: map[string]string{"string_i": "k-42-secret"}}, nil
+	case "at-login-raw":
+		// Исполнитель ничего не выделяет: только тело ответа системы.
+		return &scenario.Result{Summary: "вход выполнен", Refs: []string{"login-2"},
+			Responses: []string{`{"session": {"id": 9}, "string_i": "k-42-secret"}`}}, nil
 	case "at-tune":
 		if s.Parameters["string_i"] != "k-42-secret" {
 			return nil, scenario.NotStarted(errors.New("HTTP 500: нет верного string_i"))
@@ -75,6 +79,24 @@ func TestApplyAt(t *testing.T) {
 	}
 	if !strings.Contains(e.read("tune.yaml"), "string_i: ?") {
 		t.Fatal("плейбук tune.yaml изменён")
+	}
+
+	// Только тело ответа: строку находит сам @.
+	scenario.Register("at-login-raw", node)
+	t.Cleanup(func() { scenario.Unregister("at-login-raw") })
+	e.write("login-raw.yaml", "service: at-login-raw\ntargets:\n  - ip: 10.0.0.9\n")
+	out = captureStdout(t, func() {
+		rootCmd.SetOut(os.Stdout)
+		err = runLineShell(context.Background(), strings.NewReader(`apply @ ("tune.yaml" | "login-raw.yaml")`+"\n"), false)
+	})
+	setContext(rootCmd, context.Background())
+	if err != nil || len(node.tuned) != 2 || strings.Contains(out, "k-42-secret") {
+		t.Fatalf("строка из тела ответа: %v, настроек %d\n%s", err, len(node.tuned), out)
+	}
+	// Из командной строки — ochan eval, как строка оболочки.
+	e.must("eval", `apply @ ("tune.yaml" | "login.yaml")`)
+	if len(node.tuned) != 3 {
+		t.Fatalf("eval: настроек %d", len(node.tuned))
 	}
 
 	e.write("inner.ochan", `apply @ ("login.yaml")`+"\n")

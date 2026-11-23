@@ -5,22 +5,30 @@
 строку иначе нельзя — ни зайти на узел, ни спросить у коллег. Нужно, чтобы
 ochan сам взял её из ответа на b и подставил в c.
 
-Строки ниже — настоящие: модуль [examples/classmodule](../../examples/classmodule/main.go)
-изображает узел командой `node call <плейбук>`.
+Строки ниже — настоящие: узел — локальный HTTP-сервер, b отвечает
+`{"status": "ok", "session": {"string_i": "s-7f3a91"}}`, c без верной
+`string_i` — 500. Модулей не нужно: запрос к API делает исполнитель ядра
+`http` ([«Сценарии»](../guide/scenarios.md#запрос-к-api-узла-service-http)).
 
 ## Плейбуки
 
 ```yaml
-# login.yaml — сценарий b: его ответ несёт string_i
-service: node_login
+# b.yaml — вход, ответ несёт string_i
+service: http
+targets:
+  - ip: 127.0.0.1
 parameters:
+  url: http://127.0.0.1:18431/api/b
   user: ops
 ```
 
 ```yaml
-# c.yaml — сценарий c: string_i неизвестна, на её месте ?
-service: node_tune
+# c.yaml — без string_i узел отвечает 500; на её месте ?
+service: http
+targets:
+  - ip: 127.0.0.1
 parameters:
+  url: http://127.0.0.1:18431/api/c
   work_mem: 64MB
   string_i: ?
 ```
@@ -28,46 +36,76 @@ parameters:
 Напрямую c не проходит:
 
 ```
-$ ochan node call c.yaml
-ошибка: HTTP 500: нет верного string_i (получено "?")
+$ ochan apply c.yaml
+Сервис http, исполнитель HTTP
+План: c.yaml (http, исполнитель HTTP) -> —
+
+Изменений: 1
+
+  127.0.0.1
+    задача     POST http://127.0.0.1:18431/api/c — тело: string_i, work_mem
+
+ошибка: http: POST http://127.0.0.1:18431/api/c ответил 500 Internal Server Error: {"error": "string_i required"}
 ```
 
 ## Вызов
 
 ```
 $ ochan shell
-ochan[master]> node.call @ ("c.yaml" | "login.yaml")
-[HTTP 200
-string_i: k-42-session, HTTP 200: параметры применены]
+ochan[master]> apply @ ("c.yaml" | "b.yaml")
+[Сервис http, исполнитель HTTP
+План: b.yaml (http, исполнитель HTTP) -> —
+
+Изменений: 1
+
+  127.0.0.1
+    задача     POST http://127.0.0.1:18431/api/b — тело: user
+
+Создано:
+  - 127.0.0.1 POST http://127.0.0.1:18431/api/b → 200, Сервис http, исполнитель HTTP
+План: c.at.yaml (http, исполнитель HTTP) -> —
+
+Изменений: 1
+
+  127.0.0.1
+    задача     POST http://127.0.0.1:18431/api/c — тело: string_i, work_mem
+
+Создано:
+  - 127.0.0.1 POST http://127.0.0.1:18431/api/c → 200]
 ```
 
 Что произошло:
 
-1. ochan увидел `?` в c.yaml: c ждёт `string_i`.
-2. c отложен, выполнен `node call login.yaml` — ответ `string_i: k-42-session`.
-3. Строка найдена — c выполнен с копией плейбука, где она стоит:
+1. ochan увидел `?` в c.yaml: c ждёт `string_i`, и c отложен.
+2. Выполнен b. Тело ответа узла ochan не печатает и не пишет в журнал — он
+   отдаёт его `@`, и `@` находит в нём `string_i` (здесь — внутри `session`).
+3. c выполнен с копией плейбука, где строка стоит:
 
 ```yaml
 # c.at.yaml — записал ochan; c.yaml не изменился
-service: node_tune
+# сценарий c: без string_i узел отвечает 500
+service: http
+targets:
+  - ip: 127.0.0.1
 parameters:
+  url: http://127.0.0.1:18431/api/c
   work_mem: 64MB
-  string_i: "k-42-session"
+  string_i: "s-7f3a91"
 ```
 
 Порядок в скобке не важен: c ждёт строку, сколько бы вызовов ни стояло
-между ним и тем, кто её даёт. Значение выражения — ответы по порядку
-вызовов: `r = node.call @ (…)`, `len(r)`.
+между ним и тем, кто её даёт. Из командной строки — то же через `ochan
+eval`: `ochan eval 'apply @ ("c.yaml" | "b.yaml")'`.
 
-## Модуль знает сам
+## Команда модуля, которая знает сама
 
-Команда `node call` объявила аннотацией `shared: "node_tune:string_i"`, что
-у плейбуков сервиса `node_tune` строка `string_i` — общая. Тогда `?` писать
-не нужно — ochan поставит его сам:
+Модуль, который ходит к узлу своей командой, может объявить общие строки
+аннотацией `shared` — тогда и `?` в плейбуке не нужен. Пример —
+`node call` в [examples/classmodule](../../examples/classmodule/main.go),
+аннотация `shared: "node_tune:string_i"`:
 
 ```yaml
 # tune.yaml — string_i нет вовсе
-# настройка узла
 service: node_tune
 parameters:
   work_mem: 32MB
@@ -77,37 +115,9 @@ parameters:
 ochan[master]> node.call @ ("tune.yaml" | "login.yaml")
 [HTTP 200
 string_i: k-42-session, HTTP 200: параметры применены]
-```
-
-```yaml
-# tune.at.yaml
-# настройка узла
-service: node_tune
-parameters:
-  work_mem: 32MB
-  string_i: "k-42-session"
-```
-
-Без того, кто строку даёт, — ошибка с её именем:
-
-```
 ochan[master]> node.call @ ("tune.yaml")
 ошибка: <shell>:1:11: общая строка не найдена ни в одном ответе — вызовы ждут её: node call(tune.yaml): string_i
 ```
-
-## Сценарии исполнителя: apply @ (…)
-
-То же — сценариями исполнителя, из строки оболочки:
-
-``
-ochan[master]> apply @ ("tune.yaml" | "login.yaml")
-``
-
-Исполнитель кладёт общие строки в ответ отдельно от вывода (`Result.Shared`;
-модуль-исполнитель — полем `shared` ответа `apply`). `@` подставляет их
-в `tune.at.yaml`, а на экран, в журнал и в письма они не попадают: в выводе —
-только план и созданное. Внутри сценария `apply` по-прежнему не
-выполняется — сценарий не запускает сценарии.
 
 ## Заявки: approve @ (…)
 
@@ -132,11 +142,14 @@ ochan[master]> approve @ ("0f88eebd40" | "97581deb28")
 
 ## Что учесть
 
-- Номера заявок и пути — в кавычках: это строки языка.
-- Слева — алиас, функция или команда ochan; права — права команды у роли.
-  `node call` здесь — класс `execution`: роли `llm` он недоступен.
+- Пути и номера заявок — в кавычках: это строки языка.
+- `apply`, `plan` и `run` слева от `@` — в строке оболочки и в `ochan eval`.
+  Внутри сценария они запрещены: согласованный сценарий не запустит
+  несогласованный.
 - Копия `*.at.yaml` лежит рядом с плейбуком и перезаписывается при
   следующем вызове. В ней общая строка — если это секрет, удалите копию
-  или держите плейбуки в закрытой папке.
+  или держите плейбуки в закрытой папке. В выводе, журнале и письмах
+  ochan её нет.
+- Цель с `host` или `group` — выбор из инвентаря; без инвентаря пишите `ip`.
 - Команда модуля печатает ответ через `cmd.Println`: так он доходит до `@`
   ([«Модули»](../guide/modules.md#общие-строки-команды-shared)).

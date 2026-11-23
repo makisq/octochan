@@ -27,38 +27,45 @@ var scriptForbidden = []string{"agent", "apply", "back", "completion", "connect"
 	"run", "serve", "set", "shell", "watch"}
 
 // scriptCommands — команды ochan, которые видит сценарий. shell — строка
-// оболочки: внешней команды, которая выполняет сценарий, нет, и apply и plan
-// ей доступны (apply @ ("a.yaml" | "b.yaml")). Внутри сценария, который
-// выполняет run или apply, они по-прежнему запрещены.
+// оболочки или ochan eval: внешней команды, которая выполняет сценарий, нет,
+// и apply, plan и run ей доступны (apply @ ("a.yaml" | "b.yaml")). Внутри
+// сценария, который выполняет run или apply, они по-прежнему запрещены:
+// согласованный сценарий не запустит несогласованный.
 type scriptCommands struct{ shell bool }
 
 // shellAllowed — команды, которые строка оболочки может выполнить, хотя
 // сценарию они запрещены.
-var shellAllowed = []string{"apply", "plan"}
+var shellAllowed = []string{"apply", "plan", "run"}
 
-// scriptShared — общие строки из ответа исполнителя на apply, выполненный из
-// языка (f @ (…)): их забирает TakeShared. В вывод они не попадают.
-var scriptShared map[string]string
+// scriptShared и scriptResponses — общие строки и ответы системы на apply,
+// выполненный из языка (f @ (…)): их забирает TakeShared. В вывод они не
+// попадают.
+var (
+	scriptShared    map[string]string
+	scriptResponses []string
+)
 
-// keepShared запоминает общие строки исполнителя, если apply выполняется из
-// языка.
+// keepShared запоминает общие строки и ответы исполнителя, если apply
+// выполняется из языка.
 func keepShared(result *scenario.Result) {
-	if result == nil || len(result.Shared) == 0 || scriptDepth == 0 {
+	if result == nil || scriptDepth == 0 {
 		return
 	}
-	if scriptShared == nil {
+	if len(result.Shared) > 0 && scriptShared == nil {
 		scriptShared = map[string]string{}
 	}
 	for k, v := range result.Shared {
 		scriptShared[k] = v
 	}
+	scriptResponses = append(scriptResponses, result.Responses...)
 }
 
-// TakeShared отдаёт языку общие строки последней команды и забывает их.
-func (scriptCommands) TakeShared() map[string]string {
-	shared := scriptShared
-	scriptShared = nil
-	return shared
+// TakeShared отдаёт языку общие строки и ответы системы последней команды
+// и забывает их.
+func (scriptCommands) TakeShared() (map[string]string, []string) {
+	shared, responses := scriptShared, scriptResponses
+	scriptShared, scriptResponses = nil, nil
+	return shared, responses
 }
 
 // scriptDepth — сколько команд сейчас выполняется из сценария: команда,
