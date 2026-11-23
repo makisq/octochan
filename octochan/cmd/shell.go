@@ -36,7 +36,12 @@ var shellCmd = &cobra.Command{
 		"возврата — 1, если хоть одна строка кончилась ошибкой. С\n" +
 		"--stop-on-error оболочка останавливается на первой. В историю такие\n" +
 		"строки не пишутся, а stdin командам недоступен: из него читаются сами\n" +
-		"команды.",
+		"команды.\n\n" +
+		"Команды оболочки: !!reload — перечитать config.yaml, модули и алиасы,\n" +
+		"не выходя (пересобранный модуль работает сразу; переменные оболочки\n" +
+		"остаются), !!reset — забыть переменные и алиасы оболочки, !!history,\n" +
+		"!!clear. «строка >| файл» пишет вывод строки в файл (перезаписывает);\n" +
+		"ошибки остаются на экране, право — как у tee.",
 	Example: "ochan shell\n" +
 		"echo 'logs rank --min warning' | ochan shell\n" +
 		"ochan shell --stop-on-error < проверки.txt",
@@ -64,7 +69,8 @@ var (
 // решается код возврата.
 func shellFail(err error) {
 	shellErrors++
-	out := os.Stdout
+	// Пока строка пишет в файл (>|), ошибка всё равно — на экран.
+	out := shellOut()
 	if shellLines {
 		out = os.Stderr
 	}
@@ -250,7 +256,7 @@ func runInteractiveShell(ctx context.Context) error {
 		fmt.Println(i18n.Sprintf("внимание: горячая перезагрузка модулей недоступна: %v", err))
 	}
 
-	startTokenReminder(func(msg string) { fmt.Println("\n" + msg) })
+	startTokenReminder(func(msg string) { fmt.Fprintln(shellOut(), "\n"+msg) })
 	defer stopTokenReminder()
 
 	// Логотип — только здесь, при входе в оболочку: у отдельных команд он
@@ -300,22 +306,63 @@ func exitShell(code int) {
 	os.Exit(code)
 }
 
-// executeShellInput выполняет одну строку оболочки.
+// executeShellInput выполняет одну строку оболочки. «строка >| файл» —
+// вывод строки в файл (withRedirect).
 func executeShellInput(ctx context.Context, raw string) {
 	input := strings.TrimSpace(raw)
+	command, target, redirected, err := splitRedirect(input)
+	if err != nil {
+		rememberCommand(raw, input)
+		shellFail(err)
+		return
+	}
 	// Блок инструкции ещё не закрыт: строка — его продолжение.
 	if shellPending != "" {
 		if input != "" {
 			rememberCommand(raw, input)
 		}
-		if src, done := continueStatement(raw); done {
-			if terminated := runShellStatement(ctx, src); terminated {
-				exitShell(143)
+		line := raw
+		if redirected {
+			// Перенаправление — у строки, которая закрывает блок: оно
+			// относится ко всему блоку.
+			if blockDepth(shellPending+"\n"+command) > 0 {
+				shellFail(errRedirectInBlock())
+				return
+			}
+			line = command
+		}
+		if src, done := continueStatement(line); done {
+			run := func() {
+				if terminated := runShellStatement(ctx, src); terminated {
+					exitShell(143)
+				}
+			}
+			if redirected {
+				withRedirect(ctx, target, run)
+			} else {
+				run()
 			}
 			refreshShellPrefix()
 		}
 		return
 	}
+	if redirected {
+		if blockDepth(command) > 0 {
+			rememberCommand(raw, input)
+			shellFail(errRedirectInBlock())
+			return
+		}
+		rememberCommand(raw, input)
+		withRedirect(ctx, target, func() { executeShellLine(ctx, command, false) })
+		return
+	}
+	executeShellLine(ctx, raw, true)
+}
+
+// executeShellLine выполняет строку без перенаправления; remember — записать
+// её в историю (строку с «>|» записывает executeShellInput целиком).
+func executeShellLine(ctx context.Context, raw string, remember bool) {
+	input := strings.TrimSpace(raw)
 	// Комментарий — не инструкция: права на язык ему не нужны.
 	if input == "" || strings.HasPrefix(input, "#") {
 		return
@@ -326,7 +373,9 @@ func executeShellInput(ctx context.Context, raw string) {
 	if shellChat != nil {
 		command := chatModeLine(ctx, input)
 		if command == "" {
-			rememberCommand(raw, input)
+			if remember {
+				rememberCommand(raw, input)
+			}
 			refreshShellPrefix()
 			return
 		}
@@ -352,13 +401,20 @@ func executeShellInput(ctx context.Context, raw string) {
 		shellReset()
 		fmt.Println(i18n.T("Сеанс языка сброшен: переменных и алиасов оболочки больше нет"))
 		return
+	case "!!reload":
+		if err := shellReload(os.Stdout); err != nil {
+			shellFail(err)
+		}
+		return
 	case "!clear", "!history":
 		shellErrors++
 		fmt.Println(i18n.Sprintf("ошибка: команды оболочки пишутся с «!!»: !%s — одиночный «!» теперь означает «не»", input))
 		return
 	}
 
-	rememberCommand(raw, input)
+	if remember {
+		rememberCommand(raw, input)
+	}
 
 	// Инструкция языка алиасов: язык в оболочке тот же, что в файле.
 	if shellStatement(input) {
@@ -590,6 +646,8 @@ func completeCommands(d prompt.Document) []prompt.Suggest {
 		prompt.Suggest{Text: "exit", Description: "Выйти из оболочки"},
 		prompt.Suggest{Text: "!!clear", Description: "Очистить экран"},
 		prompt.Suggest{Text: "!!history", Description: "История команд"},
+		prompt.Suggest{Text: "!!reload", Description: "Перечитать конфиг, модули и алиасы, не выходя"},
+		prompt.Suggest{Text: "!!reset", Description: "Забыть переменные и алиасы оболочки"},
 	)
 
 	return prompt.FilterHasPrefix(suggests, d.GetWordBeforeCursor(), true)

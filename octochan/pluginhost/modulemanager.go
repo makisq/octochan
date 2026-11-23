@@ -573,6 +573,12 @@ func expectedChecksum(modulePath string) ([]byte, error) {
 	return sum, nil
 }
 
+// currentStdout пишет в тот os.Stdout, что сейчас: оболочка направляет
+// вывод строки в файл (>|), подменяя os.Stdout, а модуль загружен раньше.
+type currentStdout struct{}
+
+func (currentStdout) Write(p []byte) (int, error) { return os.Stdout.Write(p) }
+
 // LoadModule запускает плагин и регистрирует его команды.
 //
 // Плагин — это исполняемый файл, который запускается отдельным процессом.
@@ -621,7 +627,7 @@ func (m *ModuleManager) LoadModule(path string) error {
 		// Без этого вывод команд модуля пропадал: go-plugin перехватывает
 		// stdout дочернего процесса и по умолчанию отдаёт его в свой логгер
 		// на уровне debug, то есть в никуда.
-		SyncStdout: os.Stdout,
+		SyncStdout: currentStdout{},
 		SyncStderr: os.Stderr,
 	})
 
