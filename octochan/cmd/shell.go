@@ -78,8 +78,10 @@ func runLineShell(ctx context.Context, in io.Reader, stopOnError bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	shellLines, stdinTaken, shellErrors = true, true, 0
-	defer func() { shellLines, stdinTaken = false, false }()
+	shellLines, stdinTaken, shellErrors, shellActive = true, true, 0, true
+	defer func() { shellLines, stdinTaken, shellActive = false, false, false }()
+	// Ввод кончился в режиме нейросети — режим закрывается вместе с ним.
+	defer closeShellChat()
 	shellReset()
 
 	failed := 0
@@ -229,6 +231,9 @@ func runInteractiveShell(ctx context.Context) error {
 
 	shellTerminal = saveTerminal()
 	defer shellTerminal.restore()
+	shellActive = true
+	defer func() { shellActive = false }()
+	defer closeShellChat()
 
 	// Закрытое окно или kill -HUP: go-prompt этот сигнал не ловит, и без
 	// обработки процесс завершился бы в сыром режиме терминала.
@@ -288,6 +293,7 @@ func runInteractiveShell(ctx context.Context) error {
 // Ctrl+D вызывает выход прямо из обработчика клавиши, когда терминал ещё
 // в сыром режиме, — без восстановления он таким бы и остался.
 func exitShell(code int) {
+	closeShellChat()
 	stopTokenReminder()
 	pluginhost.GetModuleManager().Cleanup()
 	shellTerminal.restore()
@@ -313,6 +319,18 @@ func executeShellInput(ctx context.Context, raw string) {
 	// Комментарий — не инструкция: права на язык ему не нужны.
 	if input == "" || strings.HasPrefix(input, "#") {
 		return
+	}
+
+	// Режим нейросети (opmode llm): строка — реплика модели; команда ochan
+	// и инструкция языка — с «?» в начале.
+	if shellChat != nil {
+		command := chatModeLine(ctx, input)
+		if command == "" {
+			rememberCommand(raw, input)
+			refreshShellPrefix()
+			return
+		}
+		raw, input = command, command
 	}
 
 	// Перезагрузка модулей применяется здесь, в главной горутине,
@@ -376,6 +394,10 @@ var shellPrefix = "ochan> "
 func refreshShellPrefix() {
 	if shellLines {
 		return // без терминала приглашения нет
+	}
+	if shellChat != nil {
+		shellPrefix = "llm> "
+		return
 	}
 	store, _, err := loadRoles()
 	if err != nil {

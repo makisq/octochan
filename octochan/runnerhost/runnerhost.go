@@ -5,7 +5,7 @@
 // описан типами этого файла, и модулю на другом языке достаточно его:
 //
 //	plan            {"scenario": {...}, "source": "..."}                  → план {"command", "changes": [...], ...}
-//	apply           {"scenario": {...}, "source": "...", "plan": {...}}   → {"refs": [...], "summary": "...", "error": "..."}
+//	apply           {"scenario": {...}, "source": "...", "plan": {...}}   → {"refs", "summary", "shared", "responses", "error"}
 //	compensate-plan {"scenario", "source", "plan": выполненный, "refs"}   → план обратного действия
 //	compensate      {"scenario", "source", "plan": обратного действия, "refs"} → {"refs", "summary", "error"}
 //	wait            {"ref": "..."}                                        → {"state": "..."}
@@ -51,6 +51,10 @@ type applyReply struct {
 	// NotStarted — исполнитель отказал до первого обращения к системе
 	// (scenario.NotStarted): заявка остаётся согласованной.
 	NotStarted bool `json:"not_started,omitempty"`
+	// Shared — общие строки из ответа системы (scenario.Result.Shared).
+	Shared map[string]string `json:"shared,omitempty"`
+	// Responses — тела ответов системы как есть (scenario.Result.Responses).
+	Responses []string `json:"responses,omitempty"`
 }
 
 type refRequest struct {
@@ -130,7 +134,10 @@ func Expose(r scenario.Runner, services ...string) pluginhost.RunnerSpec {
 					}
 					return json.Marshal(plan)
 				case pluginhost.OpApply:
-					return applied(r.Apply(ctx, in.Scenario, in.Plan))
+					// Ответы, которые исполнитель записал scenario.RecordResponse,
+					// уходят ядру для f @ (…).
+					ctx, responses := scenario.WithResponses(ctx)
+					return applied(withResponses(r.Apply(ctx, in.Scenario, in.Plan))(responses))
 				case pluginhost.OpCompensatePlan:
 					if !canCompensate {
 						break
@@ -183,7 +190,7 @@ func Expose(r scenario.Runner, services ...string) pluginhost.RunnerSpec {
 func applied(result *scenario.Result, err error) ([]byte, error) {
 	reply := applyReply{}
 	if result != nil {
-		reply.Refs, reply.Summary = result.Refs, result.Summary
+		reply.Refs, reply.Summary, reply.Shared, reply.Responses = result.Refs, result.Summary, result.Shared, result.Responses
 	}
 	if err != nil {
 		reply.Error = err.Error()
@@ -192,9 +199,25 @@ func applied(result *scenario.Result, err error) ([]byte, error) {
 	return json.Marshal(reply)
 }
 
+// withResponses добавляет к итогу ответы из журнала, если исполнитель не
+// положил их сам.
+func withResponses(result *scenario.Result, err error) func(*scenario.ResponseLog) (*scenario.Result, error) {
+	return func(log *scenario.ResponseLog) (*scenario.Result, error) {
+		if bodies := log.Bodies(); len(bodies) > 0 {
+			if result == nil {
+				result = &scenario.Result{}
+			}
+			if len(result.Responses) == 0 {
+				result.Responses = bodies
+			}
+		}
+		return result, err
+	}
+}
+
 // fromReply — ответ исполнителя обратно в итог и ошибку.
 func fromReply(reply applyReply) (*scenario.Result, error) {
-	result := &scenario.Result{Refs: reply.Refs, Summary: reply.Summary}
+	result := &scenario.Result{Refs: reply.Refs, Summary: reply.Summary, Shared: reply.Shared, Responses: reply.Responses}
 	switch {
 	case reply.Error == "":
 		return result, nil

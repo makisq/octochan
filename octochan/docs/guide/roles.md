@@ -13,7 +13,7 @@
 
 | Группа | Команды |
 |---|---|
-| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, paths, policy, print, requests, sandbox, services, stats, status, text, trigger, validate |
+| `read` | !!search, agents, aliases, check, diff, else, find, fp, ha, history, if, incident, inventory, lang, llm, logs, mail, modules, paths, policy, print, requests, sandbox, search, services, stats, status, text, trigger, validate |
 | `net` | net port, net dns, net http, net tls — проверять сеть с машины ochan; выдаётся явно, в `read` не входит |
 | `plan` | llm generate, plan |
 | `request` | compensate, incident attach, incident check, incident escalate, incident note, incident open, incident report, incident resolve, llm run, mail send, request, watch |
@@ -22,13 +22,14 @@
 | `install` | !!install, !!registry, !!rin, inspect, setup |
 | `auth` | auth, timer |
 | `admin` | agents free, ha contour, incident secret, role create, role delete, role deny, role grant, role limit, role revoke, role scope, role undeny, role update, trigger secret |
+| `ask` | ask, opmode — разговор с внешней нейросетью из оболочки; содержимое файлов, которые модель читает, уходит её поставщику, поэтому группу выдают явно |
 | `audit` | audit, audit verify |
 | `server` | ha init, ha promote, llm serve, serve, tls init |
 | `remote` | agent, connect, remote |
 | `agent` | agents beat — машина-агент сообщает серверу о себе, и только |
 | `trigger` | trigger end, trigger fire — источник событий (CI) открывает и закрывает окно триггера, и только |
 
-`help`, `ping`, `shell`, `role`, `role list`, `role show`, `role proof`, `set role` и `back role`
+`help`, `ping`, `shell`, `exmode`, `role`, `role list`, `role show`, `role proof`, `set role` и `back role`
 доступны любой роли: без них нельзя узнать, кто ты, и вернуться обратно. Право на
 каждую команду — в [справочнике команд](../reference/commands.md).
 

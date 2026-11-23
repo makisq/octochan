@@ -507,6 +507,10 @@ func (c *checker) stmt(stmt Stmt, scope *checkScope, f flow) {
 	case *For:
 		c.forLoop(s, scope, f)
 
+	case *While:
+		c.expr(s.Cond, scope)
+		c.stmts(s.Body.Stmts, newCheckScope(scope), flow{loop: true, parallel: f.parallel, topLevel: f.topLevel})
+
 	case *Try:
 		c.stmt(s.Body, newCheckScope(scope), f)
 		catchScope := newCheckScope(scope)
@@ -695,13 +699,17 @@ func (c *checker) expr(e Expr, scope *checkScope) TypeName {
 		}
 		return TypeFunc
 
+	case *AtExpr:
+		c.atExpr(x, scope)
+		return TypeList
+
 	case *Index:
 		target := c.expr(x.Target, scope)
 		c.expr(x.Index, scope)
 		switch target {
-		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeString, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
-			c.report(x.Pos, "индексировать можно список, словарь или конфиг, получено %s", target.Russian())
-		case TypeConfig:
+		case TypeInt, TypeFloat, TypeNumber, TypeBool, TypeStream, TypeFunc, TypeMorph, TypeFunctor, typeNull:
+			c.report(x.Pos, "индексировать можно список, строку, словарь или конфиг, получено %s", target.Russian())
+		case TypeConfig, TypeString:
 			return TypeString
 		}
 		return ""
@@ -1253,4 +1261,24 @@ func compatible(declared, actual TypeName) bool {
 		return actual == TypeInt || actual == TypeNumber
 	}
 	return declared == actual
+}
+
+// atExpr проверяет f @ (…): функция слева может оказаться и командой
+// ochan, поэтому неизвестное имя слева — не ошибка проверки.
+func (c *checker) atExpr(x *AtExpr, scope *checkScope) {
+	if x.Fn != nil {
+		if id, ok := x.Fn.(*Ident); !ok {
+			c.expr(x.Fn, scope)
+		} else if decl, err := c.registry.Lookup(id.Module, id.Name); err == nil {
+			// Алиас библиотеки слева от @ — зависимость заявки, как вызов.
+			c.use(decl)
+		}
+	}
+	for _, item := range x.Items {
+		if inner, ok := item.(*AtExpr); ok {
+			c.atExpr(inner, scope)
+			continue
+		}
+		c.expr(item, scope)
+	}
 }

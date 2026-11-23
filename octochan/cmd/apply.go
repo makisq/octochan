@@ -21,19 +21,46 @@ var (
 )
 
 var applyCmd = &cobra.Command{
-	Use:   "apply <сценарий|-> [key=value ...] | apply --request <id>",
+	Use:   "apply <сценарий|-> [key=value ...] | apply --request <id> | apply --approve <id>",
 	Short: "Выполнить сценарий",
 	Long: "Способ выполнения выбирается по полю service самого сценария:\n" +
 		"каждый сервис зарегистрирован своим исполнителем. Флага для выбора\n" +
 		"внешней системы нет — она такой же исполнитель, как и любой другой.\n\n" +
 		"Исполнитель получает план и применяет ровно его. С --request — план,\n" +
 		"на который сказали «да»: перед выполнением ochan строит план заново и\n" +
-		"сверяет с согласованным; разошлись — выполнения нет.\n\n" +
+		"сверяет с согласованным; разошлись — выполнения нет. С --approve —\n" +
+		"согласовать заявку и сразу выполнить: два шага одной командой, с\n" +
+		"правами и проверками обоих (заявку нейросети — после вопроса о плане\n" +
+		"или с --yes).\n\n" +
 		"Чтобы применить конфиг к файлу, используйте patch.",
 	Args: cobra.MinimumNArgs(0),
 	Example: "ochan apply scenario.yaml role=standalone\n" +
 		"cat scenario.yaml | ochan apply -",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if applyApproveID != "" {
+			if applyRequestID != "" && applyRequestID != applyApproveID {
+				return fmt.Errorf("--approve %s и --request %s называют разные заявки: оставьте одну", applyApproveID, applyRequestID)
+			}
+			// Согласование — с правами и журналом команды approve: apply
+			// его не подменяет, а делает оба шага подряд.
+			if err := authorize(approveCmd, []string{applyApproveID}); err != nil {
+				return err
+			}
+			store, err := requestStore()
+			if err != nil {
+				return err
+			}
+			request, err := store.Get(applyApproveID)
+			if err != nil {
+				return err
+			}
+			if request.State == workspace.RequestPending {
+				if err := decideRequest(cmd, request.ID, workspace.RequestApproved, requestComment); err != nil {
+					return err
+				}
+			}
+			return applyApprovedRequest(cmd, request.ID)
+		}
 		if applyRequestID != "" {
 			return applyApprovedRequest(cmd, applyRequestID)
 		}
@@ -75,6 +102,7 @@ var applyCmd = &cobra.Command{
 		cmd.Print(plan.Render(60) + "\n")
 
 		result, err := runner.Apply(cmd.Context(), parsed, plan)
+		keepShared(result)
 
 		if result != nil && len(result.Refs) > 0 {
 			cmd.Println("Создано:")
@@ -193,6 +221,7 @@ func applyApprovedRequest(cmd *cobra.Command, id string) error {
 		return err
 	}
 	result, applyErr := runner.Apply(cmd.Context(), parsed, request.Plan)
+	keepShared(result)
 	finishScenarioApply(cmd, store, request, parsed, result, applyErr, "apply --request "+request.ID)
 	if applyErr != nil {
 		return applyErr

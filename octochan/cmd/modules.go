@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"sync"
 
 	"ochan/pluginhost"
+	"ochan/rbac"
 	"ochan/runnerhost"
 
 	"github.com/fsnotify/fsnotify"
@@ -80,8 +82,42 @@ func registerModuleCommands() {
 		existing[moduleCmd.Name()] = true
 		log.Printf("добавлена команда модуля: %s", moduleCmd.Name())
 	}
+	for _, warning := range syncClasses() {
+		fmt.Fprintf(os.Stderr, "внимание: %s\n", warning)
+	}
 	// Справка команд модулей — на текущем языке, как и своя.
 	localizeCommands(rootCmd)
+}
+
+// syncClasses передаёт rbac классы команд модулей — аннотацию class, с
+// которой команда пришла по gRPC: право на группу класса открывает её сразу,
+// без правки ядра. Набор пересобирается при каждой загрузке модулей, так что
+// перезагруженный модуль приносит свои классы, а выгруженный — уносит.
+func syncClasses() []string {
+	declared := map[string]string{}
+	var walk func(c *cobra.Command, prefix string)
+	walk = func(c *cobra.Command, prefix string) {
+		key := c.Name()
+		if prefix != "" {
+			key = prefix + "." + key
+		}
+		if class := strings.TrimSpace(c.Annotations[rbac.ClassAnnotation]); class != "" {
+			declared[key] = class
+		}
+		for _, sub := range c.Commands() {
+			walk(sub, key)
+		}
+	}
+	for _, c := range rootCmd.Commands() {
+		if c.Annotations[moduleCommandAnnotation] == "module" {
+			walk(c, "")
+		}
+	}
+	var warnings []string
+	for _, skipped := range rbac.SetClasses(declared) {
+		warnings = append(warnings, "класс команды модуля не принят — "+skipped)
+	}
+	return warnings
 }
 
 // refreshModuleCommands пересобирает список команд плагинов.
@@ -209,6 +245,9 @@ var listModulesCmd = &cobra.Command{
 	Short: "Показать установленные модули и пакеты алиасов",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if modulesJSON {
+			return printModuleCommandsJSON(cmd)
+		}
 		fm, err := mustFileManager()
 		if err != nil {
 			return err
@@ -339,6 +378,13 @@ func printModuleCommands(cmd *cobra.Command, commands []*cobra.Command, indent s
 		if short == "" {
 			short = "(нет описания)"
 		}
+		if class := strings.TrimSpace(c.Annotations[rbac.ClassAnnotation]); class != "" {
+			if normal, err := rbac.NormalizeClass(class); err == nil {
+				short += " — класс " + normal
+			} else {
+				short += " — класс не принят: " + err.Error()
+			}
+		}
 		cmd.Printf("%s%-24s %s\n", indent, c.Name(), short)
 
 		if flags := flagNames(c); flags != "" {
@@ -356,4 +402,58 @@ func flagNames(c *cobra.Command) string {
 		names = append(names, "--"+f.Name)
 	})
 	return strings.Join(names, " ")
+}
+
+// modulesJSON — ochan modules --json: команды модулей для программ, а не
+// для человека.
+var modulesJSON bool
+
+func init() {
+	listModulesCmd.Flags().BoolVar(&modulesJSON, "json", false,
+		"команды модулей в JSON: путь, класс, описание и собственные флаги (для ochan-mcp и других программ)")
+}
+
+// moduleCommandInfo — команда модуля в ochan modules --json.
+type moduleCommandInfo struct {
+	// Command — путь команды через пробел: pgstat show.
+	Command string `json:"command"`
+	// Class — класс по аннотации class (свой или команды выше); пусто — нет.
+	Class string `json:"class,omitempty"`
+	Short string `json:"short,omitempty"`
+	// Flags — собственные флаги команды: --имя, без глобальных ochan.
+	Flags []string `json:"flags,omitempty"`
+}
+
+// printModuleCommandsJSON печатает выполнимые команды модулей. По этому
+// списку ochan-mcp показывает модели read-команды модулей: они появляются,
+// как только модуль загружен, без правки ядра и сервера.
+func printModuleCommandsJSON(cmd *cobra.Command) error {
+	commands := []moduleCommandInfo{}
+	var walk func(c *cobra.Command, path []string)
+	walk = func(c *cobra.Command, path []string) {
+		path = append(append([]string(nil), path...), c.Name())
+		if c.Runnable() {
+			info := moduleCommandInfo{Command: strings.Join(path, " "), Class: rbac.ClassOf(strings.Join(path, ".")), Short: c.Short}
+			c.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
+				if f.Name != "help" {
+					info.Flags = append(info.Flags, "--"+f.Name)
+				}
+			})
+			commands = append(commands, info)
+		}
+		for _, sub := range c.Commands() {
+			walk(sub, path)
+		}
+	}
+	for _, c := range rootCmd.Commands() {
+		if c.Annotations[moduleCommandAnnotation] == "module" {
+			walk(c, nil)
+		}
+	}
+	data, err := json.MarshalIndent(map[string]any{"commands": commands}, "", "  ")
+	if err != nil {
+		return err
+	}
+	cmd.Println(string(data))
+	return nil
 }

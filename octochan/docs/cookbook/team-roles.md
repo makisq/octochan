@@ -22,7 +22,9 @@ $ ochan role list
 Права — группы (`read`, `plan`, `request`, `approve`, `apply`, `install`,
 `auth`, `admin`, `audit`, `server`, `remote`, `agent`), `all` или имя отдельной команды,
 например команды модуля: `ochan role grant ci hello`. Неизвестное право —
-ошибка, а не пустое место.
+ошибка, а не пустое место. Команду модуля, объявившую класс (`read`,
+`execution`…), открывает и группа класса: read-команду модуля роль с `read`
+выполняет без отдельной выдачи ([«Модули»](../guide/modules.md#класс-команды-read-или-execution)).
 
 ## CI — роль из окружения
 

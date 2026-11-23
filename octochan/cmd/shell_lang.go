@@ -48,7 +48,8 @@ func shellStatement(line string) bool {
 	word, rest := leadingWord(line)
 	next := strings.TrimLeft(rest, " \t")
 	if isCommandWord(word) && !lang.IsKeyword(word) {
-		return strings.HasPrefix(next, "(") || strings.HasPrefix(next, "=") && !strings.HasPrefix(next, "==")
+		return strings.HasPrefix(next, "(") || strings.HasPrefix(next, "=") && !strings.HasPrefix(next, "==") ||
+			atFollows(next)
 	}
 	if blockDepth(line) > 0 {
 		return true
@@ -68,6 +69,20 @@ func shellStatement(line string) bool {
 		}
 	}
 	return true
+}
+
+// atFollows — после имени команды идёт @ (approve @ ("a" | "b")) или
+// .подкоманда и @ (модуль.команда @ (…)): это общий множитель языка, а не
+// аргументы команды.
+func atFollows(rest string) bool {
+	for strings.HasPrefix(rest, ".") {
+		word, tail := leadingWord(rest[1:])
+		if word == "" {
+			return false
+		}
+		rest = tail
+	}
+	return strings.HasPrefix(strings.TrimLeft(rest, " \t"), "@")
 }
 
 func leadingWord(line string) (string, string) {
@@ -150,7 +165,7 @@ func runShellStatement(base context.Context, src string) (terminated bool) {
 		interp := lang.NewInterpreter(ctx, registry, os.Stdout)
 		interp.SetErr(os.Stderr)
 		interp.SetProtected(protectedPaths())
-		interp.SetCommands(scriptCommands{})
+		interp.SetCommands(scriptCommands{shell: true})
 		value, err := interp.RunLine(shellSession, file)
 		shellDecls = withoutRedeclared(shellDecls, file)
 		shellDecls.Imports = append(shellDecls.Imports, file.Imports...)
@@ -161,10 +176,26 @@ func runShellStatement(base context.Context, src string) (terminated bool) {
 			shellFail(err)
 			return
 		}
-		if _, null := value.(lang.NullValue); !null {
+		// Значение строки оболочка показывает, как любой REPL; print своё уже
+		// напечатал — второй раз то же самое не нужно.
+		if _, null := value.(lang.NullValue); !null && !endsWithPrint(file) {
 			fmt.Println(lang.Display(value))
 		}
 	})
+}
+
+// endsWithPrint — последняя инструкция строки — вызов print: он возвращает
+// то, что напечатал.
+func endsWithPrint(file *lang.File) bool {
+	if len(file.Stmts) == 0 {
+		return false
+	}
+	stmt, ok := file.Stmts[len(file.Stmts)-1].(*lang.ExprStmt)
+	if !ok {
+		return false
+	}
+	call, ok := stmt.Expr.(*lang.Call)
+	return ok && call.Receiver == nil && call.Callee != nil && call.Callee.Module == "" && call.Callee.Name == "print"
 }
 
 // withoutRedeclared — объявления оболочки без тех, что строка объявляет

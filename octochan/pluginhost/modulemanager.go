@@ -1,6 +1,7 @@
 package pluginhost
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,6 +24,7 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -184,12 +186,37 @@ func (s *CommandGRPCServer) resolveCommand(path string) (*cobra.Command, error) 
 	return current, nil
 }
 
-// runCommand — общая реализация для Run/PreRun/PostRun.
-func (s *CommandGRPCServer) runCommand(req *CommandRequest, phase string) (*Empty, error) {
+// outputTrailer — вывод команды модуля в trailer-метаданных ответа gRPC.
+// Так вывод доходит до хоста вместе с ответом и попадает туда, куда хост
+// направил вывод команды: в ochan() сценария, в конвейер, удалённому
+// клиенту. Раньше он шёл в stdout процесса модуля, а оттуда — прямо в
+// stdout ochan, мимо всего этого. Ключ с -bin — байты как есть.
+const outputTrailer = "ochan-output-bin"
+
+// maxTrailerOutput — больше этого вывод идёт по-старому, в stdout модуля:
+// метаданные gRPC — не для мегабайтов.
+const maxTrailerOutput = 4 << 20
+
+// runCommand — общая реализация для Run/PreRun/PostRun. Вывод команды
+// (cmd.Println, cmd.OutOrStdout()) возвращается хосту в trailer.
+func (s *CommandGRPCServer) runCommand(ctx context.Context, req *CommandRequest, phase string) (*Empty, error) {
 	cmd, err := s.resolveCommand(req.GetName())
 	if err != nil {
 		return nil, err
 	}
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	defer func() {
+		cmd.SetOut(nil)
+		if output.Len() == 0 {
+			return
+		}
+		if output.Len() > maxTrailerOutput {
+			_, _ = os.Stdout.Write(output.Bytes())
+			return
+		}
+		_ = grpc.SetTrailer(ctx, metadata.Pairs(outputTrailer, output.String()))
+	}()
 
 	for name, value := range req.GetFlags() {
 		if err := cmd.Flags().Set(name, value); err != nil {
@@ -232,16 +259,16 @@ func (s *CommandGRPCServer) runCommand(req *CommandRequest, phase string) (*Empt
 	return &Empty{}, nil
 }
 
-func (s *CommandGRPCServer) RunCommand(_ context.Context, req *CommandRequest) (*Empty, error) {
-	return s.runCommand(req, "run")
+func (s *CommandGRPCServer) RunCommand(ctx context.Context, req *CommandRequest) (*Empty, error) {
+	return s.runCommand(ctx, req, "run")
 }
 
-func (s *CommandGRPCServer) PreRunCommand(_ context.Context, req *CommandRequest) (*Empty, error) {
-	return s.runCommand(req, "pre")
+func (s *CommandGRPCServer) PreRunCommand(ctx context.Context, req *CommandRequest) (*Empty, error) {
+	return s.runCommand(ctx, req, "pre")
 }
 
-func (s *CommandGRPCServer) PostRunCommand(_ context.Context, req *CommandRequest) (*Empty, error) {
-	return s.runCommand(req, "post")
+func (s *CommandGRPCServer) PostRunCommand(ctx context.Context, req *CommandRequest) (*Empty, error) {
+	return s.runCommand(ctx, req, "post")
 }
 
 // ---------------------------------------------------------------------------
@@ -354,11 +381,17 @@ func (c *CommandGRPCClient) remoteRunner(path string, call remoteCall) func(*cob
 			flags[f.Name] = f.Value.String()
 		})
 
+		// Вывод команды приходит в trailer (outputTrailer); модуль, собранный
+		// до этого, печатает в свой stdout, и trailer пуст.
+		var trailer metadata.MD
 		_, err := call(ctx, &CommandRequest{
 			Name:  path,
 			Args:  args,
 			Flags: flags,
-		})
+		}, grpc.Trailer(&trailer))
+		for _, chunk := range trailer.Get(outputTrailer) {
+			_, _ = io.WriteString(cmd.OutOrStdout(), chunk)
+		}
 		return unwrapGRPCError(err)
 	}
 }

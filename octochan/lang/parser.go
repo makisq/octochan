@@ -377,6 +377,8 @@ func (p *Parser) parseStatement() (Stmt, error) {
 		return p.parseIf()
 	case TokenFor:
 		return p.parseFor(false)
+	case TokenWhile:
+		return p.parseWhile()
 	case TokenParallel:
 		parallelTok := p.advance()
 		if !p.check(TokenFor) {
@@ -665,6 +667,20 @@ func (p *Parser) parseFor(parallel bool) (Stmt, error) {
 	}, nil
 }
 
+// parseWhile разбирает while условие { … }.
+func (p *Parser) parseWhile() (Stmt, error) {
+	whileTok := p.advance()
+	cond, err := p.parseExpr()
+	if err != nil {
+		return nil, err
+	}
+	body, err := p.parseBlock()
+	if err != nil {
+		return nil, err
+	}
+	return &While{Pos: whileTok.Pos, Cond: cond, Body: body}, nil
+}
+
 func (p *Parser) parseReturn() (Stmt, error) {
 	retTok := p.advance()
 
@@ -913,6 +929,15 @@ func (p *Parser) parsePostfix() (Expr, error) {
 				return nil, err
 			}
 			expr = &Index{Pos: openTok.Pos, Target: expr, Index: index}
+
+		case p.check(TokenAt):
+			// f @ (a | b): общий множитель.
+			atTok := p.advance()
+			group, err := p.parseAtGroup(atTok.Pos, expr)
+			if err != nil {
+				return nil, err
+			}
+			expr = group
 
 		default:
 			return expr, nil

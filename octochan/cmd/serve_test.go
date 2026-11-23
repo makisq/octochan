@@ -29,6 +29,11 @@ func TestMain(m *testing.M) {
 	if sandbox.Enter() {
 		os.Exit(SandboxChild())
 	}
+	// Поддельный сервер инструментов для тестов разговора (ask_test.go).
+	if os.Getenv("OCHAN_TEST_AS_MCP") == "1" && len(os.Args) > 1 && os.Args[1] == "--ochan" {
+		fakeToolServer()
+		return
+	}
 	if os.Getenv("OCHAN_TEST_AS_OCHAN") == "1" {
 		// Исполнитель для дочернего ochan: в тесте он только в памяти.
 		if service := os.Getenv("OCHAN_TEST_EXECUTOR"); service != "" {

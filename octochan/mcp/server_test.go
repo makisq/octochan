@@ -40,6 +40,10 @@ func fakeOchan() {
 	if text := os.Getenv("FAKE_STDERR"); text != "" {
 		fmt.Fprint(os.Stderr, text)
 	}
+	if listing := os.Getenv("FAKE_MODULES"); listing != "" && len(os.Args) == 3 && os.Args[1] == "modules" && os.Args[2] == "--json" {
+		fmt.Println(listing)
+		os.Exit(0)
+	}
 	if os.Getenv("FAKE_PRINT_REMOTE") == "1" {
 		fmt.Println("remote=" + os.Getenv("OCTOCHAN_REMOTE_ADDR"))
 	} else if os.Getenv("FAKE_PRINT_ROLE") == "1" {

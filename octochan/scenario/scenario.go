@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -160,6 +161,68 @@ type Result struct {
 	Refs []string
 	// Summary — короткое описание для журнала.
 	Summary string
+	// Shared — общие строки из ответа внешней системы: f @ (…) языка
+	// подставляет их в плейбуки следующих вызовов (string_i: ?). В вывод,
+	// журнал и письма они не попадают — это могут быть секреты.
+	Shared map[string]string
+	// Responses — тела ответов внешней системы на запросы исполнителя (POST
+	// и прочие), как есть. f @ (…) ищет в них общие строки сам: исполнителю
+	// не нужно знать, какие строки кому понадобятся. Как и Shared, в вывод
+	// и журнал не попадают.
+	Responses []string
+}
+
+// maxResponses и maxResponseBytes — сколько ответов и какого размера
+// исполнитель держит для f @ (…): общей строке хватает и меньшего.
+const (
+	maxResponses     = 64
+	maxResponseBytes = 1 << 20
+)
+
+// ResponseLog — ответы системы на запросы одного выполнения.
+type ResponseLog struct {
+	mu     sync.Mutex
+	bodies []string
+}
+
+type responsesKey struct{}
+
+// WithResponses заводит журнал ответов для выполнения: Apply исполнителя
+// вызывает его в начале, а HTTP-клиент кладёт туда ответы через
+// RecordResponse.
+func WithResponses(ctx context.Context) (context.Context, *ResponseLog) {
+	if log, ok := ctx.Value(responsesKey{}).(*ResponseLog); ok {
+		return ctx, log
+	}
+	log := &ResponseLog{}
+	return context.WithValue(ctx, responsesKey{}, log), log
+}
+
+// RecordResponse запоминает тело ответа внешней системы, если у выполнения
+// есть журнал ответов; иначе ничего не делает.
+func RecordResponse(ctx context.Context, body []byte) {
+	log, ok := ctx.Value(responsesKey{}).(*ResponseLog)
+	if !ok || len(body) == 0 {
+		return
+	}
+	if len(body) > maxResponseBytes {
+		body = body[:maxResponseBytes]
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	if len(log.bodies) < maxResponses {
+		log.bodies = append(log.bodies, string(body))
+	}
+}
+
+// Bodies — записанные ответы по порядку.
+func (l *ResponseLog) Bodies() []string {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.bodies...)
 }
 
 // Runner выполняет сценарии определённого вида.
@@ -327,6 +390,15 @@ func Services() []string {
 // а не «не удалось разобрать».
 var ErrNotScenario = errors.New("это не сценарий: не указано имя сервиса (service)")
 
+// barePlaceholder — «ключ: ?» в YAML: так пишут общую строку, которую ждут
+// (f @ (…) языка), а YAML без кавычек читает ? как начало сложного ключа.
+var barePlaceholder = regexp.MustCompile(`(?m)^(\s*(?:-\s+)?[^\s#:][^#\n]*?:[ \t]+)\?([ \t]*(?:#.*)?)$`)
+
+// QuotePlaceholders — «ключ: ?» → «ключ: "?"»: так плейбук разбирается.
+func QuotePlaceholders(data []byte) []byte {
+	return barePlaceholder.ReplaceAll(data, []byte(`${1}"?"${2}`))
+}
+
 // Parse разбирает сценарий в формате JSON или YAML.
 func Parse(name string, data []byte) (*Scenario, error) {
 	if len(data) == 0 {
@@ -346,7 +418,7 @@ func Parse(name string, data []byte) (*Scenario, error) {
 	jsonErr := json.Unmarshal(data, &raw)
 	if jsonErr != nil {
 		raw = rawScenario{}
-		if yamlErr := yaml.Unmarshal(data, &raw); yamlErr != nil {
+		if yamlErr := yaml.Unmarshal(QuotePlaceholders(data), &raw); yamlErr != nil {
 			return nil, fmt.Errorf("не удалось разобрать сценарий: как JSON — %v; как YAML — %v", jsonErr, yamlErr)
 		}
 	}

@@ -22,12 +22,14 @@ import (
 )
 
 var (
-	requestDoc      string
-	requestComment  string
-	approveYes      bool
-	rejectReason    string
-	rejectKind      string
-	applyRequestID  string
+	requestDoc     string
+	requestComment string
+	approveYes     bool
+	rejectReason   string
+	rejectKind     string
+	applyRequestID string
+	// applyApproveID — заявка, которую apply --approve согласует и выполняет.
+	applyApproveID  string
 	notifyMail      bool
 	requestScript   bool
 	requestAfter    []string
@@ -512,7 +514,8 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	}
 
 	cmd.Printf("Заявка %s: %s (%s)\n", request.ID, request.State.Russian(), request.DecidedBy)
-	if state == workspace.RequestApproved {
+	// apply --approve выполняет заявку сразу: подсказка, как выполнить, лишняя.
+	if state == workspace.RequestApproved && applyApproveID == "" {
 		cmd.Printf("Выполнить: ochan apply --request %s\n", request.ID)
 		if len(request.After) > 0 {
 			cmd.Printf("Не раньше, чем выполнены: %s\n", strings.Join(request.After, ", "))
@@ -722,6 +725,9 @@ func init() {
 	rejectCmd.Flags().StringVar(&rejectKind, "reason-kind", workspace.KindPlan,
 		"в чём причина: plan — план неверен; timing, scope, other — не в плане, правилам не засчитывается")
 	applyCmd.Flags().StringVar(&applyRequestID, "request", "", "выполнить согласованную заявку")
+	applyCmd.Flags().StringVar(&applyApproveID, "approve", "", "согласовать заявку и сразу выполнить её")
+	applyCmd.Flags().BoolVar(&approveYes, "yes", false, "с --approve: план заявки нейросети проверен — согласовать без вопроса")
+	applyCmd.Flags().StringVar(&requestComment, "comment", "", "с --approve: комментарий к решению")
 	requestCmd.Flags().BoolVar(&requestScript, "script", false, "сценарий на языке алиасов (для файла .ochan подразумевается)")
 	requestOpts.register(requestCmd)
 	requestPrompt.register(requestCmd)
