@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"ochan/fp"
-	"ochan/remote"
-	"ochan/report"
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/ai/fp"
+	"ochan/core/remote"
+	"ochan/core/report"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 
 	"github.com/spf13/viper"
 )

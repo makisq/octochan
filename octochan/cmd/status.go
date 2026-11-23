@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"ochan/i18n"
-	"ochan/scenario"
+	"ochan/core/i18n"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 )

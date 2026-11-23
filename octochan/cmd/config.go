@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ochan/i18n"
-	"ochan/logs"
-	"ochan/workspace"
+	"ochan/core/i18n"
+	"ochan/core/logs"
+	"ochan/core/workspace"
 
 	"github.com/spf13/viper"
 )

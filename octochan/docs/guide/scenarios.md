@@ -314,4 +314,4 @@ defaults:
 ничего не менять; если без обращения к внешней системе полного плана не
 построить, он говорит это предупреждением в плане. Примеры —
 [examples/runnermodule](../../examples/runnermodule/main.go) и исполнитель
-ядра `http` ([httpexec](../../httpexec/httpexec.go)).
+ядра `http` ([httpexec](../../modules/httpexec/httpexec.go)).

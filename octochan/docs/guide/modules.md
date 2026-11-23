@@ -346,7 +346,7 @@ ochan hello
   тоже запуск исполняемого файла, поэтому и здесь нужна контрольная сумма
   (или `allow_unverified_modules`).
 
-Пример с подкомандами и флагами — [dwd/main.go](../../dwd/main.go).
+Пример с подкомандами и флагами — [examples/testmodule/main.go](../../examples/testmodule/main.go).
 
 ### Класс команды: read или execution
 
@@ -465,7 +465,7 @@ func (Module) Runners() []pluginhost.RunnerSpec {
 ```
 
 - По проводу идёт JSON — сценарий, план, ссылки, статус; формат описан в
-  [runnerhost](../../runnerhost/runnerhost.go). Модулю на другом языке
+  [runnerhost](../../modules/runnerhost/runnerhost.go). Модулю на другом языке
   достаточно реализовать тот же gRPC-сервис и тот же JSON.
 - Свой API исполнитель выбирает сам. Токен ему задаёт оператор —
   `ochan auth --executor ssh` (файл `~/.octochan/tokens/ssh`, права 0600)
@@ -502,7 +502,7 @@ func (Module) Runners() []pluginhost.RunnerSpec {
   порядку, модуль не перехватывает — ochan предупредит.
 
 Пример — [examples/runnermodule](../../examples/runnermodule); исполнитель
-ядра `http` устроен так же — [httpexec](../../httpexec/httpexec.go).
+ядра `http` устроен так же — [httpexec](../../modules/httpexec/httpexec.go).
 
 ## Источники
 

@@ -1,0 +1,152 @@
+syntax = "proto3";
+
+package pluginhost;
+
+// Путь совпадает с "module ochan" из go.mod. Прежнее значение
+// github.com/makisq/PACAL/octochan/core указывало на несуществующий
+// импорт-путь: код собирался только потому, что генерируется он прямо
+// в пакет core, но любой .proto, импортирующий этот файл, получил бы
+// нерабочую ссылку.
+option go_package = "ochan/modules/pluginhost";
+
+message Flag {
+    string name = 1;
+    string shorthand = 2;
+    string usage = 3;
+    string def_value = 4;
+    bool changed = 5;
+    string type = 6;  // Supported types: "bool", "int", "int32", "int64", 
+                     // "float32", "float64", "string", "stringSlice", 
+                     // "stringArray", "duration", "bytes", "count"
+}
+
+message FParseErrWhitelist {
+    bool unknown_flags = 1;
+}
+
+message Command {
+    // Basic command fields
+    string use = 1;
+    string short = 2;
+    string long = 3;
+    string example = 4;
+    repeated string valid_args = 5;
+    bool valid_args_function = 6;
+    bool args = 7;
+    repeated string arg_aliases = 8;
+    string bash_completion_function = 9;
+    string deprecated = 10;
+    bool hidden = 11;
+    map<string, string> annotations = 12;
+    string version = 13;
+    
+    // Flags
+    bool persistent_flag_set = 14;
+    bool local_flag_set = 15;
+    repeated Flag flags = 16;
+    repeated Flag persistent_flags = 17;
+    
+    // Execution functions
+    bool run_function = 18;
+    bool pre_run_function = 19;
+    bool post_run_function = 20;
+    bool persistent_pre_run_function = 21;
+    bool persistent_post_run_function = 22;
+    
+    // Additional parameters
+    repeated string aliases = 23;
+    bool silence_errors = 24;
+    bool silence_usage = 25;
+    bool traverse_children = 26;
+    FParseErrWhitelist fparse_err_whitelist = 27;
+    
+    // Subcommands
+    repeated Command commands = 28;
+}
+
+message CommandsResponse {
+    repeated Command commands = 1;
+}
+
+message Empty {}
+
+message Config {
+    map<string, string> values = 1;
+}
+
+message NameResponse {
+    string name = 1;
+}
+
+message VersionResponse {
+    string version = 1;
+}
+
+// Translation — язык, на который модуль переводит ochan.
+message Translation {
+    string code = 1;                 // код языка для lang в config.yaml: de, jp, zh
+    string name = 2;                 // название языка на нём самом: Deutsch, 日本語
+    map<string, string> entries = 3; // русский текст справки или сообщения -> перевод
+}
+
+message TranslationsResponse {
+    repeated Translation languages = 1;
+}
+
+message CommandRequest {
+    string name = 1;
+    repeated string args = 2;
+    map<string, string> flags = 3;
+}
+
+// Runner — исполнитель сценариев, которого приносит модуль: SSH, Ansible,
+// API своей системы. Ядро выбирает его по полю service сценария, как и
+// встроенных исполнителей.
+message Runner {
+    string kind = 1;              // как называется способ выполнения: SSH, Ansible
+    repeated string services = 2; // сервисы сценариев, которые он выполняет
+    repeated string ops = 3;      // plan и apply; wait и status — если умеет
+}
+
+message RunnersResponse {
+    repeated Runner runners = 1;
+}
+
+// RunnerCall — вызов исполнителя. Данные — JSON: ядро и модуль
+// договариваются о формате сценария, плана и статуса, а не о Go-типах, и
+// протокол не меняется, когда у них появляются поля.
+message RunnerCall {
+    string kind = 1;
+    string op = 2;
+    bytes payload = 3;
+    map<string, string> credentials = 4; // токены, которые ядро выдало исполнителю
+    map<string, string> settings = 5;    // настройки исполнителя из config.yaml: executors.<имя>
+}
+
+message RunnerReply {
+    bytes payload = 1;
+}
+
+service CommandModule {
+    // Command management
+    rpc GetCommands(Empty) returns (CommandsResponse);
+    rpc RunCommand(CommandRequest) returns (Empty);
+    rpc PreRunCommand(CommandRequest) returns (Empty);
+    rpc PostRunCommand(CommandRequest) returns (Empty);
+    rpc PersistentPreRunCommand(CommandRequest) returns (Empty);
+    rpc PersistentPostRunCommand(CommandRequest) returns (Empty);
+    
+    // Plugin management
+    rpc Init(Config) returns (Empty);
+    rpc Name(Empty) returns (NameResponse);
+    rpc Version(Empty) returns (VersionResponse);
+
+    // Языки модуля. Модуль команд без языка его не реализует: старые
+    // модули отвечают Unimplemented, и хост считает, что языков у них нет.
+    rpc GetTranslations(Empty) returns (TranslationsResponse);
+
+    // Исполнители сценариев модуля. Как и с языками, старые модули отвечают
+    // Unimplemented, и хост считает, что исполнителей у них нет.
+    rpc GetRunners(Empty) returns (RunnersResponse);
+    rpc CallRunner(RunnerCall) returns (RunnerReply);
+}

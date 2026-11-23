@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/config"
-	"ochan/scenario"
+	"ochan/core/config"
+	"ochan/core/scenario"
 )
 
 // nodeExecutor — узел с API: ответ на вход несёт string_i (Result.Shared),
@@ -44,7 +44,7 @@ func (x *nodeExecutor) Apply(_ context.Context, s *scenario.Scenario, _ *config.
 
 // apply @ ("tune.yaml" | "login.yaml") из оболочки: tune ждёт string_i,
 // которую исполнитель отдал в ответе на login, — отдельно от вывода, так
-// что в выводе её нет. Внутри сценария apply по-прежнему запрещён.
+// что в выводе её нет. Внутри сценария — то же: вложенный сценарий.
 func TestApplyAt(t *testing.T) {
 	e := newScriptEnv(t)
 	node := &nodeExecutor{}
@@ -99,6 +99,10 @@ func TestApplyAt(t *testing.T) {
 		t.Fatalf("eval: настроек %d", len(node.tuned))
 	}
 
-	e.write("inner.ochan", `apply @ ("login.yaml")`+"\n")
-	e.fails("из сценария не выполняется", "run", "inner.ochan")
+	// Внутри сценария — вложенный сценарий: план входит в план внешнего.
+	e.write("inner.ochan", `apply @ ("tune.yaml" | "login.yaml")`+"\n")
+	e.must("run", "inner.ochan")
+	if len(node.tuned) != 4 {
+		t.Fatalf("run: настроек %d", len(node.tuned))
+	}
 }

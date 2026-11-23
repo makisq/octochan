@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"ochan/chat"
-	"ochan/lang"
-	"ochan/rbac"
+	"ochan/ai/chat"
+	"ochan/core/lang"
+	"ochan/core/rbac"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

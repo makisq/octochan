@@ -14,16 +14,16 @@ import (
 	"strings"
 	"time"
 
-	"ochan/i18n"
-	"ochan/rbac"
-	"ochan/remote"
-	"ochan/workspace"
+	"ochan/core/i18n"
+	"ochan/core/rbac"
+	"ochan/core/remote"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
-// Пара серверов primary/standby — remote/ha.go. Здесь — что копируется,
+// Пара серверов primary/standby — core/remote/ha.go. Здесь — что копируется,
 // настройки, команды ochan ha и подключение пары к ochan serve.
 
 // replicatedPaths — состояние, которое standby держит копией: заявки,

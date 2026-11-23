@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"ochan/config"
-	"ochan/lang"
+	"ochan/core/config"
+	"ochan/core/lang"
 
 	"github.com/spf13/cobra"
 )
@@ -137,7 +137,18 @@ var runCmd = &cobra.Command{
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
 		interp.SetInventory(hosts, invErr)
-		interp.SetCommands(scriptCommands{})
+		commands := scriptCommands{}
+		// Вложенный run: зерно и время внешнего сценария — те, с которыми
+		// строился план, который согласовали.
+		if scriptDepth > 0 && nestedSeed != 0 {
+			interp.SetSeed(nestedSeed)
+			commands.seed = nestedSeed
+		}
+		if scriptDepth > 0 && !nestedClock.IsZero() {
+			interp.SetClock(nestedClock)
+			commands.clock = nestedClock
+		}
+		interp.SetCommands(commands)
 
 		if target == "-" || config.FileExists(target) {
 			src, err := runOpts.source(target)
@@ -148,6 +159,11 @@ var runCmd = &cobra.Command{
 			if err != nil {
 				return err
 			}
+			leave, err := enterScript(src.Name)
+			if err != nil {
+				return err
+			}
+			defer leave()
 			return interp.RunFile(file)
 		}
 

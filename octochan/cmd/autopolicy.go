@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"ochan/inventory"
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/core/inventory"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )
 
 // Политики автоматического выполнения: что ochan watch выполняет сам, без
-// человека. Модель — workspace/policy.go.
+// человека. Модель — core/workspace/policy.go.
 
 func policyStore() (*workspace.Policies, error) {
 	fm, err := mustFileManager()

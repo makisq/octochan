@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"ochan/workspace"
+	"ochan/core/workspace"
 
 	"github.com/spf13/viper"
 	"golang.org/x/term"

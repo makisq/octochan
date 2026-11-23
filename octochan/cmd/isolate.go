@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"ochan/i18n"
-	"ochan/inventory"
-	"ochan/lang"
-	"ochan/sandbox"
+	"ochan/core/i18n"
+	"ochan/core/inventory"
+	"ochan/core/lang"
+	"ochan/core/sandbox"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"ochan/embedded"
+	"ochan/ai/embedded"
 
 	"github.com/spf13/viper"
 )

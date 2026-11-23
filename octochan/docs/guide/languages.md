@@ -51,7 +51,7 @@ ochan '!!install' lang-de.hcplugin                # модуль ставитс�
 
 Шаблон — JSON-объект: ключ — русский текст справки или сообщения,
 значение — перевод (пусто — ещё не переведено). Модуль отдаёт его через
-`GetTranslations` (`pluginhost/command.proto`), реализуя интерфейс
+`GetTranslations` (`modules/pluginhost/command.proto`), реализуя интерфейс
 `pluginhost.Translator`:
 
 ```go

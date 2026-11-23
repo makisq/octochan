@@ -8,13 +8,13 @@ import (
 	"strings"
 	"syscall"
 
-	"ochan/own"
+	"ochan/ai/own"
 
 	"github.com/spf13/cobra"
 )
 
 // Обучение весов сети — в ochan, на процессоре: тот же счёт, что у torch в
-// llama/train_own.py (он остаётся для видеокарты), сверенный с ним на
+// ai/llama/train_own.py (он остаётся для видеокарты), сверенный с ним на
 // градиентах и шагах AdamW.
 
 var (
@@ -48,7 +48,7 @@ var llmTrainCmd = &cobra.Command{
 		"параметрами и корпусом, и результат тот же, что без прерывания.\n\n" +
 		"Дообучение на сотнях пар — минуты. Обучение с нуля на десятках тысяч пар\n" +
 		"на процессоре — дни: тот же счёт на видеокарте делает\n" +
-		"llama/train_own.py, каталог модели и корпус у них общие.",
+		"ai/llama/train_own.py, каталог модели и корпус у них общие.",
 	Args: cobra.NoArgs,
 	Example: "ochan llm train --init ~/models/own --model ~/models/own-2 --corpus pairs.jsonl --epochs 1 --lr 1e-4\n" +
 		"ochan llm train --model ~/models/new --corpus corpus.jsonl\n" +

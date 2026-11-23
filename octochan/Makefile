@@ -11,7 +11,7 @@
 #   make install PREFIX=/usr/local   программы в PREFIX/bin (спросит sudo), остальное по умолчанию
 #   make vendor                  зависимости в vendor/ — для сборки без сети
 #   make offline                 собрать из vendor/, в сеть не обращаясь
-#   make llm-test                тест обучения своей модели (llama/train_own.py; нужен venv с requirements.txt)
+#   make llm-test                тест обучения своей модели (ai/llama/train_own.py; нужен venv с requirements.txt)
 #   make icon                    значок из логотипа: cmd/icon.png и ресурс Windows (после смены docs/assets/logo.png)
 #   make dist                    релиз под все платформы в dist/
 #
@@ -51,7 +51,7 @@ uninstall:
 	PREFIX="$(PREFIX)" sh scripts/install.sh --uninstall
 
 llm-test:
-	cd llama && $(PYTHON) -m unittest discover -s tests -v
+	cd ai/llama && $(PYTHON) -m unittest discover -s tests -v
 
 # Зависимости обоих модулей (ochan и ochan-mcp) — в один vendor/ рабочего
 # пространства go.work. Каталог переносится вместе с исходниками туда, где

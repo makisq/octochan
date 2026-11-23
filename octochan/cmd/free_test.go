@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"ochan/remote"
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/core/remote"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 )
 
 // free: только master, только primary контура HA-AI. Заявка модели в

@@ -72,7 +72,7 @@ PostgreSQL/pgbouncer — и шлёт плейбуки узлам по API (ис�
 - [Справочник команд](docs/reference/commands.md),
   [встроенных функций](docs/reference/builtins.md),
   [настроек](docs/reference/config.md).
-- [Сервер MCP](mcp/README.md) и [протокол формального промпта](fp/protocol.md).
+- [Сервер MCP](mcp/README.md) и [протокол формального промпта](ai/fp/protocol.md).
 - [Манифест формального промптирования](docs/formal-prompting.md), версия 0.4.
 
 ## Быстрый старт
@@ -229,9 +229,13 @@ $ ochan request rollout.ochan --sandbox      # согласование, зат�
 ## Устройство
 
 ```
-config  inventory  lang  fp  arbiter  rings  i18n  logs  rbac  audit  sandbox
-remote  pluginhost  runnerhost  scenario  pgsource  workspace  report  registry  cmd
-httpexec — запрос к API узла      mcp/ — отдельный Go-модуль
+core/     ядро: config  scenario  inventory  workspace  lang  rbac  audit  sandbox
+          logs  i18n  report  remote
+ai/       ИИ и формальный промпт: fp  arbiter  rings  embedded  own  learn  chat
+          experiment  llama (обучение весов на видеокарте, Python)
+modules/  модули и исполнители: pluginhost  runnerhost  httpexec  pgsource  registry
+cmd/      команды CLI        mcp/  сервер MCP — отдельный Go-модуль
+examples/ примеры модулей    tools/  генераторы логотипа и значка
 ```
 
 `config` не зависит ни от чего; СУБД и внешние системы — ниши, а не фундамент; ИИ —

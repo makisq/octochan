@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"ochan/audit"
-	"ochan/rbac"
-	"ochan/workspace"
+	"ochan/core/audit"
+	"ochan/core/rbac"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -78,7 +78,7 @@ func loadRoles() (*rbac.Store, string, error) {
 	return store, path, nil
 }
 
-// systemPolicy — системная политика ролей (rbac/system.go); nil — её нет.
+// systemPolicy — системная политика ролей (core/rbac/system.go); nil — её нет.
 func systemPolicy() (*rbac.SystemPolicy, error) {
 	return rbac.LoadSystem(rbac.SystemPolicyPath, moduleCommands())
 }

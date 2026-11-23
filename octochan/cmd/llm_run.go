@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"ochan/embedded"
-	"ochan/fp"
-	"ochan/workspace"
+	"ochan/ai/embedded"
+	"ochan/ai/fp"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"ochan/embedded"
-	"ochan/own"
+	"ochan/ai/embedded"
+	"ochan/ai/own"
 
 	"github.com/spf13/viper"
 )

@@ -12,10 +12,10 @@ import (
 	"os"
 
 	"ochan/cmd"
-	"ochan/sandbox"
+	"ochan/core/sandbox"
 
 	// Регистрация источника «живой PostgreSQL» (схема postgres://).
-	_ "ochan/pgsource"
+	_ "ochan/modules/pgsource"
 )
 
 func main() {

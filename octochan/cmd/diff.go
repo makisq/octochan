@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ochan/config"
-	"ochan/workspace"
+	"ochan/core/config"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )

@@ -10,10 +10,10 @@ import (
 	"strings"
 	"unicode"
 
-	"ochan/fp"
-	"ochan/i18n"
-	"ochan/lang"
-	"ochan/pluginhost"
+	"ochan/ai/fp"
+	"ochan/core/i18n"
+	"ochan/core/lang"
+	"ochan/modules/pluginhost"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

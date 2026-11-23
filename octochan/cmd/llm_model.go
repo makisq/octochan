@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ochan/own"
+	"ochan/ai/own"
 
 	"github.com/spf13/cobra"
 )
@@ -20,7 +20,7 @@ import (
 // Своя модель целиком в ochan: словарь (llm init), корпус (llm corpus),
 // параметры колец по журналу и инцидентам (llm fit, llm learn),
 // квантование (llm quantize), обучение весов сети (llm train, llm_train.go).
-// llama/train_own.py — тот же счёт на видеокарте, для обучения с нуля.
+// ai/llama/train_own.py — тот же счёт на видеокарте, для обучения с нуля.
 
 // describeModel — модель одной строкой: каталог, размер, словарь, веса,
 // версия параметров колец.

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ochan/i18n"
-	"ochan/logs"
+	"ochan/core/i18n"
+	"ochan/core/logs"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

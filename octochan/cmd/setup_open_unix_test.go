@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/workspace"
+	"ochan/core/workspace"
 )
 
 // sharedFolder — папка, открытая для записи группе (0770): общая папка, где

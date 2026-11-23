@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/rbac"
-	"ochan/remote"
-	"ochan/sandbox"
-	"ochan/scenario"
+	"ochan/core/rbac"
+	"ochan/core/remote"
+	"ochan/core/sandbox"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

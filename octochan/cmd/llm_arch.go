@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"ochan/embedded"
-	"ochan/fp"
-	"ochan/rings"
-	"ochan/workspace"
+	"ochan/ai/embedded"
+	"ochan/ai/fp"
+	"ochan/ai/rings"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )

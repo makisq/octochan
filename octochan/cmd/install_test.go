@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/lang"
-	"ochan/pluginhost"
-	"ochan/scenario"
+	"ochan/core/lang"
+	"ochan/core/scenario"
+	"ochan/modules/pluginhost"
 
 	"github.com/spf13/viper"
 )

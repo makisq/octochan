@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/workspace"
+	"ochan/core/workspace"
 )
 
 func programName() string {

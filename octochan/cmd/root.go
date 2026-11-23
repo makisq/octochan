@@ -10,8 +10,8 @@ import (
 	"strings"
 	"syscall"
 
-	"ochan/i18n"
-	"ochan/pluginhost"
+	"ochan/core/i18n"
+	"ochan/modules/pluginhost"
 
 	"github.com/spf13/cobra"
 )

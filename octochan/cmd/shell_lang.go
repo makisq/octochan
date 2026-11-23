@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"ochan/lang"
+	"ochan/core/lang"
 )
 
 // Язык в оболочке тот же, что в файле, как у bash: строка — команда ochan

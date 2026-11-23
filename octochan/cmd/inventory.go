@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"ochan/inventory"
-	"ochan/scenario"
+	"ochan/core/inventory"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

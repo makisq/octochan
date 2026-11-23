@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/rbac"
+	"ochan/core/rbac"
 )
 
 // systemPolicyFile ставит системную политику ролей для теста: путь

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/scenario"
+	"ochan/core/scenario"
 )
 
 const watchPolicyFile = `name: new-servers

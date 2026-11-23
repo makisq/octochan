@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"ochan/sandbox"
+	"ochan/core/sandbox"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

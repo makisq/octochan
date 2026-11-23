@@ -7,11 +7,11 @@ import (
 	"slices"
 	"strings"
 
-	"ochan/fp"
-	"ochan/i18n"
-	"ochan/rbac"
-	"ochan/report"
-	"ochan/workspace"
+	"ochan/ai/fp"
+	"ochan/core/i18n"
+	"ochan/core/rbac"
+	"ochan/core/report"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

@@ -8,7 +8,7 @@ import (
 	"os"
 	"sync"
 
-	"ochan/config"
+	"ochan/core/config"
 )
 
 // Прежняя схема конвейеров была двухслойной и нерабочей:
