@@ -36,6 +36,24 @@ shell.history_size = 1000  [умолчание]
 shell.logo         = true  [умолчание]
 ```
 
+Что исполнитель или модуль команд получает в каждом вызове — итог по
+слоям `defaults.*` → `modules.<модуль>` → `executors.<имя>` (сильнее —
+позже), с ключом, откуда каждое значение, и есть ли токен — `ochan config
+show --executor <имя>`:
+
+```
+$ ochan config show --executor demo
+Исполнитель demo получает в каждом вызове (слои: defaults.* → modules.<модуль> → executors.demo; сильнее — позже):
+  http_timeout       = 30s  [defaults.http_timeout — умолчание]
+  max_parallel_tasks = 5  [defaults.max_parallel_tasks — умолчание]
+  api_key            = …  [executors.demo.api_key]
+  region             = us-2  [executors.demo.region]
+  токен: …  [/home/ops/.octochan/tokens/demo]
+```
+
+`region` модуля (`modules.demo-runner.region: eu-1`) здесь перекрыт
+`executors.demo.region`, поэтому его строки нет.
+
 ## Общее
 
 | Ключ | По умолчанию | |
@@ -60,6 +78,7 @@ paths`; подробно — [«Пути»](../guide/install.md#пути).
 | `paths.reports` | `OCTOCHAN_REPORTS` | `""` | отчёты `ochan diff` |
 | `paths.registry_cache` | `OCTOCHAN_REGISTRY_CACHE` | `""` | клоны git-реестров пакетов |
 | `paths.warn_open` | — | `true` | предупреждать при запуске, что рабочий или вынесенный каталог открыт для записи группе или остальным (или чужой); `false` записывает и ответ «больше не показывать» в `ochan setup` |
+| `paths.script_read` | — | `[logs, reports, modules]` | что из рабочего каталога сценарии читают: `logs`, `reports`, `modules`, `history`, `scenarios`, `aliases`, `registry_cache`. Писать в рабочий каталог сценарий не может; `config.yaml`, токены, ключи, роли и заявки не открываются никаким значением — см. [«Что из рабочего каталога видит сценарий»](../guide/language.md#что-из-рабочего-каталога-видит-сценарий) |
 
 ## defaults
 
