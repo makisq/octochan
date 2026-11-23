@@ -68,7 +68,7 @@ $ ./ochan paths
 Модули теперь ставятся в папку, где запуск разрешён:
 
 ```
-$ ./ochan '!!install' ./rlm.hcplugin
+$ ./ochan '!!install' ./pgstat.hcplugin
 ```
 
 ## Что учесть

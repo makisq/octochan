@@ -345,7 +345,7 @@ func looksLikeConfig(content string) bool {
 
 // waitForRefs дожидается завершения созданных задач.
 //
-// Ожидание умеет пока только исполнитель RLM: у него задачи имеют статус,
+// Ожидание умеет не каждый исполнитель: у кого задачи имеют статус,
 // который можно опросить. Для остальных ссылок просто говорим, что ждать
 // нечего, а не делаем вид, что подождали.
 func waitForRefs(cmd *cobra.Command, runner scenario.Runner, result *scenario.Result) error {

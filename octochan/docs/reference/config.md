@@ -33,8 +33,8 @@ paths`; подробно — [«Пути»](../guide/install.md#пути).
 
 | Ключ | По умолчанию | |
 |---|---|---|
-| `api_url` | `""` | адрес API по умолчанию для исполнителей модулей (RLM); свой у исполнителя — `executors.<имя>.api_url` |
-| `http_timeout` | `30s` | предел одного запроса исполнителя к API; передаётся исполнителям модулей |
+| `api_url` | `""` | адрес API по умолчанию для исполнителей (`http` и модулей); свой у исполнителя — `executors.<имя>.api_url` |
+| `http_timeout` | `30s` | предел одного запроса исполнителя к API; передаётся исполнителям |
 | `auto_check_status` | `false` | `true` — `apply` всегда ждёт завершения задач, как с `--wait` |
 | `token_timer_enabled` | `false` | напоминать в оболочке о смене токена исполнителя (`ochan timer on\|off`); только для токенов, сохранённых `ochan auth` |
 | `token_lifetime` | `20m` | время жизни токена для напоминания, от его сохранения |
@@ -54,12 +54,14 @@ paths`; подробно — [«Пути»](../guide/install.md#пути).
 
 ## executors — исполнители модулей
 
-Настройки исполнителя, которого принёс модуль, — под его именем:
+Настройки исполнителя — под его именем: `http` ядра или того, которого
+принёс модуль:
 
 ```yaml
 executors:
-  rlm:
-    api_url: https://rlm.example.internal/api/tasks.json
+  http:
+    api_url: https://node.example.internal/api
+    auth_scheme: Bearer      # схема заголовка Authorization
     http_timeout: 1m
 ```
 
@@ -289,8 +291,7 @@ secret`). Подробнее — [«Роли»](../guide/roles.md#по-собы�
 | `OCTOCHAN_HOME` | рабочий каталог ochan вместо `~/.octochan` — целиком: роли, аудит, заявки, история, алиасы, токены; сильнее указателя `ochan.home` рядом с программой, который пишет `ochan setup` |
 | `OCTOCHAN_MODULES`, `OCTOCHAN_LOGS`, `OCTOCHAN_REPORTS`, `OCTOCHAN_REGISTRY_CACHE` | каталоги узла отдельно от рабочего — см. [paths](#paths--каталоги-узла) |
 | `OCTOCHAN_CONFIG` | путь до `config.yaml` |
-| `OCTOCHAN_TOKEN_<ИМЯ>` | токен исполнителя модуля (`OCTOCHAN_TOKEN_RLM`) — вместо `ochan auth --executor <имя>` |
-| `OCTOCHAN_API_TOKEN` | прежний токен RLM: модуль RLM его понимает; новый — `OCTOCHAN_TOKEN_RLM` |
+| `OCTOCHAN_TOKEN_<ИМЯ>` | токен исполнителя (`OCTOCHAN_TOKEN_HTTP`) — вместо `ochan auth --executor <имя>` |
 | `OCTOCHAN_SMTP_PASSWORD` | пароль почты |
 | `OCTOCHAN_ROLE` | роль для этого запуска — только роль без логина и пароля |
 | `OCTOCHAN_REMOTE_LOGIN`, `OCTOCHAN_REMOTE_PASSWORD` | вход на сервер без вопросов (`connect`, `remote`) |

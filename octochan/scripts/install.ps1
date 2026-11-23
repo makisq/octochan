@@ -6,7 +6,6 @@
 #                                                                           ручная без вопросов; незаданное — по умолчанию
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Standard  в %LOCALAPPDATA%\Programs\ochan и в PATH пользователя
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Here -Desktop   ещё и значок: ярлыки в меню «Пуск» и на рабочем столе
-#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Rlm       ещё и модуль RLM
 #   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Uninstall
 #
 # Быстрая установка — для машин, где работать и запускать программы
@@ -24,8 +23,7 @@ param(
     [string]$RegistryCache = '',
     [switch]$Standard,
     [switch]$Desktop,
-    [switch]$Uninstall,
-    [switch]$Rlm
+    [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -63,13 +61,6 @@ Write-Host 'Сборка ochan-mcp…'
 Push-Location (Join-Path $root 'mcp')
 try { go build -trimpath -o (Join-Path $out 'ochan-mcp.exe') . } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw 'сборка ochan-mcp не удалась' }
-$module = Join-Path $out 'rlm.hcplugin'
-if ($Rlm) {
-    Write-Host 'Сборка модуля RLM…'
-    Push-Location $root
-    try { go build -trimpath -o $module ./plugins/rlm } finally { Pop-Location }
-    if ($LASTEXITCODE -ne 0) { throw 'сборка модуля RLM не удалась' }
-}
 
 # Куда ставить, решает ochan setup: спрашивает или берёт из ключей.
 $setup = @('setup')
@@ -86,13 +77,9 @@ if (-not $Here) {
     if ($Reports -ne '') { $setup += "--reports=$Reports" }
     if ($RegistryCache -ne '') { $setup += "--registry-cache=$RegistryCache" }
 }
-# Модуль ставит сам ochan: он фиксирует контрольную сумму, и подменённый
-# файл модуля потом не загрузится.
-if ($Rlm) { $setup += "--module=$module" }
 if ($Desktop) { $setup += '--desktop' }
 & (Join-Path $out 'ochan.exe') @setup
 if ($LASTEXITCODE -ne 0) { throw 'установка не удалась' }
-if ($Rlm) { Write-Host 'Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в config.yaml' }
 
 # В PATH пользователя каталог добавляется, только когда его назвали: при
 # установке в папку ochan запускают из неё.

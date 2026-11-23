@@ -25,13 +25,13 @@ var authCmd = &cobra.Command{
 	Use:   "auth [token]",
 	Short: "Установить токен исполнителя сценариев",
 	Args:  cobra.MaximumNArgs(1),
-	Long: "Токен исполнителя — RLM, SSH, API своей системы — хранится в\n" +
+	Long: "Токен исполнителя — HTTP, SSH, API своей системы — хранится в\n" +
 		"~/.octochan/tokens/<имя> с правами 0600; вместо файла — переменная\n" +
 		"окружения OCTOCHAN_TOKEN_<ИМЯ>. Ядро передаёт токен исполнителю при\n" +
 		"каждом вызове; в config.yaml токены не попадают.\n\n" +
 		"Без --executor — единственный исполнитель из модулей; исполнителю ядра\n" +
 		"http (запрос к API узла) токен задают явно: --executor http.",
-	Example: "ochan auth --executor rlm\n" +
+	Example: "ochan auth --executor http\n" +
 		"ochan auth",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fm, err := mustFileManager()
@@ -261,5 +261,5 @@ func stopTokenReminder() {
 }
 
 func init() {
-	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: http, rlm, ssh…; без флага — единственный из модулей")
+	authCmd.Flags().StringVar(&authExecutor, "executor", "", "исполнитель, чей это токен: http, ssh…; без флага — единственный из модулей")
 }

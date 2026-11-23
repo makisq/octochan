@@ -4,25 +4,25 @@ YAML-сценарий говорит, **какой сервис** нужен и 
 выполняется. Исполнителя выбирает реестр по имени сервиса: флага «через
 какую систему» нет — внешняя система такой же исполнитель, как любой
 другой. Свой исполнитель у ядра один — `http`, запрос к API узла (ниже);
-остальных приносят модули ([«Модуль-исполнитель»](modules.md#модуль-исполнитель)),
-в том числе RLM.
+остальных приносят модули ([«Модуль-исполнитель»](modules.md#модуль-исполнитель)).
 
 ## Формат
 
 ```yaml
-# restart.yaml
-service: pangolin_restart      # сервис — по нему выбирается исполнитель
+# tune.yaml
+service: http                  # сервис — по нему выбирается исполнитель
 parameters:                    # параметры сервиса
-  restart: instance
+  url: https://{ip}/api/tune
+  work_mem: 64MB
 targets:                       # цели
-  - svm_ci: CI00000001
-  - svm_ci: CI00000002
+  - ip: 10.0.0.1
+  - ip: 10.0.0.2
 ```
 
-Цель — свободный набор полей: исполнитель берёт те, что понимает. RLM
-читает `svm_ci`, список `ci_list` или `ip`; исполнитель Kubernetes —
-`namespace` и `pod`; свой — что угодно. Некоторым сервисам нужен список
-`items`. Сценарий бывает и в JSON.
+Цель — свободный набор полей: исполнитель берёт те, что понимает. `http`
+читает `ip` (и `host` из инвентаря); исполнитель Kubernetes — `namespace` и
+`pod`; свой — что угодно. Некоторым сервисам нужен список `items`.
+Сценарий бывает и в JSON.
 
 ```yaml
 targets:
@@ -38,8 +38,8 @@ targets:
 
 ```yaml
 # tune.yaml
-service: psql_tuning_params_se
-parameters: {max_connections: 300}
+service: http
+parameters: {url: "https://{ip}/api/tune", max_connections: 300}
 targets:
   - group: db            # все хосты группы db
 ```
@@ -49,8 +49,8 @@ targets:
 groups:
   db: {max_connections: 200}            # переменные группы
 hosts:
-  db1: {groups: [db], svm_ci: CI001, ip: 10.0.0.1}
-  db2: {groups: [db, db_new], svm_ci: CI002, max_connections: 300}
+  db1: {groups: [db], ip: 10.0.0.1}
+  db2: {groups: [db, db_new], ip: 10.0.0.2, max_connections: 300}
 ```
 
 ```
@@ -108,7 +108,7 @@ $ ochan policy add new-servers.yaml           # право approve
 Политика new-servers зарегистрирована.
 
 Политика:  new-servers — действует по 2026-12-31 включительно
-Сценарий:  /srv/tune.yaml (сервис psql_tuning_params_se)
+Сценарий:  /srv/tune.yaml (сервис http)
 Цели:      group=db_new
 Параметр:  max_connections: 100..500
 Добавил:   anna, роль ops, 2026-10-27 20:12
@@ -119,9 +119,7 @@ $ ochan policy add new-servers.yaml           # право approve
 $ ochan watch --source cmdb --policy new-servers
 2026-10-27 20:12  cmdb: хостов 3, новых 3
   db7: заявка 6e247437ba в политике new-servers — выполняется
-Заявка 6e247437ba, сервис psql_tuning_params_se, исполнитель RLM
-Создано:
-  - job-CI007
+  …
   db7: заявка 6e247437ba согласована политикой new-servers и выполнена
   db8: заявка 16d3c1f007 ждёт решения — вне политики new-servers: хост не подходит под targets (group=db_new)
   web3: сценарий этот хост не выбирает — отмечен увиденным
@@ -168,70 +166,60 @@ $ ochan watch --source cmdb --policy new-servers
 Пошагово, с выводами — рецепт [«Новые серверы без человека»](../cookbook/new-servers.md).
 
 ```
-$ ochan services                           # с установленным модулем RLM
+$ ochan services
 Сервис                                   Исполнитель
-pangolin_restart                         RLM
-postgresql_se_get_config_files           RLM
-psql_tuning_params_se                    RLM
-psqlse_tuningpgbouncer                   RLM
+http                                     HTTP
 ```
 
-Сервис, которого никто не выполняет, — отказ с подсказкой, какой модуль
-поставить.
+Модули-исполнители добавляют сюда свои сервисы. Сервис, которого никто не
+выполняет, — отказ со списком тех, что есть:
+
+```
+ошибка: сервис "pangolin_restart" не зарегистрирован; доступны: http. Исполнители приходят модулями: ochan '!!install' <модуль>.hcplugin, установленные — ochan modules
+```
 
 ## Команды
 
 ```
-ochan plan restart.yaml                     какие задачи были бы созданы
-ochan apply restart.yaml                    выполнить
-ochan apply restart.yaml restart=cluster    переопределить параметр
-ochan apply restart.yaml --wait             дождаться завершения задач
-ochan status <task_id>                      статус и журнал задачи
-ochan status <task_id> --rlm                то же, у исполнителя RLM явно
-ochan srs restart.yaml                      сохранить в ~/.octochan/scenarios
-ochan request restart.yaml --doc заявка.docx   заявка на выполнение
+ochan plan tune.yaml                        какие запросы ушли бы
+ochan apply tune.yaml                       выполнить
+ochan apply tune.yaml work_mem=128MB        переопределить параметр
+ochan apply tune.yaml --wait                дождаться завершения задач (если исполнитель умеет)
+ochan status <ссылка> --linux               статус у исполнителя linux
+ochan srs tune.yaml                         сохранить в ~/.octochan/scenarios
+ochan request tune.yaml --doc заявка.docx   заявка на выполнение
 ```
 
-`status` — общая команда ядра, а не часть RLM: статус показывает
-исполнитель, который создал задачу, а команда выбирает его флагом —
-`--executor rlm` или коротко `--rlm`. Такой флаг появляется у каждого
-подключённого исполнителя, который умеет показывать статус: поставьте
-модуль с исполнителем для Linux — появится `--linux`. Если такой
-исполнитель один, флаг не нужен.
+`status` — общая команда ядра: статус показывает исполнитель, который
+создал задачу, а команда выбирает его флагом — `--executor linux` или
+коротко `--linux`. Такой флаг появляется у каждого подключённого
+исполнителя, который умеет показывать статус. Если такой исполнитель один,
+флаг не нужен.
 
 Переопределения `key=value` заменяют параметры сценария, не меняя файл.
 
 ## План
 
 ```
-$ ochan plan restart.yaml
-План: restart.yaml (pangolin_restart, исполнитель RLM) -> —
-ВНИМАНИЕ: план прерывает обслуживание
+$ ochan plan c.yaml
+План: c.yaml (http, исполнитель HTTP) -> —
 
-Изменений: 2
+Изменений: 1
 
-  CI00000001
-    задача     pangolin_restart — confirm=true, restart=instance
-  CI00000002
-    задача     pangolin_restart — confirm=true, restart=instance
+  127.0.0.1
+    задача     POST http://127.0.0.1:18431/api/c — тело: string_i, work_mem
 ```
 
-В режиме плана изменяющие запросы запрещены на уровне API-клиента, поэтому
-план не может создать задачу даже по ошибке. Если исполнителю нужен ответ
-внешней системы уже на этапе подготовки (так делает `psql_tuning_params_se`,
-запускающий разведку), план получается неполным — и об этом сказано прямо:
-
-```
-внимание: модуль psql_tuning_params_se обращается к API на этапе подготовки,
-   поэтому план неполный: показаны цели, но не итоговые параметры
-```
+План ничего не меняет. Если исполнителю нужен ответ внешней системы уже на
+этапе подготовки, план получается неполным — и исполнитель обязан сказать
+об этом предупреждением в плане, а не выполнить запрос втихую.
 
 ## Запрос к API узла: service: http
 
 Исполнитель ядра `http` отправляет плейбук узлу HTTP-запросом и не зависит
-ни от RLM, ни от другого модуля:
+ни от одного модуля:
 
-``yaml
+```yaml
 # c.yaml
 service: http
 targets:
@@ -242,9 +230,9 @@ parameters:
   headers: {X-Team: ops}         # свои заголовки
   work_mem: 64MB                 # остальное — тело запроса, JSON
   string_i: ?                    # общая строка — из ответа на другой сценарий
-``
+```
 
-``
+```
 $ ochan apply c.yaml
 Сервис http, исполнитель HTTP
 План: c.yaml (http, исполнитель HTTP) -> —
@@ -255,16 +243,17 @@ $ ochan apply c.yaml
     задача     POST http://127.0.0.1:18431/api/c — тело: string_i, work_mem
 
 ошибка: http: POST http://127.0.0.1:18431/api/c ответил 500 Internal Server Error: {"error": "string_i required"}
-``
+```
 
 - **Тело** — `body`, если он задан, иначе все параметры, кроме служебных
   (`url`, `path`, `method`, `headers`, `body`). План показывает ключи тела,
   но не значения.
 - **Адрес** — `url` сценария; без него — `executors.http.api_url` (или
   `defaults.api_url`) и `path` сценария. Запрос — на каждую цель.
-- **Токен** — `ochan auth --executor http`; уходит в `Authorization` со
-  схемой `executors.http.auth_scheme` (`Bearer`; для API в духе RLM —
-  `Token`). Предел ожидания — `executors.http.http_timeout` (30s).
+- **Токен** — `ochan auth --executor http` (или `OCTOCHAN_TOKEN_HTTP`);
+  уходит в `Authorization` со схемой `executors.http.auth_scheme` (`Bearer`;
+  для API, которые ждут `Token …`, — `Token`). Предел ожидания —
+  `executors.http.http_timeout` (30s).
 - **Ответ узла** в вывод и журнал не попадает: ochan показывает код, а тело
   отдаёт `@` — общие строки из ответа на один сценарий встают в плейбук
   другого: `apply @ ("c.yaml" | "b.yaml")`
@@ -276,53 +265,44 @@ $ ochan apply c.yaml
 - Цель с `host` или `group` — выбор из инвентаря, как у любого сценария;
   без инвентаря пишите `ip`.
 
-## Модуль RLM
-RLM — внешняя система автоматизации. Её исполнитель — модуль
-[`plugins/rlm`](../../plugins/rlm), а не часть ядра: ставится отдельно,
-теми, кому RLM нужен.
+```yaml
+# config.yaml
+executors:
+  http:
+    api_url: https://node.example.internal/api   # если в сценарии нет url
+    auth_scheme: Bearer
+    http_timeout: 30s
+```
+
+Общие `defaults.api_url`, `defaults.http_timeout` и
+`defaults.max_parallel_tasks` ядро передаёт каждому исполнителю, а
+`executors.<имя>` их перекрывает.
+
+## Токен и напоминание
 
 ```
-make rlm                                   # собрать ochan и поставить модуль
-scripts\install.ps1 -Rlm                   # то же на Windows
-ochan '!!install' rlm.hcplugin               # или собрать самому и поставить
+ochan auth --executor http     # токен: ввод скрыт, ~/.octochan/tokens/http (0600)
+ochan auth                     # то же для единственного исполнителя из модулей
+export OCTOCHAN_TOKEN_HTTP=... # либо через окружение
+ochan timer on                 # напоминать в оболочке, когда срок токена подходит к концу
 ```
 
 ```yaml
-executors:
-  rlm:
-    api_url: https://rlm.example.internal/api/tasks.json
-    http_timeout: 30s
 defaults:
   auto_check_status: false     # true — apply всегда ждёт завершения задач, как с --wait
   token_timer_enabled: false   # true — напоминать о смене токена
   token_lifetime: 20m
 ```
 
-Прежний `defaults.api_url` тоже работает: общие `defaults.api_url`,
-`defaults.http_timeout` и `defaults.max_parallel_tasks` ядро передаёт
-каждому исполнителю, а `executors.<имя>` их перекрывает.
-
-```
-ochan auth --executor rlm      # токен: ввод скрыт, ~/.octochan/tokens/rlm (0600)
-ochan auth                     # то же, если исполнитель один
-export OCTOCHAN_TOKEN_RLM=...  # либо через окружение
-ochan timer on                 # напоминать в оболочке, когда срок токена подходит к концу
-```
-
-Модуль понимает и прежние `~/.octochan/.env` и `OCTOCHAN_API_TOKEN`.
-
 Напоминание по умолчанию выключено. Включённое, оно отсчитывает
 `token_lifetime` от того, когда токен последний раз сохранили командой
 `auth`, и молчит, пока токенов нет. Токен из окружения не напоминается —
 когда его выдали, ochan не знает.
 
-Без адреса API план и выполнение откажут с объяснением; остальные команды
-ochan от него не зависят.
-
 ## Откат
 
-Задачи, созданные во внешней системе, необратимы: перезапуск уже
-произошёл, и отменять в ochan нечего. `ochan rollback` для таких записей
+Запросы, отправленные во внешнюю систему, необратимы: узел уже применил
+их, и отменять в ochan нечего. `ochan rollback` для таких записей
 отказывает и говорит об этом прямо, а не делает вид, что откатил.
 
 ## Свой исполнитель
@@ -332,5 +312,6 @@ ochan от него не зависят.
 `runnerhost.Expose` — и ставится `!!install`
 ([«Модуль-исполнитель»](modules.md#модуль-исполнитель)). `Plan` обязан
 ничего не менять; если без обращения к внешней системе полного плана не
-построить, он говорит это предупреждением в плане. Пример — модуль RLM:
-сервисы в пакете `module`, клиент API в `rlm`, сам модуль — `plugins/rlm`.
+построить, он говорит это предупреждением в плане. Примеры —
+[examples/runnermodule](../../examples/runnermodule/main.go) и исполнитель
+ядра `http` ([httpexec](../../httpexec/httpexec.go)).

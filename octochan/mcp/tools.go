@@ -597,7 +597,7 @@ func buildTools(live []string) []tool {
 			Slots: []slot{
 				{Name: "task_id", Kind: slotTaskID, Required: true, Description: "task ID"},
 				{Name: "executor", Kind: slotParam, Flag: "executor",
-					Description: "the executor that created the task, for example rlm; needed only when several executors can show a status"},
+					Description: "the executor that created the task, for example linux; needed only when several executors can show a status"},
 			},
 			Remote: true,
 		},

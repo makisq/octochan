@@ -30,12 +30,12 @@ func (r *fakeRunner) Apply(context.Context, *Scenario, *config.Plan) (*Result, e
 
 func TestResolvePicksRunnerByService(t *testing.T) {
 	// Способ выполнения выбирается сервисом, а не флагом команды:
-	// раньше apply требовал --rlm, то есть внешняя система была корнем
+	// внешняя система — не корень операции, а один из исполнителей
 	// операции, а не одним из исполнителей.
-	rlmLike := &fakeRunner{kind: "RLM"}
+	extLike := &fakeRunner{kind: "External"}
 	localLike := &fakeRunner{kind: "локально"}
 
-	Register("тест_через_rlm", rlmLike)
+	Register("тест_через_систему", extLike)
 	Register("тест_локально", localLike)
 
 	runner, err := Resolve("тест_локально")
@@ -49,8 +49,8 @@ func TestResolvePicksRunnerByService(t *testing.T) {
 	if _, err := runner.Apply(context.Background(), &Scenario{Service: "тест_локально"}, &config.Plan{}); err != nil {
 		t.Fatal(err)
 	}
-	if localLike.applied != 1 || rlmLike.applied != 0 {
-		t.Errorf("вызовы разошлись: локально=%d, rlm=%d", localLike.applied, rlmLike.applied)
+	if localLike.applied != 1 || extLike.applied != 0 {
+		t.Errorf("вызовы разошлись: локально=%d, внешняя=%d", localLike.applied, extLike.applied)
 	}
 }
 

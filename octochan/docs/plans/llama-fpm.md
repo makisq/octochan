@@ -38,8 +38,7 @@ go test ./cmd -run TestReference -update   # после смены справк�
 ```
 
 Под Windows: `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`
-(в `%LOCALAPPDATA%\Programs\ochan`, `-Bin` — другой каталог, `-Rlm` — с
-модулем RLM) или `go build -o ochan.exe .`. На Windows нет песочницы ядра,
+(в `%LOCALAPPDATA%\Programs\ochan`, `-Bin` — другой каталог) или `go build -o ochan.exe .`. На Windows нет песочницы ядра,
 `--allow-exec` не работает, системная политика ролей — отказ.
 
 ## Что уже сделано

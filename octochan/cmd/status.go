@@ -13,24 +13,24 @@ import (
 
 var statusExecutor string
 
-// status — общая команда ядра. Ни про RLM, ни про Linux она не знает:
+// status — общая команда ядра. Ни про одну систему она не знает:
 // состояние того, что создал исполнитель, показывает сам исполнитель
 // (scenario.StatusReporter), а команда только выбирает его и печатает
-// ответ. Исполнитель указывается флагом — --executor rlm или коротко
-// --rlm; если показывать статус умеет только один, флаг не нужен.
+// ответ. Исполнитель указывается флагом — --executor linux или коротко
+// --linux; если показывать статус умеет только один, флаг не нужен.
 var statusCmd = &cobra.Command{
 	Use:   "status <ссылка>... [--executor <исполнитель> | --<исполнитель>]",
 	Short: "Проверить статус задачи исполнителя",
-	Long: "Показывает состояние того, что создал исполнитель сценариев: задачи RLM,\n" +
+	Long: "Показывает состояние того, что создал исполнитель сценариев: задачи,\n" +
 		"задания на машине — чего угодно, у чего есть статус. Ссылку печатает\n" +
 		"apply: «Создано: …».\n\n" +
-		"Исполнитель выбирается флагом: --executor rlm или коротко --rlm (флаг\n" +
+		"Исполнитель выбирается флагом: --executor linux или коротко --linux (флаг\n" +
 		"есть у каждого исполнителя, который умеет показывать статус). Если такой\n" +
 		"исполнитель один, флаг не нужен. Исполнители приходят модулями: статус\n" +
 		"показывает тот, кто реализует scenario.StatusReporter.",
 	Args: cobra.MinimumNArgs(1),
 	Example: "ochan status 4f1c2a\n" +
-		"ochan status 4f1c2a 9b7e01 --rlm\n" +
+		"ochan status 4f1c2a 9b7e01 --linux\n" +
 		"ochan status job-17 --executor linux",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, reporter, err := pickStatusReporter(cmd)
@@ -178,5 +178,5 @@ var servicesCmd = &cobra.Command{
 }
 
 func init() {
-	statusCmd.Flags().StringVar(&statusExecutor, "executor", "", "исполнитель, у которого спросить статус: rlm, linux…")
+	statusCmd.Flags().StringVar(&statusExecutor, "executor", "", "исполнитель, у которого спросить статус: linux, ssh…")
 }

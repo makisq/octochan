@@ -11,7 +11,6 @@
 #   make install PREFIX=/usr/local   программы в PREFIX/bin (спросит sudo), остальное по умолчанию
 #   make vendor                  зависимости в vendor/ — для сборки без сети
 #   make offline                 собрать из vendor/, в сеть не обращаясь
-#   make rlm                     ещё и модуль RLM
 #   make llm-test                тест обучения своей модели (llama/train_own.py; нужен venv с requirements.txt)
 #   make icon                    значок из логотипа: cmd/icon.png и ресурс Windows (после смены docs/assets/logo.png)
 #   make dist                    релиз под все платформы в dist/
@@ -30,7 +29,7 @@ LDFLAGS     := -X ochan/cmd.Version=$(VERSION) -X ochan/rbac.SystemPolicyPath=$(
 MCP_LDFLAGS := -X main.serverVersion=$(VERSION)
 PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: build install uninstall rlm llm-test vendor offline dist test vet version icon
+.PHONY: build install uninstall llm-test vendor offline dist test vet version icon
 
 PYTHON ?= python3
 
@@ -50,9 +49,6 @@ install:
 
 uninstall:
 	PREFIX="$(PREFIX)" sh scripts/install.sh --uninstall
-
-rlm:
-	PREFIX="$(PREFIX)" VERSION="$(VERSION)" sh scripts/install.sh --rlm $(SETUP_ARGS)
 
 llm-test:
 	cd llama && $(PYTHON) -m unittest discover -s tests -v
