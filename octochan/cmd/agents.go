@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"ochan/inventory"
+	"ochan/core/inventory"
 
 	"github.com/spf13/cobra"
 )

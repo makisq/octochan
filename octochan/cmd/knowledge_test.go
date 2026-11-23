@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/embedded"
-	"ochan/fp"
+	"ochan/ai/embedded"
+	"ochan/ai/fp"
 
 	"github.com/spf13/viper"
 )

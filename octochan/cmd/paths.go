@@ -3,8 +3,8 @@ package cmd
 import (
 	"strings"
 
-	"ochan/rbac"
-	"ochan/workspace"
+	"ochan/core/rbac"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

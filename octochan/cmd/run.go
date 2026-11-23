@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"ochan/config"
-	"ochan/lang"
+	"ochan/core/config"
+	"ochan/core/lang"
 
 	"github.com/spf13/cobra"
 )

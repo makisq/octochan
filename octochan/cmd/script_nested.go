@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"ochan/config"
-	"ochan/i18n"
-	"ochan/lang"
-	"ochan/scenario"
+	"ochan/core/config"
+	"ochan/core/i18n"
+	"ochan/core/lang"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

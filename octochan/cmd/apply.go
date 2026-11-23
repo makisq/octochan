@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ochan/config"
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/core/config"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

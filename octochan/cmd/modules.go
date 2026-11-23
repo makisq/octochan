@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"ochan/pluginhost"
-	"ochan/rbac"
-	"ochan/runnerhost"
+	"ochan/core/rbac"
+	"ochan/modules/pluginhost"
+	"ochan/modules/runnerhost"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"

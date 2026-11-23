@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/config"
-	"ochan/scenario"
+	"ochan/core/config"
+	"ochan/core/scenario"
 )
 
 // nodeExecutor — узел с API: ответ на вход несёт string_i (Result.Shared),

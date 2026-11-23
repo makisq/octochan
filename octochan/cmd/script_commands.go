@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"ochan/lang"
-	"ochan/rbac"
-	"ochan/scenario"
+	"ochan/core/lang"
+	"ochan/core/rbac"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 )
 
-// Команды ochan для сценария — ochan() языка алиасов (lang/command.go).
+// Команды ochan для сценария — ochan() языка алиасов (core/lang/command.go).
 // Сценарий выполняет их тем же путём, что командная строка: права роли и
 // журнал аудита — authorize, флаги — по умолчанию, вывод — значение
 // ochan().

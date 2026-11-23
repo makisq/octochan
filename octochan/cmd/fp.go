@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ochan/arbiter"
-	"ochan/fp"
-	"ochan/own"
+	"ochan/ai/arbiter"
+	"ochan/ai/fp"
+	"ochan/ai/own"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

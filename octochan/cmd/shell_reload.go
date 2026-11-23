@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
-	"ochan/i18n"
-	"ochan/pluginhost"
+	"ochan/core/i18n"
+	"ochan/modules/pluginhost"
 )
 
 // Две вещи оболочки, ради которых раньше приходилось выходить из неё:

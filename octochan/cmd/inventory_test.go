@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/scenario"
+	"ochan/core/scenario"
 )
 
 const testInventory = `groups:

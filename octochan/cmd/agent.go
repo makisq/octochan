@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"ochan/remote"
+	"ochan/core/remote"
 
 	"github.com/spf13/cobra"
 )

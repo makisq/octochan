@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
-	"ochan/config"
-	"ochan/fp"
-	"ochan/i18n"
-	"ochan/lang"
-	"ochan/registry"
-	"ochan/workspace"
+	"ochan/ai/fp"
+	"ochan/core/config"
+	"ochan/core/i18n"
+	"ochan/core/lang"
+	"ochan/core/workspace"
+	"ochan/modules/registry"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

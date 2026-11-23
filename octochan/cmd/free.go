@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"ochan/audit"
-	"ochan/i18n"
-	"ochan/inventory"
-	"ochan/rbac"
-	"ochan/remote"
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/core/audit"
+	"ochan/core/i18n"
+	"ochan/core/inventory"
+	"ochan/core/rbac"
+	"ochan/core/remote"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )

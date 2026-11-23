@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"ochan/config"
+	"ochan/core/config"
 
 	"github.com/spf13/cobra"
 )

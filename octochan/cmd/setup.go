@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"strings"
 
-	"ochan/workspace"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"

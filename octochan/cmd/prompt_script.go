@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"ochan/arbiter"
-	"ochan/fp"
-	"ochan/lang"
-	"ochan/workspace"
+	"ochan/ai/arbiter"
+	"ochan/ai/fp"
+	"ochan/core/lang"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )

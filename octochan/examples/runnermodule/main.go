@@ -24,10 +24,10 @@ import (
 	"fmt"
 	"sort"
 
-	"ochan/config"
-	"ochan/pluginhost"
-	"ochan/runnerhost"
-	"ochan/scenario"
+	"ochan/core/config"
+	"ochan/core/scenario"
+	"ochan/modules/pluginhost"
+	"ochan/modules/runnerhost"
 
 	"github.com/spf13/cobra"
 )

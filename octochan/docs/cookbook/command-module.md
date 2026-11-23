@@ -16,7 +16,7 @@ package main
 import (
     "fmt"
 
-    "ochan/pluginhost"
+    "ochan/modules/pluginhost"
 
     "github.com/spf13/cobra"
 )
@@ -66,15 +66,15 @@ func (t *TestModule) GetCommands() []*cobra.Command {
 func main() { pluginhost.ServeCommandModule(&TestModule{}) }
 ```
 
-Модуль импортирует `ochan/pluginhost`, поэтому собирается внутри модуля
-`ochan` (как `dwd/`) или с `replace ochan => …` на него в своём `go.mod`.
+Модуль импортирует `ochan/modules/pluginhost`, поэтому собирается внутри модуля
+`ochan` (как `examples/testmodule/`) или с `replace ochan => …` на него в своём `go.mod`.
 До 0.3.0 модуль назывался `octochan`: в старом модуле поправьте импорты
 `octochan/…` на `ochan/…`.
 
 ## Сборка и установка
 
 ```
-$ go build -o test-module.hcplugin ./dwd
+$ go build -o test-module.hcplugin ./examples/testmodule
 $ ochan '!!install' test-module.hcplugin
 Модуль test-module.hcplugin установлен и загружен
 $ ochan modules
@@ -119,4 +119,4 @@ Item 1
 ## Смотрите также
 
 - [Модули и пакеты](../guide/modules.md)
-- [pluginhost/command.proto](../../pluginhost/command.proto) — контракт модуля.
+- [modules/pluginhost/command.proto](../../modules/pluginhost/command.proto) — контракт модуля.

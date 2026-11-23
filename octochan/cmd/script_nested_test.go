@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/scenario"
+	"ochan/core/scenario"
 )
 
 // Сценарий вызывает сценарий: apply @ (…) и run внутри сценария. План

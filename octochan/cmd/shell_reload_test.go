@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/pluginhost"
+	"ochan/modules/pluginhost"
 
 	"github.com/spf13/viper"
 )

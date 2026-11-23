@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"ochan/remote"
-	"ochan/workspace"
+	"ochan/core/remote"
+	"ochan/core/workspace"
 )
 
 // haTestNode — узел пары: отдельный процесс ochan serve со своим рабочим

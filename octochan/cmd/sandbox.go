@@ -3,8 +3,8 @@ package cmd
 import (
 	"os"
 
-	"ochan/i18n"
-	"ochan/lang"
+	"ochan/core/i18n"
+	"ochan/core/lang"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

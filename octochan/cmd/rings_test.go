@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/lang"
-	"ochan/workspace"
+	"ochan/core/lang"
+	"ochan/core/workspace"
 )
 
 // Утверждения модели — вызовы скиллов и записи вне скиллов; что скилл

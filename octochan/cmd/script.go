@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"ochan/fp"
-	"ochan/inventory"
-	"ochan/lang"
-	"ochan/workspace"
+	"ochan/ai/fp"
+	"ochan/core/inventory"
+	"ochan/core/lang"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )

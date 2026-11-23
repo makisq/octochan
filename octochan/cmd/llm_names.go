@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"ochan/fp"
-	"ochan/lang"
+	"ochan/ai/fp"
+	"ochan/core/lang"
 
 	"github.com/spf13/cobra"
 )

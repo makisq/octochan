@@ -4,6 +4,25 @@
 
 Версия 0.3.0-alpha: `ochan --version` и `ochan-mcp --version` печатают её.
 
+### Пакеты разложены по группам
+
+- Каталоги пакетов собраны в три группы по смыслу: `core/` — ядро
+  (`config`, `scenario`, `inventory`, `workspace`, `lang`, `rbac`,
+  `audit`, `sandbox`, `logs`, `i18n`, `report`, `remote`), `ai/` — ИИ и
+  формальный промпт (`fp`, `arbiter`, `rings`, `embedded`, `own`, `learn`,
+  `chat`, `experiment`, `llama`), `modules/` — модули и исполнители
+  (`pluginhost`, `runnerhost`, `httpexec`, `pgsource`, `registry`).
+  Пример модуля `dwd/` — теперь `examples/testmodule/`. `cmd/`, `mcp/`,
+  `examples/`, `tools/`, `docs/`, `scripts/` — на месте.
+- Имена пакетов Go прежние, меняются пути импорта: `ochan/pluginhost` →
+  `ochan/modules/pluginhost`, `ochan/scenario` → `ochan/core/scenario` и
+  так далее. Свой модуль, собранный внутри модуля ochan, — поправить
+  импорты; уже собранный `.hcplugin` работает как раньше: протокол gRPC тот
+  же.
+- Команды разработки: `go test ./ai/own`, `go run ./ai/experiment`,
+  `go generate ./modules/pluginhost/...`; обучение на видеокарте —
+  `python ai/llama/train_own.py`.
+
 ### Вложенные сценарии: сценарий вызывает сценарий
 
 - `apply` плейбука и `run` сценария (или алиаса) работают внутри

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"ochan/lang"
-	"ochan/workspace"
+	"ochan/core/lang"
+	"ochan/core/workspace"
 )
 
 // stdin подаёт текст на stdin следующей команды, как конвейер оболочки.

@@ -5,13 +5,13 @@ import (
 	"slices"
 	"strings"
 
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )
 
-// Порядок между заявками и что бывает при сбое — workspace/order.go.
+// Порядок между заявками и что бывает при сбое — core/workspace/order.go.
 
 // resolveAfter — заявки из --after полными идентификаторами. На
 // отклонённую, упавшую или ту, что сама не выполнится, опереться нельзя:

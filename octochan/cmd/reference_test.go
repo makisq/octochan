@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/lang"
-	"ochan/rbac"
+	"ochan/core/lang"
+	"ochan/core/rbac"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"

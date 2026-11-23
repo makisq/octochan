@@ -48,20 +48,20 @@ go test ./cmd -run TestReference -update
 ## Перевод
 
 Новый текст справки или сообщение через `i18n.T`, `i18n.Sprintf`,
-`i18n.Errorf` требует английского перевода в `i18n/en.go` — иначе тесты
+`i18n.Errorf` требует английского перевода в `core/i18n/en.go` — иначе тесты
 упадут и назовут строку. Шаблон всех текстов для перевода —
 `ochan lang template`.
 
 ## gRPC модулей
 
-Код из `pluginhost/command.proto` генерируется так, чтобы повторная
+Код из `modules/pluginhost/command.proto` генерируется так, чтобы повторная
 генерация давала тот же файл байт в байт. Версии генераторов закреплены:
 
 ```
 go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.1
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 # protoc 30.1: https://github.com/protocolbuffers/protobuf/releases/tag/v30.1
-cd pluginhost
+cd modules/pluginhost
 protoc -I.. --go_out=.. --go_opt=paths=source_relative \
        --go-grpc_out=.. --go-grpc_opt=paths=source_relative pluginhost/command.proto
 ```

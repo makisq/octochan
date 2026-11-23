@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/rbac"
+	"ochan/core/rbac"
 
 	"github.com/spf13/cobra"
 )

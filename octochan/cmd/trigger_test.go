@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"ochan/scenario"
-	"ochan/workspace"
+	"ochan/core/scenario"
+	"ochan/core/workspace"
 
 	"github.com/spf13/viper"
 )

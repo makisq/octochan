@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"ochan/httpexec"
-	"ochan/scenario"
+	"ochan/core/scenario"
+	"ochan/modules/httpexec"
 )
 
 // Исполнитель http — в ядре: запрос к API узла (POST и другие глаголы) с

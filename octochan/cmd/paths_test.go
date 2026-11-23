@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/workspace"
+	"ochan/core/workspace"
 )
 
 // reinit заново определяет пути, как новый запуск ochan. Конфиг теста

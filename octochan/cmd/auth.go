@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"ochan/scenario"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 
-	"ochan/httpexec"
+	"ochan/modules/httpexec"
 )
 
 var authExecutor string

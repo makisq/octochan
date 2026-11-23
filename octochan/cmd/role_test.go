@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"ochan/rbac"
+	"ochan/core/rbac"
 
 	"github.com/spf13/cobra"
 )

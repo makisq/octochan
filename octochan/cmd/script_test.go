@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"ochan/lang"
+	"ochan/core/lang"
 )
 
 // scriptEnv — домашний каталог с библиотекой алиасов и рабочий каталог

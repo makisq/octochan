@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"ochan/config"
-	"ochan/lang"
-	"ochan/scenario"
+	"ochan/core/config"
+	"ochan/core/lang"
+	"ochan/core/scenario"
 
 	"github.com/spf13/cobra"
 )

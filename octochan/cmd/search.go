@@ -12,9 +12,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"ochan/lang"
-	"ochan/rbac"
-	"ochan/workspace"
+	"ochan/core/lang"
+	"ochan/core/rbac"
+	"ochan/core/workspace"
 
 	"github.com/spf13/cobra"
 )

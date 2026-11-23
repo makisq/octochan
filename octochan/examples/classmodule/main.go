@@ -30,7 +30,7 @@ import (
 	"os"
 	"strings"
 
-	"ochan/pluginhost"
+	"ochan/modules/pluginhost"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
