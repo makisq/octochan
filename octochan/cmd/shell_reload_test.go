@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -169,6 +171,8 @@ func TestShellReload(t *testing.T) {
 		refreshModuleCommands()
 		syncRunners()
 	})
+	// !!reload открывает журнал в доме теста: закрыть до удаления каталога.
+	t.Cleanup(closeLogger)
 	e.must("!!install", runner)
 
 	out, err := runShellScript(t, "n = 41\n!!reload\nprint(n + 1)\n")
@@ -185,16 +189,7 @@ func TestShellReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Сборка заменяет файл переименованием: работающий модуль не перезаписать.
-	if err := os.WriteFile(installed+".new", data, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(installed+".new", installed); err != nil {
-		t.Fatal(err)
-	}
-	if err := pluginhost.WriteChecksum(installed); err != nil {
-		t.Fatal(err)
-	}
+	replaceRunningModule(t, installed, data)
 	config := configPath(fm)
 	old, _ := os.ReadFile(config)
 	if err := os.WriteFile(config, append(old, []byte("\nreload_probe: 7\n")...), 0o600); err != nil {
@@ -209,15 +204,7 @@ func TestShellReload(t *testing.T) {
 
 	// Файл модуля сломали (собрали библиотеку вместо модуля): !!reload
 	// говорит почему, а загруженный модуль продолжает работать.
-	if err := os.WriteFile(installed+".new", []byte("!<arch>\nне программа"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Rename(installed+".new", installed); err != nil {
-		t.Fatal(err)
-	}
-	if err := pluginhost.WriteChecksum(installed); err != nil {
-		t.Fatal(err)
-	}
+	replaceRunningModule(t, installed, []byte("!<arch>\nне программа"))
 	out, err = runShellScript(t, "!!reload\npgstat where\n")
 	if err == nil || !strings.Contains(out, "pgstat:") {
 		t.Fatalf("сломанный файл модуля унёс рабочий модуль: %v\n[%s]", err, out)
@@ -232,6 +219,53 @@ func TestShellReload(t *testing.T) {
 	}
 	if viper.GetInt("reload_probe") != 7 {
 		t.Fatal("сломанный конфиг стёр прежние настройки")
+	}
+}
+
+// closeLogger закрывает журнал теста и возвращает log в stderr: открытый
+// файл не даёт Windows удалить временный каталог.
+func closeLogger() {
+	log.SetOutput(os.Stderr)
+	if logWriter != nil {
+		_ = logWriter.Close()
+		logWriter = nil
+	}
+}
+
+// replaceRunningModule кладёт data на место файла модуля, который сейчас
+// запущен, — как его пересобрали бы на месте — и пишет его сумму. Сборка
+// заменяет файл переименованием: работающий модуль не перезаписать. Windows
+// не даёт и переименовать новый файл поверх работающего (Access is denied),
+// но разрешает отодвинуть сам работающий файл под другое имя: так и
+// делаем, когда прямой замены не вышло.
+func replaceRunningModule(t *testing.T, installed string, data []byte) {
+	t.Helper()
+	fresh := installed + ".new"
+	if err := os.WriteFile(fresh, data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(fresh, installed); err != nil {
+		if runtime.GOOS != "windows" {
+			t.Fatal(err)
+		}
+		// Имя не кончается на расширение модуля: загрузчик его не возьмёт.
+		aside, err := os.CreateTemp(filepath.Dir(installed), filepath.Base(installed)+".old-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		aside.Close()
+		if err := os.Remove(aside.Name()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(installed, aside.Name()); err != nil {
+			t.Fatalf("работающий модуль не отодвинуть: %v", err)
+		}
+		if err := os.Rename(fresh, installed); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := pluginhost.WriteChecksum(installed); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -263,5 +297,33 @@ func TestShellRedirectModuleOutput(t *testing.T) {
 	// ochan() сценария тоже получает печать мимо cmd.
 	if out, err := runShellScript(t, `print("[" + ochan("pgraw") + "]")`+"\n"); err != nil || out != "[pgraw: выполнено]\n" {
 		t.Fatalf("ochan(pgraw): %v %q", err, out)
+	}
+}
+
+// Новый журнал закрывает прежний: раньше каждый !!reload (initLogger)
+// оставлял файл журнала открытым, и на Windows его было не перенести в
+// архив и не удалить.
+func TestInitLoggerClosesPrevious(t *testing.T) {
+	newScriptEnv(t)
+	t.Cleanup(closeLogger)
+	if err := initLogger(); err != nil {
+		t.Fatal(err)
+	}
+	log.Print("первая запись")
+	first := logWriter
+	if err := initLogger(); err != nil {
+		t.Fatal(err)
+	}
+	if logWriter == first {
+		t.Fatal("initLogger не заменил журнал")
+	}
+	fm, _ := mustFileManager()
+	path := filepath.Join(fm.LogsDir(), logFileName)
+	if data, err := os.ReadFile(path); err != nil || !strings.Contains(string(data), "первая запись") {
+		t.Fatalf("журнал: %v %q", err, data)
+	}
+	// Новый журнал файл ещё не открыл, прежний закрыт: перенос проходит.
+	if err := os.Rename(path, path+".moved"); err != nil {
+		t.Fatalf("прежний журнал остался открытым: %v", err)
 	}
 }
