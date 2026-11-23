@@ -47,7 +47,17 @@ func loadModules() {
 		for _, warning := range syncRunners() {
 			fmt.Fprintf(os.Stderr, "внимание: %s\n", warning)
 		}
+		warnMissingSettings(func(msg string) { fmt.Fprintf(os.Stderr, "внимание: %s\n", msg) })
 	})
+}
+
+// warnMissingSettings говорит о модулях без обязательных настроек.
+func warnMissingSettings(out func(string)) {
+	for _, info := range pluginhost.GetModuleManager().LoadedModules() {
+		if warning := moduleMissing(info); warning != "" {
+			out(warning)
+		}
+	}
 }
 
 // syncRunners приводит реестр сценариев к исполнителям загруженных
@@ -303,6 +313,9 @@ var listModulesCmd = &cobra.Command{
 			if len(info.Languages) > 0 {
 				parts = append(parts, "языки: "+strings.Join(info.Languages, ", "))
 			}
+			if len(info.Settings) > 0 {
+				parts = append(parts, fmt.Sprintf("настроек: %d (%s.%s)", len(info.Settings), modulesKey, info.Name))
+			}
 			for _, kind := range info.Runners {
 				parts = append(parts, fmt.Sprintf("исполнитель %s (%s)", kind,
 					strings.Join(services[info.Name+"/"+kind], ", ")))
@@ -359,6 +372,12 @@ var inspectCmd = &cobra.Command{
 		cmd.Printf("Файл:   %s\n", path)
 		cmd.Printf("Имя:    %s\n", info.Name)
 		cmd.Printf("Версия: %s\n", info.Version)
+		if len(info.Settings) > 0 {
+			cmd.Printf("Настройки (config.yaml, раздел %s.%s):\n", modulesKey, info.Name)
+			for _, line := range moduleSettingsLines(info) {
+				cmd.Printf("  %s\n", line)
+			}
+		}
 
 		commands := inspector.GetCommands()
 		if len(commands) == 0 {

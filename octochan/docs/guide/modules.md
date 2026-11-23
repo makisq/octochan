@@ -437,6 +437,70 @@ Annotations: map[string]string{
 
 Пошагово — рецепт [«Свой модуль команд»](../cookbook/command-module.md).
 
+### Настройки модуля: Settings
+
+Модуль, у которого что-то настраивается (адрес API, путь, порт), объявляет
+это сам, и `!!install` пишет настройки в `config.yaml` — пользователю не
+нужно знать, что модуль вообще настраивается и как называются его ключи:
+
+```go
+func (module) Settings() []pluginhost.Setting {
+    return []pluginhost.Setting{
+        {Key: "host", Default: "127.0.0.1", Description: "сервер PostgreSQL, статистику которого показывает pgstat"},
+        {Key: "port", Default: "5432", Description: "порт PostgreSQL"},
+        {Key: "cluster", Description: "имя кластера в отчётах pgstat", Required: true},
+    }
+}
+
+// Значения — в Init при каждой загрузке: заданное в config.yaml или Default.
+func (module) Init(values map[string]any) error { … }
+```
+
+```
+$ ochan '!!install' pgstat.hcplugin
+Модуль pgstat.hcplugin установлен и загружен
+  команд: 3 — ochan inspect pgstat.hcplugin
+  настройки записаны в /home/ops/.octochan/config.yaml (раздел modules.pgstat):
+    modules.pgstat.cluster = "" — имя кластера в отчётах pgstat (обязательно)
+    modules.pgstat.host = 127.0.0.1 — сервер PostgreSQL, статистику которого показывает pgstat
+    modules.pgstat.port = 5432 — порт PostgreSQL
+внимание: модуль pgstat: не задано обязательное — modules.pgstat.cluster в /home/ops/.octochan/config.yaml — задайте и выполните !!reload
+```
+
+В `config.yaml` появляется раздел — как шаблон: пояснение над каждой
+настройкой, умолчание под `#`, обязательное без умолчания — без `#` и
+пустым, чтобы его было видно:
+
+```yaml
+# Настройки модулей — их пишет !!install: modules.<модуль>.<настройка>
+modules:
+  # pgstat 0.1.0
+  pgstat:
+    # сервер PostgreSQL, статистику которого показывает pgstat
+    # host: 127.0.0.1
+    # порт PostgreSQL
+    # port: 5432
+    # имя кластера в отчётах pgstat (обязательно)
+    cluster: ""
+```
+
+- Значение модуль получает в `Init` при каждой загрузке — после правки
+  конфига достаточно `!!reload` в оболочке. Строкой: список и словарь —
+  YAML одной строкой (`[a, b]`).
+- Повторная установка (новая версия модуля) дописывает только новые
+  настройки; заданное и уже записанное не трогается. `!!install --remove`
+  раздел не удаляет: значения пригодятся, если модуль поставят снова.
+- Модуль-исполнитель получает свои настройки и в каждом вызове
+  исполнителя (`runnerhost.Settings(ctx)`): `modules.<модуль>`, поверх них —
+  `executors.<имя>`, ниже — общие `defaults.*`.
+- Обязательная настройка без значения — предупреждение при установке и при
+  каждом запуске ochan; модуль всё равно загружается и сам решает, работать
+  ли (вернуть ошибку из `Init` — значит отказаться загружаться).
+- Секретов здесь нет: токены — `ochan auth --executor <имя>`
+  (`runnerhost.Token(ctx)`).
+- `ochan inspect модуль.hcplugin` и `ochan modules` показывают настройки.
+  Модуль, собранный до `Settings`, работает как раньше — настроек у него нет.
+
 ## Модуль языка
 
 Модуль, реализующий ещё и `pluginhost.Translator`, приносит язык:

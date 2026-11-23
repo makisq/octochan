@@ -127,6 +127,21 @@ message RunnerReply {
     bytes payload = 1;
 }
 
+// SettingSpec — настройка модуля: что пользователь может задать в config.yaml.
+// ochan пишет её в раздел modules.<имя модуля> при !!install — с
+// пояснением и значением по умолчанию — и передаёт модулю значение (Init).
+// Секретов здесь нет: токены — ochan auth --executor <имя>.
+message SettingSpec {
+  string key = 1;          // имя в разделе модуля: api_url, timeout
+  string default = 2;      // значение по умолчанию, текстом; пусто — нет
+  string description = 3;  // что задаёт: пояснение в config.yaml
+  bool required = 4;       // без значения модуль не работает
+}
+
+message SettingsResponse {
+  repeated SettingSpec settings = 1;
+}
+
 service CommandModule {
     // Command management
     rpc GetCommands(Empty) returns (CommandsResponse);
@@ -149,4 +164,8 @@ service CommandModule {
     // Unimplemented, и хост считает, что исполнителей у них нет.
     rpc GetRunners(Empty) returns (RunnersResponse);
     rpc CallRunner(RunnerCall) returns (RunnerReply);
+
+    // Настройки модуля. Старые модули отвечают Unimplemented, и хост
+    // считает, что настроек у них нет.
+    rpc GetSettings(Empty) returns (SettingsResponse);
 }

@@ -104,7 +104,13 @@ func (demo) Status(ctx context.Context, ref string) (*scenario.Status, error) {
 	if runnerhost.Token(ctx) != "" {
 		token = "есть"
 	}
-	return &scenario.Status{Ref: ref, State: "done", Fields: []scenario.StatusField{{Name: "Токен", Value: token}}}, nil
+	// Настройки исполнителю — в каждом вызове: модуля (modules.demo-runner)
+	// и свои (executors.demo) поверх них.
+	fields := []scenario.StatusField{{Name: "Токен", Value: token}}
+	if region := runnerhost.Settings(ctx)["region"]; region != "" {
+		fields = append(fields, scenario.StatusField{Name: "Регион", Value: region})
+	}
+	return &scenario.Status{Ref: ref, State: "done", Fields: fields}, nil
 }
 
 // module — модуль ochan: команд и языков у него нет, есть исполнитель.
@@ -114,6 +120,11 @@ func (module) GetCommands() []*cobra.Command { return nil }
 func (module) Init(map[string]any) error     { return nil }
 func (module) Name() string                  { return "demo-runner" }
 func (module) Version() string               { return "0.2.0" }
+
+// Settings — настройка модуля: её получает и исполнитель.
+func (module) Settings() []pluginhost.Setting {
+	return []pluginhost.Setting{{Key: "region", Default: "eu-1", Description: "регион API демонстрационного исполнителя"}}
+}
 
 func (module) Runners() []pluginhost.RunnerSpec {
 	return []pluginhost.RunnerSpec{runnerhost.Expose(demo{}, "demo")}
