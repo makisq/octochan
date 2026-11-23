@@ -23,6 +23,11 @@ param(
     [string]$RegistryCache = '',
     [switch]$Standard,
     [switch]$Desktop,
+    # Обновить установленный ochan собранным: модули, токены и config.yaml
+    # остаются, прежняя версия — архивом. -UpdateDir — папка установки, если
+    # её не найти самому.
+    [switch]$Update,
+    [string]$UpdateDir = '',
     [switch]$Uninstall
 )
 $ErrorActionPreference = 'Stop'
@@ -64,6 +69,12 @@ if ($LASTEXITCODE -ne 0) { throw 'сборка ochan-mcp не удалась' }
 
 # Куда ставить, решает ochan setup: спрашивает или берёт из ключей.
 $setup = @('setup')
+if ($Update -or $UpdateDir -ne '') {
+    if ($UpdateDir -ne '') { $setup += "--update=$UpdateDir" } else { $setup += '--update' }
+    & (Join-Path $out 'ochan.exe') @setup
+    if ($LASTEXITCODE -ne 0) { throw 'обновление не удалось' }
+    exit 0
+}
 if ($Standard) {
     if ($Bin -eq '') { $Bin = $standardBin }
 } elseif ($Here) {

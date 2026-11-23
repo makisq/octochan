@@ -3,6 +3,49 @@
 **Задача.** Добавить в ochan свою команду — например, обёртку над внутренней
 системой, — не трогая код самого ochan.
 
+## Заготовка
+
+Быстрее всего — `ochan new module`: он создаёт каталог модуля, который
+сразу собирается, проходит `ochan inspect` и ставится:
+
+```
+$ ochan new module mymod --src ~/src/octochan/octochan
+Заготовка модуля mymod: mymod (main.go, go.mod, Makefile)
+  исходники ochan: /home/ops/src/octochan/octochan
+Дальше: cd mymod && make inspect && make install, затем ochan mymod hello
+$ cd mymod && make inspect
+go mod tidy
+go build -o mymod.hcplugin .
+ochan inspect mymod.hcplugin
+
+=== Модуль ===
+Файл:      mymod.hcplugin
+Имя:       mymod
+Версия:    0.1.0
+Размер:    21252441 байт
+SHA-256:   ec0750a041074704bb3582da962d37423d55713008ef21d481d875582793b558
+Установлен: нет (/home/ops/.octochan/modules)
+
+Команды (1):
+  mymod hello              Поздороваться — пример команды — класс read
+
+Настройки (config.yaml, раздел modules.mymod; значения — в Init модуля и в каждом вызове команды):
+  modules.mymod.greeting = привет — чем mymod hello здоровается
+$ make install
+…
+Модуль mymod.hcplugin установлен и загружен
+$ ochan mymod hello Тесси
+привет, Тесси! (токен: нет)
+```
+
+В `main.go` уже есть всё, что модуль обычно объявляет: имя и версия,
+`Init`, настройка (`Settings`), команда с классом прав, чтение настройки и
+токена в вызове (`pluginhost.Settings`, `pluginhost.Token`), печать через
+`cmd`. `go.mod` ссылается на исходники ochan через `replace`; `make`
+делает `go mod tidy` и сборку, `make inspect` — проверку без установки,
+`make install` — `!!install`. Дальше — переименуйте команду и допишите
+своё.
+
 ## Модуль
 
 Модуль — отдельная программа на Go, реализующая

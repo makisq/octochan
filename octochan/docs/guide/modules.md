@@ -305,6 +305,31 @@ $ ochan '!!registry' revoke @pgconf v1.3.0 --registry /srv/registry --key corp-r
 go-plugin и gRPC живёт в `pluginhost`, модулю достаточно отдать команды
 cobra.
 
+Начать проще с заготовки — `ochan new module <имя>`: каталог с `main.go`
+(команда `<имя> hello` с классом `read`, настройка, токен модуля),
+`go.mod` с `replace ochan => <исходники ochan>` и `Makefile` (`make`,
+`make inspect`, `make install`). Заготовка сразу собирается и ставится:
+
+```
+$ ochan new module mymod --src ~/src/octochan/octochan
+Заготовка модуля mymod: mymod (main.go, go.mod, Makefile)
+  исходники ochan: /home/ops/src/octochan/octochan
+Дальше: cd mymod && make inspect && make install, затем ochan mymod hello
+$ cd mymod && make install
+…
+Модуль mymod.hcplugin установлен и загружен
+  команд: 1 — ochan inspect mymod.hcplugin
+  настройки записаны в /home/ops/.octochan/config.yaml (раздел modules.mymod):
+    modules.mymod.greeting = привет — чем mymod hello здоровается
+$ ochan mymod hello Тесси
+привет, Тесси! (токен: нет)
+```
+
+Без `--src` путь к исходникам берётся из каталога, в котором вы сейчас
+(если это исходники ochan), иначе — `../octochan` с предупреждением:
+поправьте `replace` в `go.mod`. Каталог, который есть и не пуст, заготовка
+не трогает.
+
 Что модуль может объявить ядру — и где об этом подробно:
 
 | Что | Как объявить | Подробно |
@@ -534,6 +559,11 @@ modules:
   `Default`.
 - `ochan config show [раздел]` — что действует и откуда: `config.yaml`,
   умолчание ochan или умолчание модуля; похожее на секрет скрыто.
+  `ochan config show --executor <имя>` — что исполнитель или модуль команд
+  получает в вызове, по слоям, с ключом каждого значения, и задан ли токен.
+- `ochan inspect` показывает и то, что будет без обязательной настройки, —
+  дословно предупреждение, которое ochan напечатает, — а `--json` кладёт
+  его в `missing_warning`.
 - Повторная установка (новая версия модуля) дописывает только новые
   настройки; заданное и уже записанное не трогается. `!!install --remove`
   раздел не удаляет: значения пригодятся, если модуль поставят снова.

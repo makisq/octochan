@@ -177,6 +177,7 @@ func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, ou
 	interp.SetErr(cmd.ErrOrStderr())
 	interp.SetSandbox(s.box)
 	interp.SetProtected(protectedPaths())
+	interp.SetReadable(readablePaths())
 	interp.SetDir(s.dir)
 	if s.seed != 0 {
 		interp.SetSeed(s.seed)
@@ -641,6 +642,8 @@ func describeDrift(approved []string, current []lang.Effect) string {
 		case wasKind != string(current[i].Kind) || wasPath != current[i].Path:
 			lines = append(lines, fmt.Sprintf("  действие %d: было %s %s, стало %s %s",
 				i+1, wasKind, wasPath, current[i].Kind, current[i].Path))
+		case current[i].Kind == lang.EffectNet:
+			lines = append(lines, fmt.Sprintf("  %s: тело запроса не то, что согласовали", current[i].Path))
 		case current[i].Kind == lang.EffectExec:
 			lines = append(lines, fmt.Sprintf("  %s: запуск с другими аргументами — %s", current[i].Path,
 				strings.Join(current[i].Args, " ")))

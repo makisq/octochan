@@ -27,6 +27,9 @@ const (
 	// ChangeCommand — будет выполнена меняющая команда ochan (ochan()
 	// сценария).
 	ChangeCommand ChangeKind = "command"
+	// ChangeNet — будет отправлен меняющий HTTP-запрос (fetch или curl с
+	// allow_write).
+	ChangeNet ChangeKind = "net"
 )
 
 func (k ChangeKind) Russian() string {
@@ -45,6 +48,8 @@ func (k ChangeKind) Russian() string {
 		return "запуск"
 	case ChangeCommand:
 		return "команда"
+	case ChangeNet:
+		return "запрос"
 	default:
 		return string(k)
 	}
@@ -177,7 +182,7 @@ func (p *Plan) Render(width int) string {
 		}
 
 		switch change.Kind {
-		case ChangeTask, ChangeWrite, ChangeExec, ChangeCommand:
+		case ChangeTask, ChangeWrite, ChangeExec, ChangeCommand, ChangeNet:
 			fmt.Fprintf(&b, "    %-10s %s", change.Kind.Russian(), change.Name)
 			if change.Detail != "" {
 				fmt.Fprintf(&b, " — %s", change.Detail)

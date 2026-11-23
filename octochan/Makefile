@@ -9,6 +9,9 @@
 #                                ручная без вопросов; незаданное — по умолчанию
 #   make install HERE=1 DESKTOP=1    ещё и значок: меню приложений и рабочий стол
 #   make install PREFIX=/usr/local   программы в PREFIX/bin (спросит sudo), остальное по умолчанию
+#   make update                  собрать и обновить установленный ochan: модули, токены, config.yaml остаются,
+#                                прежняя версия — архивом в ochan-versions/ рядом с программой
+#   make update TO=/путь         то же для установки в этой папке (если её не найти самому)
 #   make vendor                  зависимости в vendor/ — для сборки без сети
 #   make offline                 собрать из vendor/, в сеть не обращаясь
 #   make llm-test                тест обучения своей модели (ai/llama/train_own.py; нужен venv с requirements.txt)
@@ -29,7 +32,7 @@ LDFLAGS     := -X ochan/cmd.Version=$(VERSION) -X ochan/rbac.SystemPolicyPath=$(
 MCP_LDFLAGS := -X main.serverVersion=$(VERSION)
 PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
-.PHONY: build install uninstall llm-test vendor offline dist test vet version icon
+.PHONY: build install update uninstall llm-test vendor offline dist test vet version icon
 
 PYTHON ?= python3
 
@@ -46,6 +49,10 @@ SETUP_ARGS := $(if $(HERE),$(if $(filter 1 yes true,$(HERE)),--here,"--here=$(HE
 
 install:
 	PREFIX="$(PREFIX)" VERSION="$(VERSION)" sh scripts/install.sh $(SETUP_ARGS)
+
+# Обновить установленный ochan только что собранным: ochan setup --update.
+update:
+	VERSION="$(VERSION)" sh scripts/install.sh $(if $(TO),"--update=$(TO)",--update)
 
 uninstall:
 	PREFIX="$(PREFIX)" sh scripts/install.sh --uninstall

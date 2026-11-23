@@ -58,6 +58,7 @@ type isolatedSpec struct {
 	Clock string `json:"clock,omitempty"`
 	// Protected — каталоги, закрытые для встроенных функций.
 	Protected []string `json:"protected,omitempty"`
+	Readable  []string `json:"readable,omitempty"`
 
 	// Inventory — хосты для inventory(): родитель читает инвентарь сам,
 	// ребёнку рабочий каталог ochan не виден. null — инвентаря нет;
@@ -145,6 +146,7 @@ func isolated(cmd *cobra.Command, spec isolatedSpec, out io.Writer) (*isolatedRe
 	spec.MaxParallel = viper.GetInt("defaults.max_parallel_tasks")
 	spec.Lang = i18n.Current()
 	spec.Protected = protectedPaths()
+	spec.Readable = readablePaths()
 
 	policy := sandbox.Policy{
 		Write:   spec.Roots,
@@ -377,6 +379,7 @@ func runIsolatedSpec(spec isolatedSpec, out, errOut io.Writer) *isolatedResult {
 	interp.SetErr(errOut)
 	interp.SetSandbox(box)
 	interp.SetProtected(spec.Protected)
+	interp.SetReadable(spec.Readable)
 	interp.SetDir(spec.Dir)
 	if spec.Seed != 0 {
 		interp.SetSeed(spec.Seed)

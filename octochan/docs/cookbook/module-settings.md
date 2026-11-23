@@ -111,6 +111,18 @@ modules.pgstat.host    = 127.0.0.1  [умолчание модуля pgstat]
 modules.pgstat.port    = 5432  [умолчание модуля pgstat]
 ```
 
+Что будет без `cluster` — заранее, ещё до установки, показывает `ochan
+inspect`:
+
+```
+$ ochan inspect pgstat.hcplugin
+…
+  Без modules.pgstat.cluster ochan при установке, при каждом запуске и после !!reload пишет в stderr:
+    внимание: модуль pgstat: не задано обязательное — modules.pgstat.cluster в ~/.octochan/config.yaml
+  Выключить — defaults.warn_missing_settings: false. Модуль загружается и сам решает, работать ли:
+  ошибка из его Init — отказ загрузиться с её текстом.
+```
+
 Токен модуля:
 
 ```
@@ -258,7 +270,28 @@ modules:
 
 Исполнитель получает настройки в таком порядке, сильнее — ниже:
 `defaults.*` (общие умолчания исполнителей) → `modules.<модуль>` →
-`executors.<имя исполнителя>`.
+`executors.<имя исполнителя>`. Что из этого дошло до исполнителя и откуда —
+`ochan config show --executor`:
+
+```
+$ ochan config show --executor demo
+Исполнитель demo получает в каждом вызове (слои: defaults.* → modules.<модуль> → executors.demo; сильнее — позже):
+  http_timeout       = 30s  [defaults.http_timeout — умолчание]
+  max_parallel_tasks = 5  [defaults.max_parallel_tasks — умолчание]
+  api_key            = …  [executors.demo.api_key]
+  region             = us-2  [executors.demo.region]
+  токен: …  [~/.octochan/tokens/demo]
+```
+
+Для модуля команд — то же, только его раздел:
+
+```
+$ ochan config show --executor pgstat
+Команды модуля pgstat получают в каждом вызове (modules.pgstat):
+  host = 127.0.0.1  [modules.pgstat.host — умолчание]
+  port = 5432  [modules.pgstat.port — умолчание]
+  токен: не задан — ochan auth --executor pgstat или OCTOCHAN_TOKEN_PGSTAT
+```
 
 ## Подводные камни
 

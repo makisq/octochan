@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -432,32 +433,83 @@ func executorSupply(executor string) pluginhost.Supply {
 // defaults.http_timeout и defaults.max_parallel_tasks. Своего конфига у
 // процесса модуля нет.
 func executorSettings(executor string) map[string]string {
-	settings := map[string]string{
-		"http_timeout":       viper.GetString("defaults.http_timeout"),
-		"max_parallel_tasks": viper.GetString("defaults.max_parallel_tasks"),
+	settings := map[string]string{}
+	for _, l := range executorLayers(executor) {
+		settings[l.Name] = l.Value
 	}
-	if url := viper.GetString("defaults.api_url"); url != "" {
-		settings["api_url"] = url
-	}
-	// Настройки модуля, который принёс исполнителя.
-	mm := pluginhost.GetModuleManager()
-	for _, r := range mm.Runners() {
-		if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(r.Kind), " ", "-"), executor) {
-			for _, info := range mm.LoadedModules() {
-				if info.Name == r.Module {
-					values, _ := moduleSettingValues(info.Name, info.Settings)
-					for k, v := range values {
-						settings[k] = v
-					}
-				}
+	return settings
+}
+
+// settingLayer — одна настройка, которую исполнитель или команда модуля
+// получает в вызове: имя, значение и ключ config.yaml, откуда оно.
+// Default — значение — умолчание (ochan или модуля), а не задано.
+type settingLayer struct {
+	Name, Value, Key string
+	Default          bool
+}
+
+// executorLayers — настройки исполнителя по слоям, слабые первыми:
+// defaults.*, modules.<модуль>, executors.<имя>. У одного имени остаётся
+// последний слой. Исполнителя нет, но есть модуль с таким именем — его
+// настройки (их получают команды модуля).
+func executorLayers(executor string) []settingLayer {
+	var layers []settingLayer
+	set := func(l settingLayer) {
+		for i := range layers {
+			if layers[i].Name == l.Name {
+				layers = append(layers[:i], layers[i+1:]...)
+				break
 			}
+		}
+		layers = append(layers, l)
+	}
+	mm := pluginhost.GetModuleManager()
+	module := ""
+	runner := false
+	for _, r := range mm.Runners() {
+		if strings.EqualFold(scenarioExecutorName(r.Kind), executor) {
+			module, runner = r.Module, true
 			break
 		}
 	}
-	for key, value := range viper.GetStringMapString("executors." + executor) {
-		settings[key] = value
+	if !runner {
+		module = executor
 	}
-	return settings
+	if runner {
+		for _, name := range []string{"http_timeout", "max_parallel_tasks", "api_url"} {
+			key := "defaults." + name
+			value := viper.GetString(key)
+			if value == "" {
+				continue
+			}
+			set(settingLayer{Name: name, Value: value, Key: key, Default: !viper.InConfig(key)})
+		}
+	}
+	// Настройки модуля, который принёс исполнителя.
+	for _, info := range mm.LoadedModules() {
+		if info.Name != module {
+			continue
+		}
+		values, _ := moduleSettingValues(info.Name, info.Settings)
+		for _, s := range info.Settings {
+			if value, ok := values[s.Key]; ok {
+				key := moduleSettingKey(info.Name, s.Key)
+				set(settingLayer{Name: s.Key, Value: value, Key: key, Default: !viper.InConfig(key)})
+			}
+		}
+	}
+	if runner {
+		section := viper.GetStringMapString("executors." + executor)
+		names := make([]string, 0, len(section))
+		for name := range section {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			set(settingLayer{Name: name, Value: section[name], Key: "executors." + executor + "." + name})
+		}
+	}
+	return layers
 }
 
 func init() {

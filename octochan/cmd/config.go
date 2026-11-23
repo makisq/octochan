@@ -59,6 +59,8 @@ func setConfigDefaults(base string) {
 	}
 	// Предупреждать при запуске о каталогах, открытых для чужой записи.
 	viper.SetDefault(pathsWarnOpen, true)
+	// Что из рабочего каталога сценарии читают; писать в него не могут.
+	viper.SetDefault(scriptReadKey, scriptReadDefault)
 	// Адрес API, время запроса и параллельность — общие умолчания для
 	// исполнителей модулей; свои у исполнителя — executors.<имя>.
 	viper.SetDefault("defaults.api_url", "")
@@ -215,6 +217,14 @@ func initConfig() error {
 		return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)
 	}
 
+	// Значения переименованных настроек — на новые ключи, до того как их
+	// прочитают пути и всё остальное.
+	notes, err := migrateConfig(path)
+	if err != nil {
+		return err
+	}
+	reportMigrations(notes)
+
 	if err := applyPaths(fm); err != nil {
 		return err
 	}
@@ -222,6 +232,9 @@ func initConfig() error {
 		return err
 	}
 	warnOpenDirs(fm)
+	if err := checkScriptRead(); err != nil {
+		fmt.Fprintln(os.Stderr, i18n.Sprintf("внимание: %v", err))
+	}
 	return nil
 }
 
