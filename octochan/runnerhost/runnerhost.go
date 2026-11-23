@@ -5,7 +5,7 @@
 // описан типами этого файла, и модулю на другом языке достаточно его:
 //
 //	plan            {"scenario": {...}, "source": "..."}                  → план {"command", "changes": [...], ...}
-//	apply           {"scenario": {...}, "source": "...", "plan": {...}}   → {"refs": [...], "summary": "...", "error": "..."}
+//	apply           {"scenario": {...}, "source": "...", "plan": {...}}   → {"refs": [...], "summary": "...", "shared": {...}, "error": "..."}
 //	compensate-plan {"scenario", "source", "plan": выполненный, "refs"}   → план обратного действия
 //	compensate      {"scenario", "source", "plan": обратного действия, "refs"} → {"refs", "summary", "error"}
 //	wait            {"ref": "..."}                                        → {"state": "..."}
@@ -51,6 +51,8 @@ type applyReply struct {
 	// NotStarted — исполнитель отказал до первого обращения к системе
 	// (scenario.NotStarted): заявка остаётся согласованной.
 	NotStarted bool `json:"not_started,omitempty"`
+	// Shared — общие строки из ответа системы (scenario.Result.Shared).
+	Shared map[string]string `json:"shared,omitempty"`
 }
 
 type refRequest struct {
@@ -183,7 +185,7 @@ func Expose(r scenario.Runner, services ...string) pluginhost.RunnerSpec {
 func applied(result *scenario.Result, err error) ([]byte, error) {
 	reply := applyReply{}
 	if result != nil {
-		reply.Refs, reply.Summary = result.Refs, result.Summary
+		reply.Refs, reply.Summary, reply.Shared = result.Refs, result.Summary, result.Shared
 	}
 	if err != nil {
 		reply.Error = err.Error()
@@ -194,7 +196,7 @@ func applied(result *scenario.Result, err error) ([]byte, error) {
 
 // fromReply — ответ исполнителя обратно в итог и ошибку.
 func fromReply(reply applyReply) (*scenario.Result, error) {
-	result := &scenario.Result{Refs: reply.Refs, Summary: reply.Summary}
+	result := &scenario.Result{Refs: reply.Refs, Summary: reply.Summary, Shared: reply.Shared}
 	switch {
 	case reply.Error == "":
 		return result, nil

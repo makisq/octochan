@@ -102,6 +102,7 @@ var applyCmd = &cobra.Command{
 		cmd.Print(plan.Render(60) + "\n")
 
 		result, err := runner.Apply(cmd.Context(), parsed, plan)
+		keepShared(result)
 
 		if result != nil && len(result.Refs) > 0 {
 			cmd.Println("Создано:")
@@ -220,6 +221,7 @@ func applyApprovedRequest(cmd *cobra.Command, id string) error {
 		return err
 	}
 	result, applyErr := runner.Apply(cmd.Context(), parsed, request.Plan)
+	keepShared(result)
 	finishScenarioApply(cmd, store, request, parsed, result, applyErr, "apply --request "+request.ID)
 	if applyErr != nil {
 		return applyErr

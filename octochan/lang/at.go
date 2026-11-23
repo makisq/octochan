@@ -81,6 +81,12 @@ type SharedCommands interface {
 	Shared(argv []string) []SharedKey
 }
 
+// SharedResults — команды ochan, которые отдают общие строки отдельно от
+// вывода: apply — из ответа исполнителя (scenario.Result.Shared).
+type SharedResults interface {
+	TakeShared() map[string]string
+}
+
 // ParseShared разбирает аннотацию shared: «[сервис:]параметр[=ключ_ответа]»
 // через запятую: «string_i», «node_tune:token=session.token».
 func ParseShared(text string) []SharedKey {
@@ -197,6 +203,17 @@ func (in *Interpreter) evalAt(e *AtExpr, env *scope) (Value, error) {
 		for key := range wanted {
 			if v, ok := sharedIn(value, key); ok {
 				found[key] = v
+			}
+		}
+		// Исполнитель сценария (apply) отдаёт общие строки отдельно от
+		// вывода: в выводе их нет — это могут быть секреты.
+		if c.fn.value == nil {
+			if sr, ok := in.commands.(SharedResults); ok {
+				for key, v := range sr.TakeShared() {
+					if v != "" && v != sharedPlaceholder {
+						found[key] = v
+					}
+				}
 			}
 		}
 		return nil
@@ -368,8 +385,13 @@ func (in *Interpreter) atFunc(expr Expr, env *scope) (*atFn, error) {
 		if id.Module != "" {
 			words = []string{id.Module, id.Name}
 		}
-		if fn, ok := in.atCommand(words); ok {
+		fn, cmdErr := in.atCommand(words)
+		if fn != nil {
 			return fn, nil
+		}
+		if cmdErr != nil {
+			// Команда есть, но отсюда недоступна: сказать почему.
+			return nil, in.wrap(id.Pos, cmdErr)
 		}
 		return nil, err
 	}
@@ -378,8 +400,12 @@ func (in *Interpreter) atFunc(expr Expr, env *scope) (*atFn, error) {
 		return nil, err
 	}
 	if text, ok := value.(StringValue); ok {
-		if fn, ok := in.atCommand(strings.Fields(string(text))); ok {
+		fn, cmdErr := in.atCommand(strings.Fields(string(text)))
+		if fn != nil {
 			return fn, nil
+		}
+		if cmdErr != nil {
+			return nil, in.wrap(expr.Position(), cmdErr)
 		}
 		return nil, in.errorf(expr.Position(), "слева от @ — %q: такой команды ochan нет", string(text))
 	}
@@ -391,18 +417,23 @@ func (in *Interpreter) atFunc(expr Expr, env *scope) (*atFn, error) {
 }
 
 // atCommand — команда ochan как функция множителя.
-func (in *Interpreter) atCommand(words []string) (*atFn, bool) {
+// Нет такой команды — nil и nil; команда есть, но отсюда недоступна (apply
+// внутри сценария) — её отказ.
+func (in *Interpreter) atCommand(words []string) (*atFn, error) {
 	if in.commands == nil || in.sandbox != nil || len(words) == 0 {
-		return nil, false
+		return nil, nil
 	}
 	if _, _, _, err := in.commands.Resolve(words); err != nil {
-		return nil, false
+		if strings.Contains(err.Error(), "такой команды нет") {
+			return nil, nil
+		}
+		return nil, err
 	}
 	fn := &atFn{name: strings.Join(words, " "), argv: words}
 	if shared, ok := in.commands.(SharedCommands); ok {
 		fn.keys = shared.Shared(words)
 	}
-	return fn, true
+	return fn, nil
 }
 
 // atLeaf вычисляет операнд и находит общие строки, которых он ждёт.

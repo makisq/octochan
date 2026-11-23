@@ -203,3 +203,22 @@ func TestNotStartedCrossesTheWire(t *testing.T) {
 		}
 	}
 }
+
+// Общие строки исполнителя идут по проводу в поле shared ответа apply.
+func TestSharedInApplyReply(t *testing.T) {
+	data, err := applied(&scenario.Result{Refs: []string{"r1"}, Shared: map[string]string{"string_i": "k"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"shared":{"string_i":"k"}`) {
+		t.Fatalf("ответ: %s", data)
+	}
+	var reply applyReply
+	if err := json.Unmarshal(data, &reply); err != nil {
+		t.Fatal(err)
+	}
+	result, err := fromReply(reply)
+	if err != nil || result.Shared["string_i"] != "k" {
+		t.Fatalf("обратно: %+v %v", result, err)
+	}
+}

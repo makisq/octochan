@@ -9,6 +9,7 @@ import (
 
 	"ochan/lang"
 	"ochan/rbac"
+	"ochan/scenario"
 
 	"github.com/spf13/cobra"
 )
@@ -25,8 +26,40 @@ import (
 var scriptForbidden = []string{"agent", "apply", "back", "completion", "connect", "eval", "help", "plan", "remote",
 	"run", "serve", "set", "shell", "watch"}
 
-// scriptCommands — команды ochan, которые видит сценарий.
-type scriptCommands struct{}
+// scriptCommands — команды ochan, которые видит сценарий. shell — строка
+// оболочки: внешней команды, которая выполняет сценарий, нет, и apply и plan
+// ей доступны (apply @ ("a.yaml" | "b.yaml")). Внутри сценария, который
+// выполняет run или apply, они по-прежнему запрещены.
+type scriptCommands struct{ shell bool }
+
+// shellAllowed — команды, которые строка оболочки может выполнить, хотя
+// сценарию они запрещены.
+var shellAllowed = []string{"apply", "plan"}
+
+// scriptShared — общие строки из ответа исполнителя на apply, выполненный из
+// языка (f @ (…)): их забирает TakeShared. В вывод они не попадают.
+var scriptShared map[string]string
+
+// keepShared запоминает общие строки исполнителя, если apply выполняется из
+// языка.
+func keepShared(result *scenario.Result) {
+	if result == nil || len(result.Shared) == 0 || scriptDepth == 0 {
+		return
+	}
+	if scriptShared == nil {
+		scriptShared = map[string]string{}
+	}
+	for k, v := range result.Shared {
+		scriptShared[k] = v
+	}
+}
+
+// TakeShared отдаёт языку общие строки последней команды и забывает их.
+func (scriptCommands) TakeShared() map[string]string {
+	shared := scriptShared
+	scriptShared = nil
+	return shared
+}
 
 // scriptDepth — сколько команд сейчас выполняется из сценария: команда,
 // которая ждала бы вечно (text tail -f) или stdin, по нему отказывает.
@@ -35,7 +68,7 @@ var scriptDepth int
 // queryGroups — права читающих команд: их ochan() выполняет и в плане.
 var queryGroups = []string{"read", "net"}
 
-func (scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
+func (c scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
 	argv := args
 	if len(args) == 1 {
 		split, err := splitArgs(args[0])
@@ -53,7 +86,8 @@ func (scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
 	}
 	key := commandKey(target)
 	top, _, _ := strings.Cut(key, ".")
-	if slices.Contains(scriptForbidden, top) || slices.Contains(scriptForbidden, key) {
+	allowed := c.shell && scriptDepth == 0 && slices.Contains(shellAllowed, top)
+	if !allowed && (slices.Contains(scriptForbidden, top) || slices.Contains(scriptForbidden, key)) {
 		return nil, "", false, fmt.Errorf("ochan %s: из сценария не выполняется — команда сама запускает сценарии, "+
 			"живёт долго или меняет роль процесса", key)
 	}
