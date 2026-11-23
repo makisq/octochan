@@ -71,6 +71,9 @@ func setConfigDefaults(base string) {
 	viper.SetDefault("defaults.module_command_timeout", "10m")
 	viper.SetDefault("defaults.plugin_log_level", "warn")
 	viper.SetDefault("defaults.allow_unverified_modules", false)
+	// Предупреждать, что у модуля не задана обязательная настройка: при
+	// установке, при запуске и после !!reload.
+	viper.SetDefault(warnMissingKey, true)
 	// Напоминание о смене токена исполнителя — по желанию: ochan timer on.
 	viper.SetDefault("defaults.token_timer_enabled", false)
 	viper.SetDefault("defaults.token_lifetime", "20m")

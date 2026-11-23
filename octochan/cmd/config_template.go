@@ -62,6 +62,7 @@ var configSections = []configSection{
 		{"defaults.smtp_to", "кому письма по умолчанию", nil},
 		{"defaults.smtp_starttls", "шифровать соединение с почтовым сервером", nil},
 		{"defaults.token_timer_enabled", "напоминать в оболочке о смене токена (ochan timer on)", nil},
+		{"defaults.warn_missing_settings", "предупреждать, что у модуля не задана обязательная настройка; false — молчать", nil},
 	}},
 	{"Исполнители: своё у каждого, под его именем; токен — ochan auth --executor <имя>", []configEntry{
 		{"executors.http.api_url", "исполнитель ядра http: адрес API узла", "https://node.example.internal/api"},

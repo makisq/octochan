@@ -55,6 +55,19 @@ func TestModuleSettings(t *testing.T) {
 	if out := e.must("modules"); !strings.Contains(out, "настроек: 3 (modules.pgstat)") {
 		t.Fatalf("modules:\n%s", out)
 	}
+	// defaults.warn_missing_settings: false — о незаданном обязательном молчат.
+	info := pluginhost.ModuleInfo{Name: "pgstat", Missing: []string{"modules.pgstat.cluster"}}
+	if moduleMissing(info) == "" {
+		t.Fatal("по умолчанию о незаданном обязательном не предупредили")
+	}
+	setting(t, warnMissingKey, false)
+	if warning := moduleMissing(info); warning != "" {
+		t.Fatalf("warn_missing_settings: false, а предупреждение: %s", warning)
+	}
+	if out := e.must("!!install", module); strings.Contains(out, "не задано обязательное") {
+		t.Fatalf("установка предупредила при warn_missing_settings: false:\n%s", out)
+	}
+	setting(t, warnMissingKey, true)
 
 	// Пользователь задал значения — модуль получает их после перезагрузки.
 	if err := setConfigValues(path, map[string]any{"modules.pgstat.host": "db1.example.internal", "modules.pgstat.cluster": "main"}); err != nil {
@@ -97,7 +110,7 @@ func TestModuleSettings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	info := pluginhost.ModuleInfo{Name: "pgstat", Version: "0.1.0", Settings: []pluginhost.Setting{
+	info = pluginhost.ModuleInfo{Name: "pgstat", Version: "0.1.0", Settings: []pluginhost.Setting{
 		{Key: "host"}, {Key: "refresh", Default: "30s", Description: "как часто обновлять статистику"}}}
 	if added, err := declareModuleSettings(path, info); err != nil || len(added) != 1 || added[0] != "modules.pgstat.refresh" {
 		t.Fatalf("новая настройка новой версии: %v %v", added, err)

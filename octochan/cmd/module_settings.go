@@ -86,10 +86,15 @@ func settingDefault(text string) string {
 	return inline
 }
 
+// warnMissingKey — настройка: предупреждать ли о модулях без
+// обязательных настроек. false — молчать: модуль сам решает, работать ли
+// без них, а пользователь знает, что делает.
+const warnMissingKey = "defaults.warn_missing_settings"
+
 // moduleMissing — предупреждение о модуле, которому не хватает
-// обязательных настроек.
+// обязательных настроек; пусто — их хватает или предупреждать не надо.
 func moduleMissing(info pluginhost.ModuleInfo) string {
-	if len(info.Missing) == 0 {
+	if len(info.Missing) == 0 || !viper.GetBool(warnMissingKey) {
 		return ""
 	}
 	return i18n.Sprintf("модуль %s: не задано обязательное — %s в %s", info.Name, strings.Join(info.Missing, ", "),
