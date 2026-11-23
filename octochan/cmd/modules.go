@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +13,7 @@ import (
 	"sync"
 
 	"ochan/core/rbac"
+	"ochan/core/workspace"
 	"ochan/modules/pluginhost"
 	"ochan/modules/runnerhost"
 
@@ -340,79 +343,216 @@ var listModulesCmd = &cobra.Command{
 	},
 }
 
+var inspectJSON bool
+
 var inspectCmd = &cobra.Command{
-	Use:   "inspect <module_path>",
-	Short: "Показать информацию о модуле",
-	Args:  cobra.ExactArgs(1),
+	Use:   "inspect <модуль.hcplugin>",
+	Short: "Показать, что модуль объявляет, — без установки",
+	Long: "Запускает модуль из файла отдельно — установленный или ещё нет — и\n" +
+		"показывает, что он объявляет: имя и версию, размер и SHA-256 файла,\n" +
+		"команды с классами прав, исполнителей с сервисами и операциями,\n" +
+		"настройки (раздел modules.<модуль> в config.yaml) и откуда исполнитель\n" +
+		"берёт токен. Набор команд текущей сессии не меняется. Файл, который не\n" +
+		"модуль (архив пакета вместо программы, нет рукопожатия, паника при\n" +
+		"запуске), — отказ с причиной и stderr модуля: так модуль проверяют до\n" +
+		"!!install.",
+	Example: "ochan inspect pgstat.hcplugin\nochan inspect --json pgstat.hcplugin",
+	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		path := args[0]
 		if filepath.Ext(path) != pluginhost.ModuleExtension {
 			return fmt.Errorf("поддерживаются только %s модули", pluginhost.ModuleExtension)
 		}
-		if _, err := os.Stat(path); err != nil {
+		stat, err := os.Stat(path)
+		if err != nil {
 			return fmt.Errorf("модуль недоступен: %w", err)
+		}
+		sum, err := pluginhost.FileChecksum(path)
+		if err != nil {
+			return err
 		}
 
 		// Модуль поднимается во временном менеджере и гасится сразу после
 		// осмотра, чтобы не влиять на набор команд текущей сессии.
-		inspector := pluginhost.NewModuleManager()
-		defer inspector.Cleanup()
-
-		if err := inspector.LoadModule(path); err != nil {
+		inspector, err := pluginhost.OpenProbe(path)
+		if err != nil {
 			return err
 		}
-
+		defer inspector.Cleanup()
 		infos := inspector.LoadedModules()
 		if len(infos) == 0 {
 			return fmt.Errorf("модуль не сообщил о себе ничего")
 		}
 		info := infos[0]
-
-		cmd.Println("\n=== Информация о модуле ===")
-		cmd.Printf("Файл:   %s\n", path)
-		cmd.Printf("Имя:    %s\n", info.Name)
-		cmd.Printf("Версия: %s\n", info.Version)
-		if len(info.Settings) > 0 {
-			cmd.Printf("Настройки (config.yaml, раздел %s.%s):\n", modulesKey, info.Name)
-			for _, line := range moduleSettingsLines(info) {
-				cmd.Printf("  %s\n", line)
+		report := inspectReport{Path: path, Name: info.Name, Version: info.Version, Size: stat.Size(),
+			SHA256: hex.EncodeToString(sum), Commands: []inspectCommand{}, Runners: []inspectRunner{},
+			Settings: []inspectSetting{}}
+		report.Installed = installedState(info, sum, &report)
+		commands := inspector.GetCommands()
+		var walk func(c *cobra.Command, path []string)
+		walk = func(c *cobra.Command, path []string) {
+			path = append(append([]string(nil), path...), c.Name())
+			class := ""
+			for cur := c; cur != nil && class == ""; cur = cur.Parent() {
+				class = strings.TrimSpace(cur.Annotations[rbac.ClassAnnotation])
+			}
+			if normal, err := rbac.NormalizeClass(class); err == nil {
+				class = normal
+			} else if class != "" {
+				class = "не принят: " + err.Error()
+			}
+			if c.Runnable() {
+				report.Commands = append(report.Commands, inspectCommand{Command: strings.Join(path, " "), Class: class,
+					Short: c.Short, Flags: flagNames(c)})
+			}
+			for _, sub := range c.Commands() {
+				walk(sub, path)
 			}
 		}
-
-		commands := inspector.GetCommands()
-		if len(commands) == 0 {
-			cmd.Println("Модуль не предоставляет команд")
+		for _, c := range commands {
+			walk(c, nil)
+		}
+		for _, r := range inspector.Runners() {
+			name := scenarioExecutorName(r.Kind)
+			report.Runners = append(report.Runners, inspectRunner{Kind: r.Kind, Executor: name, Services: r.Services,
+				Ops: r.Ops, TokenCommand: "ochan auth --executor " + name, TokenEnv: workspace.EnvExecutorToken(name),
+				Settings: "executors." + name})
+		}
+		for _, s := range info.Settings {
+			report.Settings = append(report.Settings, inspectSetting{Key: moduleSettingKey(info.Name, s.Key),
+				Default: s.Default, Description: s.Description, Required: s.Required && s.Default == ""})
+		}
+		if inspectJSON {
+			data, err := json.MarshalIndent(report, "", "  ")
+			if err != nil {
+				return err
+			}
+			cmd.Println(string(data))
 			return nil
 		}
 
-		cmd.Println("Команды:")
-		printModuleCommands(cmd, commands, "  ")
+		cmd.Println("\n=== Модуль ===")
+		cmd.Printf("Файл:      %s\n", path)
+		cmd.Printf("Имя:       %s\n", info.Name)
+		cmd.Printf("Версия:    %s\n", info.Version)
+		cmd.Printf("Размер:    %d байт\n", report.Size)
+		cmd.Printf("SHA-256:   %s\n", report.SHA256)
+		cmd.Printf("Установлен: %s\n", report.Installed)
+		if len(report.Commands) > 0 {
+			cmd.Printf("\nКоманды (%d):\n", len(report.Commands))
+			for _, c := range report.Commands {
+				class := c.Class
+				if class == "" {
+					class = "без класса: право по имени команды или all"
+				} else {
+					class = "класс " + class
+				}
+				short := c.Short
+				if short == "" {
+					short = "(нет описания)"
+				}
+				cmd.Printf("  %-24s %s — %s\n", c.Command, short, class)
+				if c.Flags != "" {
+					cmd.Printf("  %-24s флаги: %s\n", "", c.Flags)
+				}
+			}
+		}
+		for _, r := range report.Runners {
+			cmd.Printf("\nИсполнитель %s (%s):\n", r.Kind, r.Executor)
+			cmd.Printf("  сервисы:   %s\n", strings.Join(r.Services, ", "))
+			cmd.Printf("  умеет:     %s\n", strings.Join(r.Ops, ", "))
+			cmd.Printf("  токен:     %s (или %s)\n", r.TokenCommand, r.TokenEnv)
+			cmd.Printf("  настройки: modules.%s, поверх — %s\n", info.Name, r.Settings)
+		}
+		if len(info.Settings) > 0 {
+			cmd.Printf("\nНастройки (config.yaml, раздел %s.%s; значения — в Init модуля%s):\n", modulesKey, info.Name,
+				map[bool]string{true: " и в каждом вызове команды и исполнителя", false: " и в каждом вызове команды"}[len(report.Runners) > 0])
+			for _, line := range moduleSettingsLines(info) {
+				cmd.Printf("  %s\n", line)
+			}
+			for _, s := range report.Settings {
+				if s.Required {
+					cmd.Printf("  %s без значения: ochan предупреждает (defaults.warn_missing_settings), модуль решает сам, работать ли\n", s.Key)
+				}
+			}
+		}
+		if len(report.Commands) == 0 && len(report.Runners) == 0 {
+			cmd.Println("\nМодуль не объявил ни команд, ни исполнителей")
+		}
 		return nil
 	},
 }
 
-func printModuleCommands(cmd *cobra.Command, commands []*cobra.Command, indent string) {
-	for _, c := range commands {
-		short := c.Short
-		if short == "" {
-			short = "(нет описания)"
-		}
-		if class := strings.TrimSpace(c.Annotations[rbac.ClassAnnotation]); class != "" {
-			if normal, err := rbac.NormalizeClass(class); err == nil {
-				short += " — класс " + normal
-			} else {
-				short += " — класс не принят: " + err.Error()
-			}
-		}
-		cmd.Printf("%s%-24s %s\n", indent, c.Name(), short)
+// inspectReport — что модуль объявляет: ochan inspect (и --json).
+type inspectReport struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Size      int64  `json:"size"`
+	SHA256    string `json:"sha256"`
+	Installed string `json:"-"`
+	// InstalledPath — установленный модуль с тем же именем; Same — это
+	// тот же файл (сумма совпадает).
+	InstalledPath string           `json:"installed_path,omitempty"`
+	Same          bool             `json:"installed_same,omitempty"`
+	Commands      []inspectCommand `json:"commands"`
+	Runners       []inspectRunner  `json:"runners"`
+	Settings      []inspectSetting `json:"settings"`
+}
 
-		if flags := flagNames(c); flags != "" {
-			cmd.Printf("%s%-24s флаги: %s\n", indent, "", flags)
-		}
-		if sub := c.Commands(); len(sub) > 0 {
-			printModuleCommands(cmd, sub, indent+"  ")
-		}
+type inspectCommand struct {
+	Command string `json:"command"`
+	Class   string `json:"class,omitempty"`
+	Short   string `json:"short,omitempty"`
+	Flags   string `json:"flags,omitempty"`
+}
+
+type inspectRunner struct {
+	Kind         string   `json:"kind"`
+	Executor     string   `json:"executor"`
+	Services     []string `json:"services"`
+	Ops          []string `json:"ops"`
+	TokenCommand string   `json:"token_command"`
+	TokenEnv     string   `json:"token_env"`
+	Settings     string   `json:"settings"`
+}
+
+type inspectSetting struct {
+	Key         string `json:"key"`
+	Default     string `json:"default,omitempty"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+}
+
+// installedState — стоит ли модуль: та же сборка, другая или нет; путь
+// установленного — в report.
+func installedState(info pluginhost.ModuleInfo, sum []byte, report *inspectReport) string {
+	fm, err := mustFileManager()
+	if err != nil {
+		return "неизвестно"
 	}
+	for _, loaded := range pluginhost.GetModuleManager().LoadedModules() {
+		if loaded.Name != info.Name {
+			continue
+		}
+		report.InstalledPath = loaded.Path
+		installedSum, err := pluginhost.FileChecksum(loaded.Path)
+		switch {
+		case err != nil:
+			return "да (" + loaded.Path + ")"
+		case bytes.Equal(installedSum, sum):
+			report.Same = true
+			return "да, этот файл (" + loaded.Path + ")"
+		}
+		return fmt.Sprintf("да, другая сборка v%s (%s)", loaded.Version, loaded.Path)
+	}
+	return "нет (" + fm.ModulesDir() + ")"
+}
+
+// scenarioExecutorName — имя исполнителя по его виду, как у флагов status
+// и ochan auth --executor.
+func scenarioExecutorName(kind string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(kind)), " ", "-")
 }
 
 func flagNames(c *cobra.Command) string {
@@ -428,6 +568,7 @@ func flagNames(c *cobra.Command) string {
 var modulesJSON bool
 
 func init() {
+	inspectCmd.Flags().BoolVar(&inspectJSON, "json", false, "вывести JSON — для программ")
 	listModulesCmd.Flags().BoolVar(&modulesJSON, "json", false,
 		"команды модулей в JSON: путь, класс, описание и собственные флаги (для ochan-mcp и других программ)")
 }

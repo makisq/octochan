@@ -56,6 +56,16 @@ func (module) Init(values map[string]any) error {
 	}
 	return nil
 }
+
+// setting — значение настройки в команде: как сейчас в config.yaml
+// (pluginhost.Settings), а с ochan старше 0.3.1 — то, что пришло в Init.
+func setting(cmd *cobra.Command, key string) string {
+	if values := pluginhost.Settings(cmd.Context()); values != nil {
+		return values[key]
+	}
+	return settings[key]
+}
+
 func (module) Name() string    { return "pgstat" }
 func (module) Version() string { return "0.1.0" }
 
@@ -94,11 +104,15 @@ func (module) GetCommands() []*cobra.Command {
 		Use:   "where",
 		Short: "Показать, куда смотрит pgstat (настройки modules.pgstat)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cluster := settings["cluster"]
+			cluster := setting(cmd, "cluster")
 			if cluster == "" {
 				cluster = "не задан"
 			}
-			cmd.Printf("pgstat: %s:%s, кластер %s\n", settings["host"], settings["port"], cluster)
+			token := "нет"
+			if pluginhost.Token(cmd.Context()) != "" {
+				token = "есть"
+			}
+			cmd.Printf("pgstat: %s:%s, кластер %s, токен: %s\n", setting(cmd, "host"), setting(cmd, "port"), cluster, token)
 			return nil
 		},
 	})
@@ -144,7 +158,9 @@ func (module) GetCommands() []*cobra.Command {
 		Use:   "pgraw",
 		Short: "Команда без класса: только по имени или с all",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.Println("pgraw: выполнено")
+			// Печать мимо cmd — в stdout процесса модуля: она тоже уходит
+			// хосту вместе с ответом, в >| и в ochan().
+			fmt.Println("pgraw: выполнено")
 			return nil
 		},
 	}}

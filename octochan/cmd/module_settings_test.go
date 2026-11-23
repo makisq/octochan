@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,6 +88,20 @@ func TestModuleSettings(t *testing.T) {
 	if out := e.must("pgstat", "where"); !strings.Contains(out, "pgstat: db1.example.internal:5432, кластер main") {
 		t.Fatalf("заданное не дошло до модуля:\n%s", out)
 	}
+	// Команда получает настройки и токен в каждом вызове: правка конфига
+	// видна без перезагрузки модуля (в Init пришло «main»).
+	setting(t, "modules.pgstat.cluster", "other")
+	if out := e.must("pgstat", "where"); !strings.Contains(out, "кластер other, токен: нет") {
+		t.Fatalf("настройка в вызове команды:\n%s", out)
+	}
+	e.must("auth", "--executor", "pgstat", "секрет")
+	if out := e.must("pgstat", "where"); !strings.Contains(out, "токен: есть") {
+		t.Fatalf("токен модуля не дошёл до команды:\n%s", out)
+	}
+	if out := e.must("config", "show", "modules.pgstat"); !strings.Contains(out, "modules.pgstat.port") ||
+		!strings.Contains(out, "умолчание модуля pgstat") {
+		t.Fatalf("config show modules.pgstat:\n%s", out)
+	}
 
 	// Второй модуль — в тот же раздел modules; его настройку получает и
 	// исполнитель (status показывает регион).
@@ -131,5 +146,54 @@ func TestModuleSettings(t *testing.T) {
 	setting(t, "executors", map[string]any{"demo": map[string]any{"region": "us-2"}})
 	if out := e.must("status", "--executor", "demo", "demo-1"); !strings.Contains(out, "Регион: us-2") {
 		t.Fatalf("executors.demo должен быть сильнее modules.demo-runner:\n%s", out)
+	}
+}
+
+// Обязательная настройка без умолчания — одна строка, без #, на своём
+// месте среди остальных — в любом конфиге: по шаблону, старом (без
+// шаблона, как писала прежняя установка), с разделом modules с # и без.
+func TestRequiredSettingWrittenOnce(t *testing.T) {
+	newScriptEnv(t)
+	info := pluginhost.ModuleInfo{Name: "pgstat", Version: "0.1.0", Settings: []pluginhost.Setting{
+		{Key: "host", Default: "127.0.0.1", Description: "сервер"},
+		{Key: "port", Default: "5432", Description: "порт"},
+		{Key: "cluster", Description: "кластер", Required: true},
+		{Key: "zone", Default: "a", Description: "зона", Required: true},
+	}}
+	template, err := renderConfigTemplate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := "\n# " + templateText(modulesTitle) + "\nmodules:\n  # demo 1.0\n  demo:\n    url: x\n"
+	for name, start := range map[string]string{
+		"шаблон":            template,
+		"старый конфиг":     "llm:\n    chat:\n        root:\n            - work\n",
+		"пустой":            "",
+		"modules уже задан": template + other,
+	} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(start), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := declareModuleSettings(path, info); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		text := readFile(t, path)
+		got := flatten(t, text)
+		if strings.Count(text, "cluster:") != 1 || got["modules.pgstat.cluster"] != "" {
+			t.Fatalf("%s: обязательная не одной строкой без #:\n%s", name, text)
+		}
+		if _, set := got["modules.pgstat.zone"]; set || !strings.Contains(text, "# zone: a") {
+			t.Fatalf("%s: обязательная с умолчанием — под #, умолчание и есть значение:\n%s", name, text)
+		}
+		if strings.Index(text, "host:") > strings.Index(text, "cluster:") || strings.Contains(text, "# # ") {
+			t.Fatalf("%s: порядок или вид блока:\n%s", name, text)
+		}
+		if name == "modules уже задан" && got["modules.demo.url"] != "x" {
+			t.Fatalf("%s: чужой модуль потерян:\n%s", name, text)
+		}
+		if name == "старый конфиг" && got["llm.chat.root"] == nil {
+			t.Fatalf("%s: прежние настройки потеряны:\n%s", name, text)
+		}
 	}
 }

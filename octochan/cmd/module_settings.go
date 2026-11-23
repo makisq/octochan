@@ -25,6 +25,21 @@ const modulesKey = "modules"
 
 func init() {
 	pluginhost.SettingValues = moduleSettingValues
+	pluginhost.CommandSupply = moduleSupply
+}
+
+// moduleSupply — что команда модуля получает в каждом вызове: настройки
+// модуля сейчас (правка config.yaml видна без !!reload) и его токен —
+// ochan auth --executor <модуль> или OCTOCHAN_TOKEN_<МОДУЛЬ>.
+func moduleSupply(module string, declared []pluginhost.Setting) pluginhost.Supply {
+	values, _ := moduleSettingValues(module, declared)
+	supply := pluginhost.Supply{Settings: values}
+	if fm, err := mustFileManager(); err == nil {
+		if token := fm.ExecutorToken(module); token != "" {
+			supply.Credentials = map[string]string{"token": token}
+		}
+	}
+	return supply
 }
 
 // moduleSettingKey — ключ настройки модуля в config.yaml.
@@ -121,8 +136,8 @@ func declareModuleSettings(path string, info pluginhost.ModuleInfo) ([]string, e
 		return nil, err
 	}
 	text := string(data)
-	var entries []configEntry
-	var added, required []string
+	var entries []moduleEntry
+	var added []string
 	for _, s := range info.Settings {
 		key := moduleSettingKey(info.Name, s.Key)
 		if templateHasKey(text, key) {
@@ -134,11 +149,9 @@ func declareModuleSettings(path string, info pluginhost.ModuleInfo) ([]string, e
 		}
 		if s.Required {
 			comment += templateText(requiredSuffix)
-			if s.Default == "" {
-				required = append(required, key)
-			}
 		}
-		entries = append(entries, configEntry{key: key, comment: comment, example: rawYAML(settingDefault(s.Default))})
+		entries = append(entries, moduleEntry{key: key, comment: comment, value: settingDefault(s.Default),
+			required: s.Required && s.Default == ""})
 		added = append(added, key)
 	}
 	if len(entries) == 0 {
@@ -152,24 +165,20 @@ func declareModuleSettings(path string, info pluginhost.ModuleInfo) ([]string, e
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		return nil, err
 	}
-	if len(required) > 0 {
-		set := map[string]any{}
-		for _, key := range required {
-			set[key] = ""
-		}
-		if err := setConfigValues(path, set); err != nil {
-			return nil, err
-		}
-	}
 	return added, nil
 }
 
-// rawYAML — значение, уже записанное YAML: шаблон вставляет его как есть.
-type rawYAML string
+// moduleEntry — строка настройки модуля в config.yaml: ключ, пояснение,
+// значение YAML. required — обязательная без умолчания: строка без #,
+// пустая, чтобы её было видно и её заполнили.
+type moduleEntry struct {
+	key, comment, value string
+	required            bool
+}
 
 // insertModuleBlock вставляет блок модуля в раздел modules: — под его
 // заголовок (с # или без); раздела нет — в конец файла.
-func insertModuleBlock(text, module, title string, entries []configEntry) string {
+func insertModuleBlock(text, module, title string, entries []moduleEntry) string {
 	lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	header, active := -1, false
 	for i, line := range lines {
@@ -197,14 +206,30 @@ func insertModuleBlock(text, module, title string, entries []configEntry) string
 			break
 		}
 	}
+	// Обязательная без умолчания пишется без #: раздел modules и блок
+	// модуля тогда заданы. Писатель у неё один — этот блок; раньше её же
+	// второй раз ставил setConfigValues, и строка выходила дважды.
+	needActive := false
+	for _, e := range entries {
+		needActive = needActive || e.required
+	}
+	if needActive && !active {
+		activateHeader(lines, header, 0, modulesKey)
+		active = true
+	}
 	// Модуль уже есть в разделе — его строки дописываются под ним.
 	at, moduleActive := -1, false
 	for i := header + 1; i < end; i++ {
-		body, commented := uncommentLine(lines[i], "  ")
-		if body == "  "+module+":" {
+		_, content, ok := templateLine(lines[i])
+		if ok && content == module+":" && (leadingSpaces(lines[i]) == 2 || strings.HasPrefix(lines[i], "#")) {
+			_, commented := uncommentLine(lines[i], "  ")
 			at, moduleActive = i, !commented
 			break
 		}
+	}
+	if needActive && at >= 0 && !moduleActive {
+		activateHeader(lines, at, 1, module)
+		moduleActive = true
 	}
 	// mark — строка под заголовком: под заданным — # после отступа (у
 	// пояснения он уже свой), под закомментированным — # в начале строки.
@@ -220,7 +245,12 @@ func insertModuleBlock(text, module, title string, entries []configEntry) string
 	var block []string
 	if at < 0 {
 		block = append(block, mark("  ", active, "# "+title))
-		block = append(block, mark("  ", active, module+":"))
+		if needActive {
+			block = append(block, "  "+module+":")
+			moduleActive = true
+		} else {
+			block = append(block, mark("  ", active, module+":"))
+		}
 	}
 	// Строки настроек: модуль задан — # после отступа; задан только раздел
 	// modules — # после отступа модуля; не задано ничего — # в начале.
@@ -236,7 +266,11 @@ func insertModuleBlock(text, module, title string, entries []configEntry) string
 	for _, e := range entries {
 		leaf := e.key[strings.LastIndex(e.key, ".")+1:]
 		block = append(block, child("# "+e.comment))
-		block = append(block, child(leaf+": "+string(e.example.(rawYAML))))
+		if e.required {
+			block = append(block, "    "+leaf+": "+e.value)
+			continue
+		}
+		block = append(block, child(leaf+": "+e.value))
 	}
 	// Новая версия модуля — новая версия и в заголовке блока.
 	if at > header {

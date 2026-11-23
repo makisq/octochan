@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,12 @@ func runShellScript(t *testing.T, script string) (string, error) {
 	t.Helper()
 	defer setContext(rootCmd, context.Background())
 	var err error
-	out := captureStdout(t, func() { err = runLineShell(context.Background(), strings.NewReader(script), false) })
+	// Вывод команд — в stdout, как у настоящей оболочки: e.must оставляет
+	// rootCmd писать в свой буфер.
+	out := captureStdout(t, func() {
+		rootCmd.SetOut(nil)
+		err = runLineShell(context.Background(), strings.NewReader(script), false)
+	})
 	return out, err
 }
 
@@ -62,6 +68,21 @@ func TestShellRedirect(t *testing.T) {
 		if got := read(name); got != want {
 			t.Fatalf(">>| %s: %q, ожидалось %q", name, got, want)
 		}
+	}
+	// Пустой вывод — не «+0 байт», а предупреждение в stderr.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldErr := os.Stderr
+	os.Stderr = w
+	_, runErr := runShellScript(t, "for x in [] {\n  print(x)\n} >>| ping.txt\nfor x in [] {\n  print(x)\n} >| empty.txt\n")
+	os.Stderr = oldErr
+	w.Close()
+	warned, _ := io.ReadAll(r)
+	if runErr != nil || !strings.Contains(string(warned), "вывод пуст — "+e.path("ping.txt")+" не изменился") ||
+		!strings.Contains(string(warned), "вывод пуст — "+e.path("empty.txt")+" пуст") || strings.Contains(string(warned), "+0 байт") {
+		t.Fatalf("пустой вывод: %v\n%s", runErr, warned)
 	}
 	// Ошибка строки — не в файл: по пустому файлу не понять, что не прошло.
 	if _, err := runShellScript(t, "fail(\"сломано\") >| err.txt\n"); err == nil || read("err.txt") != "" {
@@ -186,6 +207,22 @@ func TestShellReload(t *testing.T) {
 		t.Fatalf("после пересборки модуля и правки конфига: %v, reload_probe=%d\n%s", err, viper.GetInt("reload_probe"), out)
 	}
 
+	// Файл модуля сломали (собрали библиотеку вместо модуля): !!reload
+	// говорит почему, а загруженный модуль продолжает работать.
+	if err := os.WriteFile(installed+".new", []byte("!<arch>\nне программа"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(installed+".new", installed); err != nil {
+		t.Fatal(err)
+	}
+	if err := pluginhost.WriteChecksum(installed); err != nil {
+		t.Fatal(err)
+	}
+	out, err = runShellScript(t, "!!reload\npgstat where\n")
+	if err == nil || !strings.Contains(out, "pgstat:") {
+		t.Fatalf("сломанный файл модуля унёс рабочий модуль: %v\n[%s]", err, out)
+	}
+
 	// Сломанный конфиг — отказ, прежние настройки остаются.
 	if err := os.WriteFile(config, []byte("paths: [\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -195,5 +232,36 @@ func TestShellReload(t *testing.T) {
 	}
 	if viper.GetInt("reload_probe") != 7 {
 		t.Fatal("сломанный конфиг стёр прежние настройки")
+	}
+}
+
+// Вывод команды модуля — и cmd.Println, и fmt.Println мимо cmd — уходит в
+// файл перенаправления с первой же строки: раньше печать мимо cmd go-plugin
+// пересылал позже ответа, и первый файл оставался пустым.
+func TestShellRedirectModuleOutput(t *testing.T) {
+	module := buildModule(t, "ochan/examples/classmodule", "pgstat")
+	e := newScriptEnv(t)
+	t.Cleanup(shellReset)
+	t.Cleanup(func() {
+		pluginhost.GetModuleManager().Cleanup()
+		refreshModuleCommands()
+		syncRunners()
+	})
+	setting(t, warnMissingKey, false)
+	e.must("!!install", module)
+	out, err := runShellScript(t, "pgraw >| first.txt\npgstat show >| second.txt\npgraw >>| all.txt\npgraw >>| all.txt\n")
+	if err != nil || strings.Contains(out, "pgraw") {
+		t.Fatalf("вывод мимо файлов: %v\n%s", err, out)
+	}
+	for name, want := range map[string]string{"first.txt": "pgraw: выполнено\n", "all.txt": "pgraw: выполнено\npgraw: выполнено\n",
+		"second.txt": "pg_stat: соединений 42, попаданий в кеш 99.1%\n"} {
+		data, err := os.ReadFile(e.path(name))
+		if err != nil || string(data) != want {
+			t.Fatalf("%s: %q, ожидалось %q (%v)", name, data, want, err)
+		}
+	}
+	// ochan() сценария тоже получает печать мимо cmd.
+	if out, err := runShellScript(t, `print("[" + ochan("pgraw") + "]")`+"\n"); err != nil || out != "[pgraw: выполнено]\n" {
+		t.Fatalf("ochan(pgraw): %v %q", err, out)
 	}
 }

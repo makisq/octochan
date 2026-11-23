@@ -40,13 +40,27 @@ func (module) Settings() []pluginhost.Setting {
 | `Key` | имя в разделе модуля: `modules.<модуль>.<Key>`. Буквы, цифры, `_` и `-`, первой — буква; иначе модуль не загрузится |
 | `Default` | значение по умолчанию текстом, как в YAML: `30s`, `5432`, `[a, b]`; пусто — умолчания нет |
 | `Description` | одна строка «что это» — она встанет пояснением в `config.yaml` |
-| `Required` | без значения модуль не работает: ochan предупреждает при установке и при каждом запуске |
+| `Required` | без значения модуль не работает: ochan предупреждает при установке и при каждом запуске. Вместе с `Default` умолчание уже и есть значение: строка остаётся под `#`, предупреждения нет |
 
-Команда читает значение из того, что пришло в `Init`:
+Команда читает значения в каждом вызове — `pluginhost.Settings(cmd.Context())`,
+а с ochan старше 0.3.1 (он их не шлёт) — то, что пришло в `Init`:
 
 ```go
-cmd.Printf("pgstat: %s:%s, кластер %s\n", settings["host"], settings["port"], cluster)
+// setting — значение настройки в команде: как сейчас в config.yaml
+// (pluginhost.Settings), а с ochan старше 0.3.1 — то, что пришло в Init.
+func setting(cmd *cobra.Command, key string) string {
+    if values := pluginhost.Settings(cmd.Context()); values != nil {
+        return values[key]
+    }
+    return settings[key]
+}
+
+cmd.Printf("pgstat: %s:%s, кластер %s, токен: %s\n", setting(cmd, "host"), setting(cmd, "port"), cluster, token)
 ```
+
+Токен модуля — `pluginhost.Token(cmd.Context())`; пользователь задаёт его
+`ochan auth --executor <модуль>` или переменной `OCTOCHAN_TOKEN_<МОДУЛЬ>`,
+как токен исполнителя.
 
 ## 2. Установить
 
@@ -84,7 +98,26 @@ modules:
 ```
 $ ochan pgstat where
 внимание: модуль pgstat: не задано обязательное — modules.pgstat.cluster в ~/.octochan/config.yaml
-pgstat: 127.0.0.1:5432, кластер не задан
+pgstat: 127.0.0.1:5432, кластер не задан, токен: нет
+```
+
+Откуда какое значение — `ochan config show`:
+
+```
+$ ochan config show modules
+Конфиг: ~/.octochan/config.yaml
+modules.pgstat.cluster = ""  [config.yaml; обязательно, не задано]
+modules.pgstat.host    = 127.0.0.1  [умолчание модуля pgstat]
+modules.pgstat.port    = 5432  [умолчание модуля pgstat]
+```
+
+Токен модуля:
+
+```
+$ ochan auth --executor pgstat секрет
+Токен модуля pgstat сохранён: ~/.octochan/tokens/pgstat — его команды получают токен в каждом вызове
+$ ochan pgstat where
+pgstat: 127.0.0.1:5432, кластер не задан, токен: есть
 ```
 
 ## 3. Задать значения
@@ -109,7 +142,7 @@ ochan> !!reload
   алиасов: 0
   переменные и алиасы оболочки сохранены; сбросить — !!reset
 ochan> pgstat where
-pgstat: db1.example.internal:5432, кластер main
+pgstat: db1.example.internal:5432, кластер main, токен: есть
 ```
 
 ## 4. Новая версия — новая настройка
@@ -143,26 +176,40 @@ modules:
     # refresh: 30s
 ```
 
-Что модуль настраивает и что сейчас задано — `ochan inspect` и `ochan
-modules`:
+Что модуль настраивает и что сейчас задано — `ochan inspect` (и до
+установки) и `ochan modules`:
 
 ```
 $ ochan inspect ~/.octochan/modules/pgstat.hcplugin
 
-=== Информация о модуле ===
-Файл:   ~/.octochan/modules/pgstat.hcplugin
-Имя:    pgstat
-Версия: 0.2.0
-Настройки (config.yaml, раздел modules.pgstat):
+=== Модуль ===
+Файл:      ~/.octochan/modules/pgstat.hcplugin
+Имя:       pgstat
+Версия:    0.2.0
+Размер:    20762069 байт
+SHA-256:   bdfe1cd4c670602144a48a28efc1e036b2bb7ceee93c29838ef7a750c4b4722f
+Установлен: да, этот файл (~/.octochan/modules/pgstat.hcplugin)
+
+Команды (5):
+  pgstat reset             Сбросить статистику (класс execution) — класс apply
+  pgstat show              Показать статистику (класс read — от pgstat) — класс read
+  pgstat where             Показать, куда смотрит pgstat (настройки modules.pgstat) — класс read
+  …
+
+Настройки (config.yaml, раздел modules.pgstat; значения — в Init модуля и в каждом вызове команды):
   modules.pgstat.cluster = main — имя кластера в отчётах pgstat (обязательно)
   modules.pgstat.host = db1.example.internal — сервер PostgreSQL, статистику которого показывает pgstat
   modules.pgstat.port = 5432 — порт PostgreSQL
   modules.pgstat.refresh = 30s — как часто обновлять статистику
-…
 $ ochan modules
 Модули:
   pgstat.hcplugin              pgstat v0.2.0 — команд: 3; настроек: 4 (modules.pgstat)
 ```
+
+`ochan inspect --json` — то же для программ: `name`, `version`, `size`,
+`sha256`, `installed_path`, `installed_same`, `commands`, `runners`
+(`kind`, `executor`, `services`, `ops`, `token_command`, `token_env`),
+`settings` (`key`, `default`, `description`, `required`).
 
 ## 5. Исполнитель с настройками
 
@@ -217,7 +264,10 @@ modules:
 
 - **Секретов в настройках нет.** `config.yaml` лежит на диске и попадает в
   резервные копии. Токен — `ochan auth --executor <имя>`, в коде —
-  `runnerhost.Token(ctx)`.
+  `runnerhost.Token(ctx)` у исполнителя и `pluginhost.Token(cmd.Context())`
+  у команды. `ochan config show` значения с именем вроде `token`,
+  `password`, `secret`, `cookie`, `key` скрывает, но это страховка, а не
+  место для секрета.
 - **Значения — строки.** `Init` получает `map[string]any`, но значения в
   нём — текст: `5432` — строка `"5432"`, список — YAML одной строкой
   (`[a, b]`). Разбирайте сами.
@@ -231,6 +281,16 @@ modules:
 - **Предупреждение о незаданном обязательном** выключается в
   `config.yaml`: `defaults.warn_missing_settings: false`. Список настроек
   при `!!install` по-прежнему печатается, с пометкой «обязательно».
+- **`Required` вместе с `Default`** — умолчание считается значением:
+  строка ставится под `#`, предупреждения нет, модуль получает умолчание.
+  Чтобы пользователь обязательно вписал своё, `Default` не задавайте.
+- **Настройки в `Init` — на момент загрузки.** Значение сейчас — в
+  команде, `pluginhost.Settings(cmd.Context())`; в оболочке правка
+  `config.yaml` видна после `!!reload`, отдельной команде `ochan …` — сразу.
+- **Вывод — через `cmd`, но и `fmt.Println` дойдёт.** Модуль, собранный с
+  ochan 0.3.1, отдаёт хосту всё, что команда напечатала, вместе с ответом —
+  и мимо `cmd`. Модуль, собранный раньше, печатает мимо `cmd` в свой
+  stdout, и такая строка может опоздать к `>|`: пересоберите модуль.
 - **`!!install --remove` раздел не удаляет:** значения пригодятся, если
   модуль поставят снова. Убрать — руками.
 - **Пояснения пишите на языке пользователей модуля.** ochan переводит на

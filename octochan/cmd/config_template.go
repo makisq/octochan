@@ -404,32 +404,37 @@ func editTemplateText(text string, set map[string]any) (string, bool) {
 			if _, commented := uncommentLine(lines[i], strings.Repeat("  ", depth)); !commented {
 				continue
 			}
-			lines[i] = strings.Repeat("  ", depth) + parts[depth] + ":"
-			// Строки раздела под снятым заголовком — # после отступа, как
-			// у заданного раздела в шаблоне: «#   # пояснение» →
-			// «  # пояснение», «#   mode: ""» → «  # mode: ""».
-			child := len(strings.Repeat("  ", depth+1))
-			for j := i + 1; j < len(lines); j++ {
-				m := commentedLine.FindStringSubmatch(lines[j])
-				if m == nil {
-					if strings.TrimSpace(lines[j]) != "" && leadingSpaces(lines[j]) >= child {
-						continue // уже задано в этом разделе
-					}
-					break
-				}
-				visual := len(m[1]) + len(m[2])
-				if visual < child {
-					break
-				}
-				if strings.HasPrefix(m[3], "#") {
-					lines[j] = strings.Repeat(" ", visual) + m[3]
-				} else {
-					lines[j] = strings.Repeat(" ", visual) + "# " + m[3]
-				}
-			}
+			activateHeader(lines, i, depth, parts[depth])
 		}
 	}
 	return strings.Join(lines, "\n"), true
+}
+
+// activateHeader снимает # с заголовка раздела lines[i] (отступ depth) и
+// переводит строки раздела в вид заданного раздела шаблона: # после
+// отступа — «#   # пояснение» → «  # пояснение», «#   mode: ""» →
+// «  # mode: ""».
+func activateHeader(lines []string, i, depth int, name string) {
+	lines[i] = strings.Repeat("  ", depth) + name + ":"
+	child := len(strings.Repeat("  ", depth+1))
+	for j := i + 1; j < len(lines); j++ {
+		m := commentedLine.FindStringSubmatch(lines[j])
+		if m == nil {
+			if strings.TrimSpace(lines[j]) != "" && leadingSpaces(lines[j]) >= child {
+				continue // уже задано в этом разделе
+			}
+			break
+		}
+		visual := len(m[1]) + len(m[2])
+		if visual < child {
+			break
+		}
+		if strings.HasPrefix(m[3], "#") {
+			lines[j] = strings.Repeat(" ", visual) + m[3]
+		} else {
+			lines[j] = strings.Repeat(" ", visual) + "# " + m[3]
+		}
+	}
 }
 
 // uncommentLine — строка без # шаблона: «# ␣␣ключ» (раздел не задан) или

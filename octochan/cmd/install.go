@@ -88,6 +88,12 @@ func installPlugin(cmd *cobra.Command, filePath string) error {
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать модуль: %w", err)
 	}
+	// Модуль ли это — до того как что-то скопировано: пробный запуск из
+	// файла, с его же суммой. Не модуль — отказ с причиной, и прежняя
+	// версия, если стоит, не тронута.
+	if _, err := pluginhost.Probe(filePath); err != nil {
+		return fmt.Errorf("%s не установлен, установленное не тронуто: %w", filepath.Base(filePath), err)
+	}
 
 	// Переустановка поверх уже загруженного модуля: сначала гасим его
 	// процесс, иначе Windows не даст перезаписать работающий файл.
@@ -95,6 +101,9 @@ func installPlugin(cmd *cobra.Command, filePath string) error {
 	if err != nil {
 		return err
 	}
+	// Прежняя версия — на случай, если новая всё же не загрузится на месте.
+	prevData, prevErr := os.ReadFile(targetPath)
+	prevSum, _ := os.ReadFile(pluginhost.ChecksumPath(targetPath))
 	mm := pluginhost.GetModuleManager()
 	mm.UnloadModule(targetPath)
 
@@ -102,16 +111,28 @@ func installPlugin(cmd *cobra.Command, filePath string) error {
 	if err != nil {
 		return err
 	}
+	restore := func() string {
+		if prevErr != nil {
+			os.Remove(modulePath)
+			os.Remove(pluginhost.ChecksumPath(modulePath))
+			return "удалён"
+		}
+		if _, err := fm.InstallHashicorpModule(filepath.Base(filePath), prevData); err != nil {
+			return "прежняя версия не возвращена: " + err.Error()
+		}
+		_ = os.WriteFile(pluginhost.ChecksumPath(modulePath), prevSum, 0o600)
+		if err := mm.LoadModule(modulePath); err != nil {
+			return "прежняя версия возвращена, но не загрузилась: " + err.Error()
+		}
+		return "возвращена прежняя версия"
+	}
 	// Сумма фиксируется до загрузки: LoadModule проверяет её и откажется
 	// запускать файл, если содержимое изменится позже.
 	if err := pluginhost.WriteChecksum(modulePath); err != nil {
-		os.Remove(modulePath)
-		return err
+		return fmt.Errorf("%w (%s)", err, restore())
 	}
 	if err := mm.LoadModule(modulePath); err != nil {
-		os.Remove(modulePath)
-		os.Remove(pluginhost.ChecksumPath(modulePath))
-		return fmt.Errorf("модуль не загрузился и был удалён: %w", err)
+		return fmt.Errorf("модуль не загрузился (%s): %w", restore(), err)
 	}
 
 	// Команды модуля — заново: переустановленный модуль — новый процесс, и
@@ -135,7 +156,7 @@ func installPlugin(cmd *cobra.Command, filePath string) error {
 		for _, r := range mm.Runners() {
 			if r.Module == info.Name {
 				cmd.Printf("  исполнитель %s: сервисы %s; токен — ochan auth --executor %s\n",
-					r.Kind, strings.Join(r.Services, ", "), strings.ToLower(r.Kind))
+					r.Kind, strings.Join(r.Services, ", "), scenarioExecutorName(r.Kind))
 			}
 		}
 		// Настройки модуля — в config.yaml сами: пользователь видит, что
