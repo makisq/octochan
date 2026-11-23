@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"ochan/lang"
 	"ochan/rbac"
@@ -19,19 +20,25 @@ import (
 // журнал аудита — authorize, флаги — по умолчанию, вывод — значение
 // ochan().
 
-// scriptForbidden — команды, которых у сценария нет: те, что сами
-// запускают сценарии (иначе сценарий шёл бы по кругу, а флаги внешней
-// команды сбрасывались бы под ней), живут долго или меняют роль процесса
-// посреди сценария.
-var scriptForbidden = []string{"agent", "apply", "back", "completion", "connect", "eval", "help", "plan", "remote",
-	"run", "serve", "set", "shell", "watch"}
+// scriptForbidden — команды, которых у сценария нет: те, что живут долго,
+// меняют роль процесса посреди сценария или сами — оболочка. apply и run
+// сценарий выполняет как вложенный сценарий (script_nested.go): их план
+// входит в его план; plan только читает.
+var scriptForbidden = []string{"agent", "back", "completion", "connect", "eval", "help", "remote",
+	"serve", "set", "shell", "watch"}
 
 // scriptCommands — команды ochan, которые видит сценарий. shell — строка
 // оболочки или ochan eval: внешней команды, которая выполняет сценарий, нет,
-// и apply, plan и run ей доступны (apply @ ("a.yaml" | "b.yaml")). Внутри
-// сценария, который выполняет run или apply, они по-прежнему запрещены:
-// согласованный сценарий не запустит несогласованный.
-type scriptCommands struct{ shell bool }
+// и apply, plan и run ей доступны с любыми флагами. Внутри сценария apply и
+// run — вложенный сценарий: плейбук или файл, план которого входит в план
+// внешнего (apply --request — нет: это чужая заявка). seed и clock — зерно
+// и время внешнего сценария: с ними строится план вложенного run и он сам
+// выполняется.
+type scriptCommands struct {
+	shell bool
+	seed  int64
+	clock time.Time
+}
 
 // shellAllowed — команды, которые строка оболочки может выполнить, хотя
 // сценарию они запрещены.
@@ -95,8 +102,15 @@ func (c scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
 	top, _, _ := strings.Cut(key, ".")
 	allowed := c.shell && scriptDepth == 0 && slices.Contains(shellAllowed, top)
 	if !allowed && (slices.Contains(scriptForbidden, top) || slices.Contains(scriptForbidden, key)) {
-		return nil, "", false, fmt.Errorf("ochan %s: из сценария не выполняется — команда сама запускает сценарии, "+
-			"живёт долго или меняет роль процесса", key)
+		return nil, "", false, fmt.Errorf("ochan %s: из сценария не выполняется — команда живёт долго "+
+			"или меняет роль процесса", key)
+	}
+	// Слово команды без аргументов — f @ (…) проверяет, что команда есть:
+	// аргументы придут с операндом.
+	if !allowed && (key == "apply" || key == "run") && len(argv) > 1 {
+		if _, _, err := nestedArgs(key, argv[1:]); err != nil {
+			return nil, "", false, fmt.Errorf("ochan %s: %w", strings.Join(argv, " "), err)
+		}
 	}
 	// Ввод сценария — не терминал: команда, которая ждёт stdin, ждала бы
 	// вечно.
@@ -107,10 +121,13 @@ func (c scriptCommands) Resolve(args []string) ([]string, string, bool, error) {
 	for _, group := range queryGroups {
 		query = query || rbac.Covers(group, key)
 	}
+	// plan ничего не меняет: исполнитель в режиме плана изменяющих запросов
+	// не шлёт, сценарий — ничего не пишет. Он выполняется и в плане.
+	query = query || key == "plan"
 	return argv, key, query, nil
 }
 
-func (scriptCommands) Run(ctx context.Context, argv []string) (string, error) {
+func (c scriptCommands) Run(ctx context.Context, argv []string) (string, error) {
 	target, _, err := rootCmd.Find(argv)
 	if err != nil {
 		return "", err
@@ -118,6 +135,9 @@ func (scriptCommands) Run(ctx context.Context, argv []string) (string, error) {
 	// Флаги и контекст — только у этой команды: внешняя, которая выполняет
 	// сценарий, свои уже прочитала, и сбрасывать их под ней нельзя. Контекст
 	// сценария после команды кончится — её прежний контекст возвращается.
+	// Флаги внешней команды той же ветки (apply внутри apply --request, run
+	// внутри run) возвращаются после вложенной такими, какими были.
+	restoreFlags := saveFlags(target)
 	resetFlags(target)
 	restore := saveContexts(target)
 	setContext(target, ctx)
@@ -126,10 +146,13 @@ func (scriptCommands) Run(ctx context.Context, argv []string) (string, error) {
 	rootCmd.SetOut(&out)
 	rootCmd.SetArgs(argv)
 	scriptDepth++
+	prevSeed, prevClock := nestedSeed, nestedClock
+	nestedSeed, nestedClock = c.seed, c.clock
 	defer func() {
 		scriptDepth--
+		nestedSeed, nestedClock = prevSeed, prevClock
 		rootCmd.SetOut(prev)
-		resetFlags(target)
+		restoreFlags()
 		restore()
 	}()
 	err = rootCmd.ExecuteContext(ctx)

@@ -42,7 +42,8 @@ func TestScriptCommands(t *testing.T) {
 	e.must("set", "role", "master")
 
 	for src, want := range map[string]string{
-		`ochan("run x.ochan")`:  "из сценария не выполняется",
+		`ochan("watch")`:        "из сценария не выполняется",
+		`ochan("run x.ochan")`:  "сценария x.ochan нет",
 		`ochan("fp check -")`:   "stdin сценарию недоступен",
 		`ochan("nosuch thing")`: "такой команды нет",
 	} {

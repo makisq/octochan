@@ -41,6 +41,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -155,6 +156,10 @@ func (p *Parser) parseAtGroup(pos Position, fn Expr) (*AtExpr, error) {
 type atCall struct {
 	fn   *atFn
 	leaf *atLeaf
+	// shared — общие строки вызова и операнды, из ответов на которые они
+	// могут прийти: план вложенного сценария говорит, откуда возьмётся
+	// значение, которого при согласовании ещё нет.
+	shared *AtShared
 }
 
 // atFn — функция множителя.
@@ -185,6 +190,19 @@ func (in *Interpreter) evalAt(e *AtExpr, env *scope) (Value, error) {
 	calls, _, err := in.atPlan(e, env)
 	if err != nil {
 		return nil, err
+	}
+	for i := range calls {
+		needs := calls[i].leaf.needs
+		if len(needs) == 0 {
+			continue
+		}
+		shared := &AtShared{Needs: needs}
+		for j, other := range calls {
+			if j != i && other.leaf.name != calls[i].leaf.name && !slices.Contains(shared.From, other.leaf.name) {
+				shared.From = append(shared.From, other.leaf.name)
+			}
+		}
+		calls[i].shared = shared
 	}
 
 	// Какие общие строки нужны операндам: их и ищем в ответах.
@@ -567,7 +585,9 @@ func (in *Interpreter) atInvoke(c atCall, found map[string]string) (Value, error
 		if sr, ok := in.commands.(SharedResults); ok {
 			sr.TakeShared() // ответы прежних команд — не этого вызова
 		}
+		in.atShared = c.shared
 		value, err = builtinOchan(in, args)
+		in.atShared = nil
 		if err != nil {
 			err = in.wrap(pos, err)
 		}
@@ -608,6 +628,13 @@ func (in *Interpreter) atFill(leaf *atLeaf, found map[string]string) (Value, err
 	if err := in.writeFile(EffectWrite, filled, data); err != nil {
 		return nil, fmt.Errorf("плейбук %s: копия с общими строками: %w", leaf.path, err)
 	}
+	if n := len(in.effects); n > 0 && in.effects[n-1].Path != "" {
+		in.effects[n-1].AtCopy = true
+	}
+	if in.atFilled == nil {
+		in.atFilled = map[string]string{}
+	}
+	in.atFilled[filled] = leaf.path
 	return StringValue(filled), nil
 }
 

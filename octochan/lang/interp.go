@@ -208,6 +208,11 @@ type Interpreter struct {
 	// только подходящие); inventoryErr — почему инвентаря нет.
 	inventory    []inventory.Host
 	inventoryErr error
+
+	// atShared — общие строки вызова f @ (…), который выполняется сейчас;
+	// atFilled — копии плейбуков с общими строками и их плейбуки.
+	atShared *AtShared
+	atFilled map[string]string
 }
 
 // NewInterpreter создаёт вычислитель поверх реестра алиасов.

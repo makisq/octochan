@@ -178,7 +178,18 @@ func planTable(plan *config.Plan) string {
 			changeValue(change),
 		})
 	}
-	return table([]string{"Цель", "Действие", "Параметр", "Значение"}, rows)
+	out := table([]string{"Цель", "Действие", "Параметр", "Значение"}, rows)
+	// Вложенные сценарии — их планы целиком: их согласуют вместе с внешним.
+	for _, change := range plan.Changes {
+		if change.Nested == "" {
+			continue
+		}
+		out += heading("Вложенный сценарий: "+change.Name, 22)
+		for _, line := range strings.Split(strings.TrimRight(change.Nested, "\n"), "\n") {
+			out += codeParagraph(line)
+		}
+	}
+	return out
 }
 
 func changeValue(change config.Change) string {
@@ -187,7 +198,7 @@ func changeValue(change config.Change) string {
 		return change.To
 	case config.ChangeRemove:
 		return "было: " + change.From
-	case config.ChangeTask, config.ChangeWrite:
+	case config.ChangeTask, config.ChangeWrite, config.ChangeExec, config.ChangeCommand:
 		return change.Detail
 	default:
 		return fmt.Sprintf("%s → %s", change.From, change.To)

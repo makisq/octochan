@@ -30,6 +30,23 @@ type Commands interface {
 	Run(ctx context.Context, argv []string) (string, error)
 }
 
+// NestedPlanner — команды, которые сами выполняют сценарии: apply
+// плейбука, run сценария. Их план входит в план сценария, который их
+// вызывает: согласуют внешний сценарий вместе со всем, что он запустит.
+// nested == false — команда не вложенный сценарий. shared — общие строки
+// вызова f @ (…), которые плейбук получит из ответов на другие вызовы.
+type NestedPlanner interface {
+	PlanNested(ctx context.Context, argv []string, shared *AtShared) (plan, sum string, nested bool, err error)
+}
+
+// AtShared — общие строки вызова внутри f @ (…): параметр → строка в
+// ответе, и операнды, из ответов на которые она может прийти. Значения в
+// плане нет — оно появится при выполнении; план говорит, откуда.
+type AtShared struct {
+	Needs map[string]string
+	From  []string
+}
+
 // SetCommands даёт сценарию команды ochan. Без вызова ochan() отказывает:
 // в песочнице сценарий команд не видит.
 func (in *Interpreter) SetCommands(c Commands) { in.commands = c }
@@ -56,7 +73,19 @@ func builtinOchan(in *Interpreter, args []Value) (Value, error) {
 		return nil, err
 	}
 	if !query {
-		in.effects = append(in.effects, Effect{Kind: EffectCommand, Path: key, Args: argv, Calls: in.activeCalls()})
+		effect := Effect{Kind: EffectCommand, Path: key, Args: in.templateArgs(argv), Calls: in.activeCalls()}
+		// Вложенный сценарий: его план — часть плана. Строится и перед
+		// выполнением — по нему видно, что выполнилось то, что согласовали.
+		if planner, ok := in.commands.(NestedPlanner); ok {
+			plan, sum, nested, err := planner.PlanNested(in.ctx, in.templateArgs(argv), in.atShared)
+			if err != nil {
+				return nil, fmt.Errorf("ochan %s: вложенный сценарий: %w", strings.Join(argv, " "), err)
+			}
+			if nested {
+				effect.Nested, effect.NestedSum = plan, sum
+			}
+		}
+		in.effects = append(in.effects, effect)
 		if in.dry != nil {
 			return StringValue(""), nil
 		}
@@ -103,4 +132,21 @@ func (in *Interpreter) RunLine(s *Session, file *File) (Value, error) {
 		}
 	}
 	return NullValue{}, nil
+}
+
+// templateArgs — аргументы с плейбуком вместо его копии с общими строками
+// (c.at.yaml → c.yaml): план строится до того, как строки известны, и при
+// выполнении действие должно совпасть с планом.
+func (in *Interpreter) templateArgs(argv []string) []string {
+	if len(in.atFilled) == 0 {
+		return argv
+	}
+	out := make([]string, len(argv))
+	for i, a := range argv {
+		if template, ok := in.atFilled[a]; ok {
+			a = template
+		}
+		out[i] = a
+	}
+	return out
 }

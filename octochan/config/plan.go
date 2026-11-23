@@ -58,6 +58,10 @@ type Change struct {
 	Name   string `json:"name"`
 	From   string `json:"from,omitempty"`
 	To     string `json:"to,omitempty"`
+	// Nested — план вложенного сценария, который выполнит команда (apply
+	// плейбука или run сценария из сценария), текстом. Согласуют его вместе
+	// с внешним.
+	Nested string `json:"nested,omitempty"`
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -179,6 +183,17 @@ func (p *Plan) Render(width int) string {
 				fmt.Fprintf(&b, " — %s", change.Detail)
 			}
 			b.WriteByte('\n')
+			// Вложенный план — под командой, со сдвигом: видно, что делает
+			// каждый вложенный сценарий.
+			for _, line := range strings.Split(strings.TrimRight(change.Nested, "\n"), "\n") {
+				switch {
+				case change.Nested == "":
+				case line == "":
+					b.WriteString("               │\n")
+				default:
+					fmt.Fprintf(&b, "               │ %s\n", line)
+				}
+			}
 		case ChangeAdd:
 			fmt.Fprintf(&b, "    %-10s %s = %s\n",
 				change.Kind.Russian(), truncateRunes(change.Name, width), change.To)

@@ -185,7 +185,7 @@ func (s scriptSetup) interpreter(cmd *cobra.Command, registry *lang.Registry, ou
 		interp.SetClock(s.clock)
 	}
 	interp.SetInventory(s.inventory, s.inventoryErr)
-	interp.SetCommands(scriptCommands{})
+	interp.SetCommands(scriptCommands{seed: s.seed, clock: s.clock})
 	if s.watch {
 		interp.WatchLiterals(s.script.Name, s.perturb)
 	}
@@ -248,6 +248,11 @@ type scriptTrace struct {
 
 // traceScript — execScript с литералами сценария.
 func traceScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, setup scriptSetup, plan bool, out io.Writer) (scriptTrace, error) {
+	leave, err := enterScript(file.Name)
+	if err != nil {
+		return scriptTrace{}, err
+	}
+	defer leave()
 	if setup.box != nil {
 		spec := isolatedSpec{Mode: "run", Name: setup.script.Name, Content: setup.script.Content,
 			Check: true, Dir: setup.dir, Seed: setup.seed}
@@ -271,7 +276,7 @@ func traceScript(cmd *cobra.Command, registry *lang.Registry, file *lang.File, s
 	if plan {
 		interp.SetPlanMode()
 	}
-	err := interp.RunFile(file)
+	err = interp.RunFile(file)
 	return scriptTrace{interp.Effects(), interp.Invocations(), interp.Literals()}, err
 }
 
@@ -571,7 +576,7 @@ func applyScriptRequest(cmd *cobra.Command, store *workspace.Requests, request *
 		return runErr
 	}
 
-	if !slices.Equal(fingerprints(effects), run.Effects) {
+	if !sameEffects(run.Effects, fingerprints(checkedEffects(effects))) {
 		cmd.PrintErrln("внимание: выполнение разошлось с согласованным планом: файлы поменялись во время выполнения")
 	}
 	cmd.Printf("Заявка %s выполнена, записано файлов: %d\n", request.ID, len(written))
@@ -639,6 +644,9 @@ func describeDrift(approved []string, current []lang.Effect) string {
 		case current[i].Kind == lang.EffectExec:
 			lines = append(lines, fmt.Sprintf("  %s: запуск с другими аргументами — %s", current[i].Path,
 				strings.Join(current[i].Args, " ")))
+		case current[i].Kind == lang.EffectCommand && current[i].Nested != "":
+			lines = append(lines, fmt.Sprintf("  вложенный сценарий ochan %s: его файл, аргументы или план не те, что "+
+				"согласовали", strings.Join(current[i].Args, " ")))
 		case current[i].Kind == lang.EffectCommand:
 			lines = append(lines, fmt.Sprintf("  команда %s с другими аргументами — ochan %s", current[i].Path,
 				strings.Join(current[i].Args, " ")))

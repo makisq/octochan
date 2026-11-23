@@ -54,6 +54,17 @@ type Effect struct {
 	Append bool
 	// Args — аргументы запущенной программы (EffectExec).
 	Args []string `json:",omitempty"`
+	// Nested — план вложенного сценария, который выполняет команда (apply
+	// плейбука, run сценария): текстом, как его покажет план. NestedSum —
+	// его отпечаток: по нему согласованный план сверяется с тем, что
+	// вложенный сценарий сделал бы сейчас. Поправили вложенный файл —
+	// отпечаток другой, и заявка не выполнится.
+	Nested    string `json:",omitempty"`
+	NestedSum string `json:",omitempty"`
+	// AtCopy — запись копии плейбука с общими строками (c.at.yaml). В плане
+	// её нет — строки ещё не известны, — и с согласованным планом она не
+	// сверяется: в ней значение из ответа узла.
+	AtCopy bool `json:",omitempty"`
 }
 
 // Writes сообщает, что действие записало файл: его можно откатить, и его
@@ -139,8 +150,14 @@ func (e Effect) Fingerprint() string {
 	switch e.Kind {
 	case EffectLive:
 		return string(e.Kind) + " " + e.Path
-	case EffectExec, EffectCommand:
+	case EffectExec:
 		return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256([]byte(strings.Join(e.Args, "\x00"))))
+	case EffectCommand:
+		material := strings.Join(e.Args, "\x00")
+		if e.NestedSum != "" {
+			material += "\x00nested\x00" + e.NestedSum
+		}
+		return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256([]byte(material)))
 	}
 	return fmt.Sprintf("%s %s %x", e.Kind, e.Path, sha256.Sum256(e.After))
 }
@@ -494,8 +511,12 @@ func BuildPlan(source string, effects []Effect) *config.Plan {
 			plan.Add(config.Change{Kind: config.ChangeExec, Target: e.Path, Name: strings.Join(append([]string{e.Path}, e.Args...), " "),
 				Detail: "в плане не запускается; не откатывается"})
 		case EffectCommand:
+			detail := "в плане не выполняется; не откатывается"
+			if e.Nested != "" {
+				detail = "вложенный сценарий, его план — ниже; не откатывается"
+			}
 			plan.Add(config.Change{Kind: config.ChangeCommand, Target: e.Path, Name: "ochan " + strings.Join(e.Args, " "),
-				Detail: "в плане не выполняется; не откатывается"})
+				Detail: detail, Nested: e.Nested})
 		}
 	}
 	return plan
