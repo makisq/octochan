@@ -53,6 +53,16 @@ func TestShellRedirect(t *testing.T) {
 	if _, err := runShellScript(t, "print(\"новое\") >| ping.txt\n"); err != nil || read("ping.txt") != "новое\n" {
 		t.Fatalf("файл не перезаписан: %v %q", err, read("ping.txt"))
 	}
+	// «>>|» дописывает в конец, файла нет — создаёт.
+	if _, err := runShellScript(t, "ping >>| ping.txt\nprint(\"ещё\") >>| ping.txt\nping >>| new.txt\n"+
+		"for x in [3] {\n  print(x)\n} >>| block.txt\n"); err != nil {
+		t.Fatalf(">>|: %v", err)
+	}
+	for name, want := range map[string]string{"ping.txt": "новое\npong\nещё\n", "new.txt": "pong\n", "block.txt": "1\n2\n3\n"} {
+		if got := read(name); got != want {
+			t.Fatalf(">>| %s: %q, ожидалось %q", name, got, want)
+		}
+	}
 	// Ошибка строки — не в файл: по пустому файлу не понять, что не прошло.
 	if _, err := runShellScript(t, "fail(\"сломано\") >| err.txt\n"); err == nil || read("err.txt") != "" {
 		t.Fatalf("ошибка ушла в файл или не засчитана: %v %q", err, read("err.txt"))
@@ -60,6 +70,7 @@ func TestShellRedirect(t *testing.T) {
 
 	// Неверное перенаправление и «>|» внутри блока — ошибка строки, файла нет.
 	for _, script := range []string{"ping >|\n", ">| x.txt\n", "ping >| a.txt b.txt\n", "ping >| a.txt >| b.txt\n",
+		"ping >>| a.txt >>| b.txt\n", "if 1 > 0 { >>| x.txt\n}\n",
 		"if 1 > 0 { >| x.txt\n}\n", "if 1 > 0 {\nprint(1) >| x.txt\n}\n"} {
 		if _, err := runShellScript(t, script); err == nil {
 			t.Fatalf("%q принято", script)
@@ -74,8 +85,10 @@ func TestShellRedirect(t *testing.T) {
 	// Запись в файл — право tee: роли только для чтения перенаправление закрыто.
 	e.must("role", "create", "reader", "--allow", "read")
 	e.must("set", "role", "reader")
-	if _, err := runShellScript(t, "ping >| reader.txt\n"); err == nil {
-		t.Fatal("роль только для чтения записала файл перенаправлением")
+	for _, op := range []string{">|", ">>|"} {
+		if _, err := runShellScript(t, "ping "+op+" reader.txt\n"); err == nil {
+			t.Fatalf("роль только для чтения записала файл через %s", op)
+		}
 	}
 	if _, err := os.Stat(e.path("reader.txt")); err == nil {
 		t.Fatal("файл роли только для чтения создан")
@@ -83,27 +96,34 @@ func TestShellRedirect(t *testing.T) {
 	e.must("set", "role", "master")
 }
 
-// Ошибки неверного перенаправления называют, что не так.
+// Ошибки неверного перенаправления называют, что не так; «>>|» —
+// дописать, «>|» — перезаписать.
 func TestSplitRedirect(t *testing.T) {
 	for line, want := range map[string]string{
-		"ping >|":          "после >| нет файла",
-		">| x":             "перед >| нет команды",
-		"ping >| a b":      "один файл, а их 2",
-		"ping >| a >| b":   "один раз в строке",
-		"ping >| 'a b'":    "",
-		"print(\">| x\")":  "-",
-		"ping # >| x":      "-",
-		"stats db1 >| ~/s": "",
+		"ping >|":           "после >| нет файла",
+		"ping >>|":          "после >>| нет файла",
+		">| x":              "перед >| нет команды",
+		">>| x":             "перед >>| нет команды",
+		"ping >| a b":       "один файл, а их 2",
+		"ping >| a >| b":    "одно в строке",
+		"ping >>| a >| b":   "одно в строке",
+		"ping >| 'a b'":     "",
+		"print(\">| x\")":   "-",
+		"print(\">>| x\")":  "-",
+		"ping # >| x":       "-",
+		"stats db1 >| ~/s":  "",
+		"stats db1 >>| ~/s": "",
 	} {
-		command, target, ok, err := splitRedirect(line)
+		command, r, err := splitRedirect(line)
 		switch want {
 		case "-":
-			if ok || err != nil || command != line {
-				t.Fatalf("%q: перенаправления нет, а разобрано %q %q %v %v", line, command, target, ok, err)
+			if r != nil || err != nil || command != line {
+				t.Fatalf("%q: перенаправления нет, а разобрано %q %+v %v", line, command, r, err)
 			}
 		case "":
-			if !ok || err != nil || target == "" || strings.Contains(command, ">|") {
-				t.Fatalf("%q: %q %q %v %v", line, command, target, ok, err)
+			if r == nil || err != nil || r.target == "" || strings.Contains(command, ">|") ||
+				r.append != strings.Contains(line, ">>|") {
+				t.Fatalf("%q: %q %+v %v", line, command, r, err)
 			}
 		default:
 			if err == nil || !strings.Contains(err.Error(), want) {
@@ -111,8 +131,8 @@ func TestSplitRedirect(t *testing.T) {
 			}
 		}
 	}
-	if _, target, _, _ := splitRedirect("ping >| 'a b'"); target != "a b" {
-		t.Fatalf("путь в кавычках: %q", target)
+	if _, r, _ := splitRedirect("ping >| 'a b'"); r == nil || r.target != "a b" || r.append {
+		t.Fatalf("путь в кавычках: %+v", r)
 	}
 }
 

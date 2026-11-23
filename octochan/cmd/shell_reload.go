@@ -17,6 +17,7 @@ import (
 //
 //	!!reload                   перечитать конфиг, модули и алиасы, не выходя
 //	stats db1 >| db1.txt       записать вывод строки в файл
+//	stats db1 >>| all.txt      дописать вывод строки в конец файла
 //
 // Переменные и алиасы, объявленные в оболочке, !!reload не трогает — их
 // сбрасывает !!reset.
@@ -103,10 +104,20 @@ func drainModuleChanges() {
 // >| файл
 // ---------------------------------------------------------------------------
 
-// redirectOperator — перенаправление вывода строки оболочки в файл. Как
-// «>|» в bash: файл перезаписывается. Одиночный «>» в оболочке занят
-// языком (сравнение), а «>|» в языке ничего не значит — спутать нельзя.
-const redirectOperator = ">|"
+// Перенаправление вывода строки оболочки в файл, как в bash: «>|» —
+// перезаписать файл, «>>|» — дописать в конец. Одиночный «>» в оболочке
+// занят языком (сравнение), «>>» — композиция, а «>|» и «>>|» в языке ничего
+// не значат — спутать нельзя.
+const (
+	redirectOperator = ">|"
+	appendOperator   = ">>|"
+)
+
+// redirection — куда строка пишет вывод: файл и дописывать ли.
+type redirection struct {
+	target string
+	append bool
+}
 
 // terminalOut — куда писать то, что видит человек, а не файл: ошибки
 // строки, напоминания, итог перенаправления. Пока строка пишет в файл,
@@ -120,71 +131,88 @@ func shellOut() io.Writer {
 	return os.Stdout
 }
 
-// splitRedirect отделяет «>| файл» в конце строки. Внутри кавычек и после
-// # оператор — просто текст. ok — перенаправление есть; err — оно
-// записано неправильно: без файла, с двумя файлами, без команды.
-func splitRedirect(line string) (command, target string, ok bool, err error) {
-	at := -1
+// splitRedirect отделяет «>| файл» или «>>| файл» в конце строки. Внутри
+// кавычек и после # оператор — просто текст. r — перенаправление, nil —
+// его нет; err — оно записано неправильно: без файла, с двумя файлами, без
+// команды, дважды.
+func splitRedirect(line string) (command string, r *redirection, err error) {
+	at, size := -1, 0
 	quote := rune(0)
 	runes := []rune(line)
 scan:
 	for i := 0; i < len(runes); i++ {
-		r := runes[i]
+		c := runes[i]
 		switch {
 		case quote != 0:
-			if r == quote {
+			if c == quote {
 				quote = 0
 			}
-		case r == '"' || r == '\'':
-			quote = r
-		case r == '#':
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
 			break scan
-		case r == '>' && i+1 < len(runes) && runes[i+1] == '|':
+		case c == '>' && i+2 < len(runes) && runes[i+1] == '>' && runes[i+2] == '|':
+			if at < 0 { // второй оператор — ошибка, её назовёт проверка остатка
+				at, size = i, 3
+			}
+			i += 2
+		case c == '>' && i+1 < len(runes) && runes[i+1] == '|':
 			if at < 0 {
-				at = i // второй «>|» — ошибка, её назовёт проверка остатка
+				at, size = i, 2
 			}
 			i++
 		}
 	}
 	if at < 0 {
-		return line, "", false, nil
+		return line, nil, nil
 	}
+	op := string(runes[at : at+size])
 	command = strings.TrimSpace(string(runes[:at]))
-	rest := strings.TrimSpace(string(runes[at+len([]rune(redirectOperator)):]))
+	rest := strings.TrimSpace(string(runes[at+size:]))
 	if command == "" {
-		return "", "", true, i18n.Errorf("перед %s нет команды: команда >| файл", redirectOperator)
+		return "", nil, i18n.Errorf("перед %s нет команды: команда %s файл", op, op)
 	}
 	if strings.Contains(rest, redirectOperator) {
-		return "", "", true, i18n.Errorf("%s — один раз в строке: вывод пишется в один файл", redirectOperator)
+		return "", nil, i18n.Errorf("перенаправление — одно в строке: вывод пишется в один файл")
 	}
 	args, err := splitArgs(rest)
 	if err != nil {
-		return "", "", true, err
+		return "", nil, err
 	}
 	switch len(args) {
 	case 0:
-		return "", "", true, i18n.Errorf("после %s нет файла: команда >| файл", redirectOperator)
+		return "", nil, i18n.Errorf("после %s нет файла: команда %s файл", op, op)
 	case 1:
-		return command, args[0], true, nil
+		return command, &redirection{target: args[0], append: op == appendOperator}, nil
 	}
-	return "", "", true, i18n.Errorf("после %s — один файл, а их %d: путь с пробелами берут в кавычки", redirectOperator, len(args))
+	return "", nil, i18n.Errorf("после %s — один файл, а их %d: путь с пробелами берут в кавычки", op, len(args))
 }
 
-// withRedirect выполняет run, направив вывод в файл target: всё, что
-// строка печатает в stdout, — команды ochan, модулей, инструкции языка.
+// withRedirect выполняет run, направив вывод в файл r.target — с начала
+// или в конец (r.append): всё, что строка печатает в stdout, — команды
+// ochan, модулей, инструкции языка.
 // Ошибки остаются на экране, как в bash у «>»: по пустому файлу не понять,
 // что команда не прошла.
 //
 // Запись в файл — то же, что tee: то же право (группа apply), та же
 // область роли и тот же запрет на рабочий каталог ochan, запись в журнал
 // аудита. Иначе роль только для чтения писала бы файлы перенаправлением.
-func withRedirect(ctx context.Context, target string, run func()) {
+func withRedirect(ctx context.Context, r *redirection, run func()) {
+	target := r.target
 	if err := authorize(teeCmd, []string{target}); err != nil {
 		shellFail(err)
 		return
 	}
 	path := expandHome(target)
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	mode := os.O_TRUNC
+	before := int64(0)
+	if r.append {
+		mode = os.O_APPEND
+		if info, err := os.Stat(path); err == nil {
+			before = info.Size()
+		}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|mode, 0o644)
 	if err != nil {
 		shellFail(i18n.Errorf("вывод не перенаправить в %s: %v", target, err))
 		return
@@ -226,11 +254,15 @@ func withRedirect(ctx context.Context, target string, run func()) {
 	if shellLines {
 		note = os.Stderr
 	}
+	if r.append {
+		fmt.Fprintln(note, i18n.Sprintf("Вывод дописан в %s: +%d байт, всего %d", shown, size-before, size))
+		return
+	}
 	fmt.Fprintln(note, i18n.Sprintf("Вывод записан в %s: %d байт", shown, size))
 }
 
 // errRedirectInBlock — «>|» на строке, которая открывает блок или
 // продолжает его, а не закрывает.
 func errRedirectInBlock() error {
-	return i18n.Errorf("перенаправление ставят после закрывающей скобки блока: } >| файл")
+	return i18n.Errorf("перенаправление ставят после закрывающей скобки блока: } >| файл или } >>| файл")
 }

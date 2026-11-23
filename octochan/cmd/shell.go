@@ -40,8 +40,9 @@ var shellCmd = &cobra.Command{
 		"Команды оболочки: !!reload — перечитать config.yaml, модули и алиасы,\n" +
 		"не выходя (пересобранный модуль работает сразу; переменные оболочки\n" +
 		"остаются), !!reset — забыть переменные и алиасы оболочки, !!history,\n" +
-		"!!clear. «строка >| файл» пишет вывод строки в файл (перезаписывает);\n" +
-		"ошибки остаются на экране, право — как у tee.",
+		"!!clear. «строка >| файл» пишет вывод строки в файл (перезаписывает),\n" +
+		"«строка >>| файл» — дописывает в конец; ошибки остаются на экране,\n" +
+		"право — как у tee.",
 	Example: "ochan shell\n" +
 		"echo 'logs rank --min warning' | ochan shell\n" +
 		"ochan shell --stop-on-error < проверки.txt",
@@ -307,10 +308,11 @@ func exitShell(code int) {
 }
 
 // executeShellInput выполняет одну строку оболочки. «строка >| файл» —
-// вывод строки в файл (withRedirect).
+// вывод строки в файл, «строка >>| файл» — в конец файла (withRedirect).
 func executeShellInput(ctx context.Context, raw string) {
 	input := strings.TrimSpace(raw)
-	command, target, redirected, err := splitRedirect(input)
+	command, redirect, err := splitRedirect(input)
+	redirected := redirect != nil
 	if err != nil {
 		rememberCommand(raw, input)
 		shellFail(err)
@@ -338,7 +340,7 @@ func executeShellInput(ctx context.Context, raw string) {
 				}
 			}
 			if redirected {
-				withRedirect(ctx, target, run)
+				withRedirect(ctx, redirect, run)
 			} else {
 				run()
 			}
@@ -353,7 +355,7 @@ func executeShellInput(ctx context.Context, raw string) {
 			return
 		}
 		rememberCommand(raw, input)
-		withRedirect(ctx, target, func() { executeShellLine(ctx, command, false) })
+		withRedirect(ctx, redirect, func() { executeShellLine(ctx, command, false) })
 		return
 	}
 	executeShellLine(ctx, raw, true)
