@@ -77,7 +77,7 @@ var Groups = map[string][]string{
 	// llm.init, llm.corpus, llm.train, llm.fit, llm.learn, llm.quantize — своя модель:
 	// её словарь, корпус, параметры колец и веса. То, как модель решает,
 	// меняется, как то, что ставит !!install.
-	"install": {"!!install", "!!registry", "!!rin", "inspect", "llm.corpus", "llm.fit", "llm.init", "llm.learn", "llm.quantize", "llm.train", "setup"},
+	"install": {"!!install", "!!registry", "!!rin", "inspect", "new", "llm.corpus", "llm.fit", "llm.init", "llm.learn", "llm.quantize", "llm.train", "setup"},
 	"auth":    {"auth", "timer"},
 	"admin": {"role.create", "role.delete", "role.deny", "role.grant", "role.limit", "role.revoke",
 		"role.scope", "role.undeny", "role.update", "trigger.secret",

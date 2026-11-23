@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,10 @@ const (
 	// EffectCommand — ochan(): выполнена меняющая команда ochan. Path — её
 	// ключ (incident.open), Args — аргументы. Не откатывается.
 	EffectCommand EffectKind = "command"
+	// EffectNet — меняющий HTTP-запрос: fetch или curl с методом POST,
+	// PUT, PATCH или DELETE и "allow_write": true. Path — метод и адрес
+	// (без пароля), After — тело. В плане не отправляется, не откатывается.
+	EffectNet EffectKind = "net"
 )
 
 // Effect — одно действие сценария.
@@ -208,7 +213,13 @@ func (in *Interpreter) Planning() bool { return in.dry != nil }
 func (in *Interpreter) Effects() []Effect { return append([]Effect(nil), in.effects...) }
 
 // path приводит путь из сценария к абсолютному и проверяет его песочницей.
-func (in *Interpreter) path(name string) (string, error) {
+func (in *Interpreter) path(name string) (string, error) { return in.pathFor(name, true) }
+
+// readPath — путь для чтения: в закрытом каталоге читать можно то, что
+// открыто SetReadable.
+func (in *Interpreter) readPath(name string) (string, error) { return in.pathFor(name, false) }
+
+func (in *Interpreter) pathFor(name string, write bool) (string, error) {
 	if name == "" {
 		return "", errors.New("пустой путь")
 	}
@@ -240,12 +251,37 @@ func (in *Interpreter) path(name string) (string, error) {
 			return "", fmt.Errorf("путь %s не проверить: %w", name, err)
 		}
 		for _, dir := range in.protected {
-			if within(dir, real) {
-				return "", fmt.Errorf("%s — рабочий каталог ochan (%s): сценариям он закрыт", name, dir)
+			if !within(dir, real) {
+				continue
 			}
+			for _, open := range in.readable {
+				if within(open, real) {
+					if !write {
+						return path, nil
+					}
+					return "", fmt.Errorf("%s — рабочий каталог ochan (%s): сценарий его читает, но не пишет", name, open)
+				}
+			}
+			return "", fmt.Errorf("%s — рабочий каталог ochan (%s): сценариям он закрыт", name, dir)
 		}
 	}
 	return path, nil
+}
+
+// SetReadable открывает для чтения каталоги внутри закрытых SetProtected:
+// журналы, отчёты, модули рабочего каталога. Писать в них сценарий
+// по-прежнему не может.
+func (in *Interpreter) SetReadable(dirs []string) {
+	in.readable = nil
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		if real, err := realPath(filepath.Clean(dir)); err == nil {
+			dir = real
+		}
+		in.readable = append(in.readable, dir)
+	}
 }
 
 // SetProtected закрывает каталоги для встроенных функций — и в песочнице,
@@ -276,7 +312,7 @@ func within(dir, path string) bool {
 
 // readFile читает файл: сначала записанное в режиме плана, затем диск.
 func (in *Interpreter) readFile(name string) ([]byte, error) {
-	path, err := in.path(name)
+	path, err := in.readPath(name)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +332,7 @@ func (in *Interpreter) readFile(name string) ([]byte, error) {
 
 // fileExists сообщает, существует ли файл, с учётом режима плана.
 func (in *Interpreter) fileExists(name string) (bool, error) {
-	path, err := in.path(name)
+	path, err := in.readPath(name)
 	if err != nil {
 		return false, err
 	}
@@ -510,6 +546,15 @@ func BuildPlan(source string, effects []Effect) *config.Plan {
 		case EffectExec:
 			plan.Add(config.Change{Kind: config.ChangeExec, Target: e.Path, Name: strings.Join(append([]string{e.Path}, e.Args...), " "),
 				Detail: "в плане не запускается; не откатывается"})
+		case EffectNet:
+			target := e.Path
+			if _, rawURL, ok := strings.Cut(e.Path, " "); ok {
+				if u, err := url.Parse(rawURL); err == nil {
+					target = u.Host
+				}
+			}
+			plan.Add(config.Change{Kind: config.ChangeNet, Target: target, Name: e.Path,
+				Detail: fmt.Sprintf("тело %d байт; в плане не отправляется; не откатывается", len(e.After))})
 		case EffectCommand:
 			detail := "в плане не выполняется; не откатывается"
 			if e.Nested != "" {

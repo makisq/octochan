@@ -51,6 +51,7 @@ var configSections = []configSection{
 		{"paths.reports", "отчёты ochan diff", nil},
 		{"paths.registry_cache", "клоны git-реестров пакетов", nil},
 		{"paths.warn_open", "предупреждать при запуске, что каталог открыт для чужой записи", nil},
+		{"paths.script_read", "что из рабочего каталога сценарии читают: logs, reports, modules, history, scenarios, aliases, registry_cache; писать в него не могут, секреты закрыты всегда", nil},
 	}},
 	{"Исполнители и почта: общие умолчания", []configEntry{
 		{"defaults.api_url", "адрес API по умолчанию для исполнителей (свой — executors.<имя>.api_url)", nil},

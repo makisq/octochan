@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"ochan/modules/pluginhost"
+
 	"github.com/spf13/viper"
 )
 
@@ -19,7 +21,7 @@ func TestConfigShow(t *testing.T) {
 
 	out := e.must("config", "show")
 	for _, want := range []string{"defaults.http_timeout", "= 45s  [config.yaml]", "defaults.max_parallel_tasks",
-		"= 5  [умолчание]", "defaults.api_key", "= ***  [config.yaml; скрыто]", "executors.demo.token",
+		"= 5  [умолчание]", "defaults.api_key", "= …  [config.yaml; скрыто]", "executors.demo.token",
 		"executors.demo.smtp_password", "tls.key"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("в выводе нет %q:\n%s", want, out)
@@ -62,4 +64,34 @@ func TestSecretSetting(t *testing.T) {
 	if secretSetting("tls.key", "/etc/ochan/server.key") || secretSetting("a.token", "") {
 		t.Error("путь к файлу и пустое значение — не секрет")
 	}
+}
+
+// config show --executor — что исполнитель получает в вызове, по слоям:
+// executors.<имя> сильнее modules.<модуль>; секрет и токен скрыты.
+func TestConfigShowExecutor(t *testing.T) {
+	runner := buildModule(t, "ochan/examples/runnermodule", "demo-runner")
+	e := newScriptEnv(t)
+	t.Cleanup(func() {
+		pluginhost.GetModuleManager().Cleanup()
+		refreshModuleCommands()
+		syncRunners()
+	})
+	e.must("!!install", runner)
+	out := e.must("config", "show", "--executor", "demo")
+	if !strings.Contains(out, "region") || !strings.Contains(out, "eu-1  [modules.demo-runner.region — умолчание]") ||
+		!strings.Contains(out, "токен: не задан — ochan auth --executor demo") {
+		t.Fatalf("config show --executor demo:\n%s", out)
+	}
+	setting(t, "executors.demo", map[string]any{"region": "us-2", "api_key": "k123"})
+	e.must("auth", "--executor", "demo", "t0k")
+	out = e.must("config", "show", "--executor", "demo")
+	for _, want := range []string{"us-2  [executors.demo.region]", "api_key", "…  [executors.demo.api_key]", "токен: …"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("в выводе нет %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "k123") || strings.Contains(out, "t0k") || strings.Contains(out, "eu-1") {
+		t.Fatalf("секрет или перекрытый слой в выводе:\n%s", out)
+	}
+	e.fails("исполнителя или модуля nope нет", "config", "show", "--executor", "nope")
 }

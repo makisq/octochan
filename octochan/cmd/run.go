@@ -104,6 +104,9 @@ func reportAliasErrors(cmd *cobra.Command, errs []error) {
 
 var runOpts scriptOptions
 
+// runTrace — run --trace: каждая инструкция и её итог — в stderr.
+var runTrace bool
+
 var runCmd = &cobra.Command{
 	Use:   "run <файл.ochan | алиас | -> [аргументы...]",
 	Short: "Выполнить сценарий или алиас",
@@ -111,10 +114,15 @@ var runCmd = &cobra.Command{
 	Long: "Если первый аргумент — существующий файл или «-» (stdin), выполняется он.\n" +
 		"Иначе имя трактуется как алиас, а остальные аргументы — как его параметры.\n" +
 		"Числа распознаются автоматически, всё остальное передаётся строкой.\n\n" +
-		"Что сценарий изменил бы, не выполняя его: ochan plan файл.ochan.",
+		"Что сценарий изменил бы, не выполняя его: ochan plan файл.ochan.\n\n" +
+		"--trace печатает в stderr каждую инструкцию (файл:строка и её текст),\n" +
+		"её итог (значение, новое значение переменной), вызовы алиасов с\n" +
+		"аргументами, а при ошибке — переменные в этот момент и стек вызовов.\n" +
+		"Значение переменной с именем вроде token, password, secret, key скрыто.",
 	Example: "ochan run сценарий.ochan\n" +
 		"ochan run синхронизировать prod.conf test.conf\n" +
-		"ochan run --sandbox --root ./configs сценарий.ochan",
+		"ochan run --sandbox --root ./configs сценарий.ochan\n" +
+		"ochan run --trace сценарий.ochan",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		box, err := runOpts.build()
 		if err != nil {
@@ -126,6 +134,9 @@ var runCmd = &cobra.Command{
 
 		target := args[0]
 		if box != nil {
+			if runTrace {
+				return fmt.Errorf("--trace работает без --sandbox: отлаживайте сценарий вне песочницы")
+			}
 			return runSandboxed(cmd, box, target, args[1:])
 		}
 
@@ -136,6 +147,7 @@ var runCmd = &cobra.Command{
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
+		interp.SetReadable(readablePaths())
 		interp.SetInventory(hosts, invErr)
 		commands := scriptCommands{}
 		// Вложенный run: зерно и время внешнего сценария — те, с которыми
@@ -164,7 +176,13 @@ var runCmd = &cobra.Command{
 				return err
 			}
 			defer leave()
+			if runTrace {
+				interp.SetTrace(cmd.ErrOrStderr(), map[string]string{src.Name: src.Content})
+			}
 			return interp.RunFile(file)
+		}
+		if runTrace {
+			interp.SetTrace(cmd.ErrOrStderr(), nil)
 		}
 
 		values := make([]lang.Value, 0, len(args)-1)
@@ -271,6 +289,7 @@ var evalCmd = &cobra.Command{
 		interp := lang.NewInterpreter(cmd.Context(), registry, cmd.OutOrStdout())
 		interp.SetErr(cmd.ErrOrStderr())
 		interp.SetProtected(protectedPaths())
+		interp.SetReadable(readablePaths())
 		interp.SetCommands(scriptCommands{shell: true})
 
 		// Одиночное выражение печатаем: иначе eval был бы бесполезен.
@@ -357,4 +376,5 @@ var aliasesCmd = &cobra.Command{
 func init() {
 	evalCmd.Flags().StringVarP(&evalExpr, "expr", "e", "", "выражение для вычисления")
 	runOpts.register(runCmd)
+	runCmd.Flags().BoolVar(&runTrace, "trace", false, "печатать каждую инструкцию и её итог в stderr")
 }

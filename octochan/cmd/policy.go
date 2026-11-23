@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -189,6 +190,71 @@ func protectedPaths() []string {
 		real = append(real, path)
 	}
 	return real
+}
+
+// scriptReadKey — настройка: какие каталоги рабочего каталога сценарий
+// может читать. Писать в рабочий каталог сценарий не может никогда.
+const scriptReadKey = "paths.script_read"
+
+// scriptReadable — каталоги, которые можно открыть сценариям на чтение:
+// в них нет секретов. history — журнал операций: в нём бывают значения
+// изменённых параметров, поэтому по умолчанию он закрыт.
+var scriptReadable = map[string]func(*workspace.FileManager) string{
+	"logs":           (*workspace.FileManager).LogsDir,
+	"reports":        (*workspace.FileManager).ReportsDir,
+	"modules":        (*workspace.FileManager).ModulesDir,
+	"history":        (*workspace.FileManager).HistoryDir,
+	"scenarios":      (*workspace.FileManager).ScenariosDir,
+	"aliases":        (*workspace.FileManager).AliasesDir,
+	"registry_cache": (*workspace.FileManager).RegistryCacheDir,
+}
+
+// scriptReadDefault — что сценарий читает, пока paths.script_read не задан.
+var scriptReadDefault = []string{"logs", "reports", "modules"}
+
+// readablePaths — каталоги рабочего каталога, открытые сценариям на
+// чтение (paths.script_read). Секреты — config.yaml, токены, ключи, роли,
+// заявки — не открываются никаким значением: имени нет в scriptReadable.
+func readablePaths() []string {
+	fm, err := mustFileManager()
+	if err != nil {
+		return nil
+	}
+	names := viper.GetStringSlice(scriptReadKey)
+	var out []string
+	for _, name := range names {
+		dir, ok := scriptReadable[strings.TrimSpace(name)]
+		if !ok {
+			continue
+		}
+		path := dir(fm)
+		if resolved, err := lang.RealPath(path); err == nil {
+			path = resolved
+		}
+		out = append(out, path)
+	}
+	return out
+}
+
+// checkScriptRead — ошибка в paths.script_read: имя, которого открыть
+// нельзя. Пишется предупреждением при запуске.
+func checkScriptRead() error {
+	var bad []string
+	for _, name := range viper.GetStringSlice(scriptReadKey) {
+		if _, ok := scriptReadable[strings.TrimSpace(name)]; !ok {
+			bad = append(bad, name)
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	known := make([]string, 0, len(scriptReadable))
+	for name := range scriptReadable {
+		known = append(known, name)
+	}
+	sort.Strings(known)
+	return i18n.Errorf("%s: %s не открывается сценариям (секреты — config.yaml, токены, ключи, роли, заявки — закрыты всегда); можно: %s",
+		scriptReadKey, strings.Join(bad, ", "), strings.Join(known, ", "))
 }
 
 // pathFree — команды, аргументы которых не пути этой машины.

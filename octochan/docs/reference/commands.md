@@ -99,6 +99,8 @@
 - [`ochan net http`](#ochan-net-http) — Жив ли HTTP: код, время, размер и сертификат
 - [`ochan net port`](#ochan-net-port) — Принимает ли порт соединения TCP
 - [`ochan net tls`](#ochan-net-tls) — Сертификат TLS: кто выдал, кому и сколько ему осталось
+- [`ochan new`](#ochan-new) — Заготовки: модуль команд
+- [`ochan new module`](#ochan-new-module) — Создать заготовку модуля команд: main.go, go.mod, Makefile
 - [`ochan opmode`](#ochan-opmode) — Режим нейросети в оболочке: каждая строка — реплика модели
 - [`ochan patch`](#ochan-patch) — Применить изменения к основному конфигу
 - [`ochan paths`](#ochan-paths) — Где лежит то, чем пользуется ochan, и чем меняется каждый путь
@@ -748,10 +750,12 @@ config.yaml, умолчание ochan или умолчание модуля (mo
 ochan config show
 ochan config show defaults
 ochan config show --json modules
+ochan config show --executor demo
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
 |---|---|---|---|
+| `--executor` | string | — | что исполнитель (или модуль команд) получает в каждом вызове и из какого слоя |
 | `--json` | bool | — | вывести JSON — для программ |
 
 ## ochan connect
@@ -2141,6 +2145,48 @@ ochan net tls db7:5433 --name db7.internal --ca corp-ca.pem --warn 14d
 | `--name` | string | — | имя сервера для SNI и проверки; по умолчанию — хост |
 | `--warn` | string | `30d` | ошибка, если до конца сертификата меньше этого срока |
 
+## ochan new
+
+Заготовки: модуль команд.
+
+```
+ochan new
+```
+
+Право: `install`.
+
+Подкоманды: [`module`](#ochan-new-module).
+
+## ochan new module
+
+Создать заготовку модуля команд: main.go, go.mod, Makefile.
+
+```
+ochan new module <имя>
+```
+
+Создаёт каталог <имя> с модулем, который сразу собирается и ставится:
+main.go (команда <имя> hello с классом read, настройка greeting в
+modules.<имя>, токен модуля), go.mod и Makefile (make — собрать,
+make inspect — проверить, make install — поставить). Модуль импортирует
+ochan/modules/pluginhost, поэтому go.mod ссылается на исходники ochan:
+--src, иначе — каталог исходников, в котором вы сейчас, иначе ../octochan.
+Каталог, который уже есть и не пуст, не трогается.
+
+Право: `install`.
+
+Примеры:
+
+```
+ochan new module mymod
+ochan new module mymod --src ~/src/octochan/octochan
+```
+
+| Флаг | Тип | По умолчанию | Описание |
+|---|---|---|---|
+| `--dir` | string | — | куда положить модуль (по умолчанию ./<имя>) |
+| `--src` | string | — | каталог исходников ochan (где go.mod с module ochan) |
+
 ## ochan opmode
 
 Режим нейросети в оболочке: каждая строка — реплика модели.
@@ -2812,6 +2858,11 @@ ochan run <файл.ochan | алиас | -> [аргументы...]
 
 Что сценарий изменил бы, не выполняя его: ochan plan файл.ochan.
 
+--trace печатает в stderr каждую инструкцию (файл:строка и её текст),
+её итог (значение, новое значение переменной), вызовы алиасов с
+аргументами, а при ошибке — переменные в этот момент и стек вызовов.
+Значение переменной с именем вроде token, password, secret, key скрыто.
+
 Право: `apply`.
 
 Примеры:
@@ -2820,6 +2871,7 @@ ochan run <файл.ochan | алиас | -> [аргументы...]
 ochan run сценарий.ochan
 ochan run синхронизировать prod.conf test.conf
 ochan run --sandbox --root ./configs сценарий.ochan
+ochan run --trace сценарий.ochan
 ```
 
 | Флаг | Тип | По умолчанию | Описание |
@@ -2832,6 +2884,7 @@ ochan run --sandbox --root ./configs сценарий.ochan
 | `--name` | string | — | имя сценария, поданного на stdin |
 | `--root` | stringArray | — | разрешённый каталог песочницы; можно указать несколько раз (по умолчанию — текущий) |
 | `--sandbox` | bool | — | песочница: файлы только внутри --root, окружение, живые источники и сеть — только разрешённые |
+| `--trace` | bool | — | печатать каждую инструкцию и её итог в stderr |
 
 ## ochan sandbox
 

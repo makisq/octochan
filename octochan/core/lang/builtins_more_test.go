@@ -3,6 +3,7 @@ package lang
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -230,14 +231,68 @@ print(curl("%[1]s/json", {"method": "HEAD"})["status"])`, server.URL)
 	}
 
 	for src, want := range map[string]string{
-		fmt.Sprintf(`fetch("%s/missing")`, server.URL):                 "404",
-		fmt.Sprintf(`curl("%s/json", {"method": "POST"})`, server.URL): "только читает",
-		`fetch("file:///etc/passwd")`:                                  "http:// или https://",
-		fmt.Sprintf(`fetch("%s/json", {"body": "x"})`, server.URL):     "неизвестный параметр",
+		fmt.Sprintf(`fetch("%s/missing")`, server.URL):                                        "404",
+		fmt.Sprintf(`curl("%s/json", {"method": "POST"})`, server.URL):                        "только читает",
+		`fetch("file:///etc/passwd")`:                                                         "http:// или https://",
+		fmt.Sprintf(`fetch("%s/json", {"body": "x"})`, server.URL):                            "body — у меняющего запроса",
+		fmt.Sprintf(`fetch("%s/json", {"bodyy": "x"})`, server.URL):                           "неизвестный параметр",
+		fmt.Sprintf(`fetch("%s/json", {"method": "TRACE"})`, server.URL):                      "метод TRACE",
+		fmt.Sprintf(`fetch("%s/json", {"method": "POST", "allow_write": "yes"})`, server.URL): "allow_write — true или false",
 	} {
 		if _, err := run(t, src); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v, ожидалось %q", src, err, want)
 		}
+	}
+}
+
+// Меняющий запрос — только с allow_write: в плане он виден и не
+// отправляется, при выполнении уходит с телом; без allow_write — отказ с
+// подсказкой, как писать.
+func TestFetchWrite(t *testing.T) {
+	var got []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		got = append(got, r.Method+" "+r.Header.Get("Content-Type")+" "+string(body))
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, "создано")
+	}))
+	defer server.Close()
+	src := fmt.Sprintf(`print(fetch("%[1]s/items", {"method": "POST", "allow_write": true, "body": {"name": "a"}}))
+print(curl("%[1]s/items/1", {"method": "DELETE", "allow_write": true})["status"])`, server.URL)
+
+	// План: запросов нет, оба видны как «запрос».
+	file, err := Parse("<тест>", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	in := NewInterpreter(context.Background(), NewRegistry(), &out)
+	in.SetPlanMode()
+	if err := in.RunFile(file); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("план отправил запросы: %v", got)
+	}
+	plan := BuildPlan("<тест>", in.Effects()).Render(0)
+	for _, want := range []string{"запрос", "POST " + server.URL + "/items", "тело 12 байт; в плане не отправляется; не откатывается",
+		"DELETE " + server.URL + "/items/1"} {
+		if !strings.Contains(plan, want) {
+			t.Fatalf("в плане нет %q:\n%s", want, plan)
+		}
+	}
+
+	// Выполнение: запросы ушли, тело — JSON.
+	if out := mustRun(t, src); out != "создано\n201\n" {
+		t.Fatalf("выполнение: %q", out)
+	}
+	if len(got) != 2 || got[0] != `POST application/json {"name":"a"}` || got[1] != "DELETE  " {
+		t.Fatalf("запросы: %q", got)
+	}
+
+	_, err = run(t, fmt.Sprintf(`fetch("%s/items", {"method": "POST"})`, server.URL))
+	if err == nil || !strings.Contains(err.Error(), `с "allow_write": true: ochan plan покажет его`) {
+		t.Fatalf("без allow_write: %v", err)
 	}
 }
 

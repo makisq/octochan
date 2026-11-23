@@ -165,6 +165,7 @@ func runShellStatement(base context.Context, src string) (terminated bool) {
 		interp := lang.NewInterpreter(ctx, registry, os.Stdout)
 		interp.SetErr(os.Stderr)
 		interp.SetProtected(protectedPaths())
+		interp.SetReadable(readablePaths())
 		interp.SetCommands(scriptCommands{shell: true})
 		value, err := interp.RunLine(shellSession, file)
 		shellDecls = withoutRedeclared(shellDecls, file)

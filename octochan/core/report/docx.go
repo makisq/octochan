@@ -198,7 +198,7 @@ func changeValue(change config.Change) string {
 		return change.To
 	case config.ChangeRemove:
 		return "было: " + change.From
-	case config.ChangeTask, config.ChangeWrite, config.ChangeExec, config.ChangeCommand:
+	case config.ChangeTask, config.ChangeWrite, config.ChangeExec, config.ChangeCommand, config.ChangeNet:
 		return change.Detail
 	default:
 		return fmt.Sprintf("%s → %s", change.From, change.To)

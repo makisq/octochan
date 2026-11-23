@@ -158,6 +158,8 @@ func (s *scope) set(name string, value Value) {
 type Interpreter struct {
 	// lits — наблюдение за литералами сценария (literals.go); nil — нет.
 	lits *literalWatch
+	// trace — трассировка инструкций (trace.go, run --trace); nil — нет.
+	trace *tracer
 
 	registry *Registry
 	builtins map[string]Builtin
@@ -168,8 +170,10 @@ type Interpreter struct {
 
 	// sandbox непуст, если встроенным функциям доступно не всё.
 	sandbox *Sandbox
-	// protected — каталоги, закрытые для встроенных функций (SetProtected).
+	// protected — каталоги, закрытые для встроенных функций (SetProtected);
+	// readable — открытые в них для чтения (SetReadable).
 	protected []string
+	readable  []string
 	// dir — каталог для относительных путей; пусто — текущий.
 	dir string
 	// dry непуст в режиме плана: записи попадают сюда, а не на диск.
@@ -340,13 +344,30 @@ func (in *Interpreter) CallAlias(name string, args []Value) (Value, error) {
 // ---------------------------------------------------------------------------
 
 func (in *Interpreter) execStmt(stmt Stmt, env *scope) error {
+	if in.trace == nil {
+		return in.runStmt(stmt, env)
+	}
+	in.traceStmt(stmt)
+	err := in.runStmt(stmt, env)
+	if _, block := stmt.(*Block); !block {
+		in.traceResult(stmt, env, err)
+	}
+	return err
+}
+
+func (in *Interpreter) runStmt(stmt Stmt, env *scope) error {
 	if err := in.ctx.Err(); err != nil {
 		return in.errorf(stmt.Position(), "выполнение прервано: %v", err)
 	}
 
 	switch s := stmt.(type) {
 	case *ExprStmt:
-		_, err := in.eval(s.Expr, env)
+		value, err := in.eval(s.Expr, env)
+		// print() возвращает напечатанное: повторять его в трассировке — шум.
+		if call, ok := s.Expr.(*Call); in.trace != nil && err == nil &&
+			!(ok && call.Callee != nil && call.Callee.Module == "" && call.Callee.Name == "print") {
+			in.traceExpr(value)
+		}
 		return err
 
 	case *Assign:
@@ -1543,6 +1564,9 @@ func (in *Interpreter) invoke(decl *AliasDecl, args []Value, pos Position) (Valu
 		return nil, in.errorf(pos, "слишком глубокая вложенность вызовов (%d); похоже на бесконечную рекурсию", maxCallDepth)
 	}
 
+	if in.trace != nil {
+		in.traceCall(decl, args)
+	}
 	in.stack = append(in.stack, decl.Name)
 	defer func() { in.stack = in.stack[:len(in.stack)-1] }()
 	defer in.beginCall(decl, args)()

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"ochan/core/i18n"
 	"ochan/core/rbac"
 	"ochan/core/workspace"
 	"ochan/modules/pluginhost"
@@ -20,6 +21,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 )
 
 // moduleCommandAnnotation помечает команды, пришедшие из плагинов.
@@ -419,8 +421,14 @@ var inspectCmd = &cobra.Command{
 				Settings: "executors." + name})
 		}
 		for _, s := range info.Settings {
-			report.Settings = append(report.Settings, inspectSetting{Key: moduleSettingKey(info.Name, s.Key),
-				Default: s.Default, Description: s.Description, Required: s.Required && s.Default == ""})
+			setting := inspectSetting{Key: moduleSettingKey(info.Name, s.Key),
+				Default: s.Default, Description: s.Description, Required: s.Required && s.Default == ""}
+			if setting.Required {
+				// Тот же текст, что moduleMissing, — каким его увидит пользователь.
+				setting.Warning = i18n.Sprintf("модуль %s: не задано обязательное — %s в %s", info.Name, setting.Key,
+					viper.ConfigFileUsed())
+			}
+			report.Settings = append(report.Settings, setting)
 		}
 		if inspectJSON {
 			data, err := json.MarshalIndent(report, "", "  ")
@@ -471,9 +479,13 @@ var inspectCmd = &cobra.Command{
 				cmd.Printf("  %s\n", line)
 			}
 			for _, s := range report.Settings {
-				if s.Required {
-					cmd.Printf("  %s без значения: ochan предупреждает (defaults.warn_missing_settings), модуль решает сам, работать ли\n", s.Key)
+				if !s.Required {
+					continue
 				}
+				cmd.Printf("\n  Без %s ochan при установке, при каждом запуске и после !!reload пишет в stderr:\n", s.Key)
+				cmd.Printf("    внимание: %s\n", s.Warning)
+				cmd.Printf("  Выключить — %s: false. Модуль загружается и сам решает, работать ли:\n", warnMissingKey)
+				cmd.Printf("  ошибка из его Init — отказ загрузиться с её текстом.\n")
 			}
 		}
 		if len(report.Commands) == 0 && len(report.Runners) == 0 {
@@ -522,6 +534,9 @@ type inspectSetting struct {
 	Default     string `json:"default,omitempty"`
 	Description string `json:"description,omitempty"`
 	Required    bool   `json:"required,omitempty"`
+	// Warning — предупреждение, которое ochan печатает, пока обязательная
+	// настройка не задана.
+	Warning string `json:"missing_warning,omitempty"`
 }
 
 // installedState — стоит ли модуль: та же сборка, другая или нет; путь

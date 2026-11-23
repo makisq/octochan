@@ -20,7 +20,7 @@
 | `config` | 1–2 | `config` | разобрать источник один раз: файл, текст или postgres://user@host/db |
 | `conflicts` | 2–3 | `list` | чем расходятся два пути: список; пустой — пути коммутируют |
 | `contains` | 2 | `bool` | есть ли подстрока в строке или элемент в списке |
-| `curl` | 1–2 | `map` | ответ HTTP целиком: {status, headers, body}; method — GET или HEAD |
+| `curl` | 1–2 | `map` | ответ HTTP целиком: {status, headers, body}; method — GET или HEAD, а с "allow_write": true — и POST, PUT, PATCH, DELETE |
 | `diff` | 2 | `int` | количество расхождений между двумя конфигами |
 | `diff_list` | 2 | `list` | список имён расходящихся параметров |
 | `dom` | 1 | `map` | условия морфизма: параметр -> ожидаемое значение (null — параметра быть не должно) |
@@ -31,7 +31,7 @@
 | `exec` | 1… | `string` | запустить программу из --allow-exec с аргументами и вернуть её вывод; только в песочнице ядра; в плане не запускается и возвращает пустую строку |
 | `exists` | 1 | `bool` | существует ли файл |
 | `fail` | 0… | — | прервать сценарий с сообщением |
-| `fetch` | 1–2 | `string` | тело ответа HTTP GET: fetch(url[, {"headers": {…}, "timeout": "10s"}]); в песочнице — только хосты из --allow-net |
+| `fetch` | 1–2 | `string` | тело ответа HTTP GET: fetch(url[, {"headers": {…}, "timeout": "10s"}]); запись — method POST, PUT, PATCH, DELETE с "allow_write": true и "body": видна в плане; в песочнице — только хосты из --allow-net |
 | `file` | 1 | `stream` | поток в файл: print дописывает в него строку; запись — как write, видна в плане |
 | `filter` | 2 | `list` | элементы, для которых функция истинна: filter(список, fn(x) => x > 0) |
 | `float` | 1 | `float` | привести к дробному |

@@ -88,10 +88,10 @@ func moreBuiltins() []Builtin {
 		{Name: "eval", MinArgs: 1, MaxArgs: 1,
 			Doc: "вычислить выражение языка из строки: eval(\"2 + 3 * 4\"); проверяется перед вычислением, алиасы недоступны", Fn: builtinEval},
 		{Name: "fetch", MinArgs: 1, MaxArgs: 2, Returns: TypeString,
-			Doc: "тело ответа HTTP GET: fetch(url[, {\"headers\": {…}, \"timeout\": \"10s\"}]); в песочнице — только хосты из --allow-net",
+			Doc: "тело ответа HTTP GET: fetch(url[, {\"headers\": {…}, \"timeout\": \"10s\"}]); запись — method POST, PUT, PATCH, DELETE с \"allow_write\": true и \"body\": видна в плане; в песочнице — только хосты из --allow-net",
 			Fn:  builtinFetch},
 		{Name: "curl", MinArgs: 1, MaxArgs: 2, Returns: TypeMap,
-			Doc: "ответ HTTP целиком: {status, headers, body}; method — GET или HEAD", Fn: builtinCurl},
+			Doc: "ответ HTTP целиком: {status, headers, body}; method — GET или HEAD, а с \"allow_write\": true — и POST, PUT, PATCH, DELETE", Fn: builtinCurl},
 	}
 }
 
@@ -736,8 +736,12 @@ func builtinEval(in *Interpreter, args []Value) (Value, error) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP: только чтение
+// HTTP: чтение, а запись — только явно и с планом
 // ---------------------------------------------------------------------------
+
+// writeMethods — методы, которые меняют внешнюю систему: сценарий шлёт их
+// только с "allow_write": true, и план показывает каждый такой запрос.
+var writeMethods = map[string]bool{http.MethodPost: true, http.MethodPut: true, http.MethodPatch: true, http.MethodDelete: true}
 
 // maxFetch — предел ответа: сценарию нужны документы и JSON, а не образы.
 const maxFetch = 10 << 20
@@ -750,6 +754,11 @@ type httpRequest struct {
 	url     *url.URL
 	headers map[string]string
 	timeout time.Duration
+	// write — меняющий запрос (allow_write); body — его тело.
+	write bool
+	body  []byte
+	// hasBody — тело задано (и пустое): GET с телом — ошибка.
+	hasBody bool
 }
 
 func (in *Interpreter) httpRequest(args []Value) (*httpRequest, error) {
@@ -765,14 +774,38 @@ func (in *Interpreter) httpRequest(args []Value) (*httpRequest, error) {
 	if !ok {
 		return nil, fmt.Errorf("параметры запроса — словарь, получено %s", args[1].TypeName())
 	}
+	allowWrite := false
 	for _, key := range options.SortedKeys() {
 		value := options[key]
 		switch key {
 		case "method":
 			req.method = strings.ToUpper(value.Text())
-			if req.method != http.MethodGet && req.method != http.MethodHead {
-				return nil, fmt.Errorf("метод %s: сценарий только читает (GET, HEAD); "+
-					"менять внешние системы — дело исполнителя и заявки", req.method)
+		case "allow_write":
+			b, ok := value.(BoolValue)
+			if !ok {
+				return nil, fmt.Errorf("allow_write — true или false, получено %s", value.TypeName())
+			}
+			allowWrite = bool(b)
+		case "body":
+			req.hasBody = true
+			switch v := value.(type) {
+			case StringValue:
+				req.body = []byte(v)
+			case MapValue, ListValue:
+				p, err := plain(v)
+				if err != nil {
+					return nil, fmt.Errorf("body: %w", err)
+				}
+				data, err := json.Marshal(p)
+				if err != nil {
+					return nil, fmt.Errorf("body: %w", err)
+				}
+				req.body = data
+				if _, set := req.headers["Content-Type"]; !set {
+					req.headers["Content-Type"] = "application/json"
+				}
+			default:
+				req.body = []byte(value.Text())
 			}
 		case "headers":
 			headers, ok := value.(MapValue)
@@ -792,8 +825,22 @@ func (in *Interpreter) httpRequest(args []Value) (*httpRequest, error) {
 			}
 			req.timeout = d
 		default:
-			return nil, fmt.Errorf("неизвестный параметр запроса %q: method, headers, timeout", key)
+			return nil, fmt.Errorf("неизвестный параметр запроса %q: method, headers, timeout, body, allow_write", key)
 		}
+	}
+	switch {
+	case req.method == http.MethodGet || req.method == http.MethodHead:
+		if req.hasBody {
+			return nil, fmt.Errorf("body — у меняющего запроса (POST, PUT, PATCH, DELETE), а не у %s", req.method)
+		}
+	case !writeMethods[req.method]:
+		return nil, fmt.Errorf("метод %s: GET, HEAD, а с \"allow_write\": true — POST, PUT, PATCH, DELETE", req.method)
+	case !allowWrite:
+		// Сценарий только читает, но способ писать виден: явно и с планом.
+		return nil, fmt.Errorf("метод %s: сценарий только читает (GET, HEAD); запрос, который меняет внешнюю "+
+			"систему, — с \"allow_write\": true: ochan plan покажет его, а выполнит run с правом apply", req.method)
+	default:
+		req.write = true
 	}
 	return req, nil
 }
@@ -819,7 +866,22 @@ func (in *Interpreter) do(req *httpRequest) (*http.Response, []byte, error) {
 			return nil
 		},
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, req.method, req.url.String(), nil)
+	shown := *req.url
+	shown.User = nil
+	if req.write {
+		// Меняющий запрос — действие плана: в плане он не отправляется, а
+		// согласованный план сверяется с ним по методу, адресу и телу.
+		in.effects = append(in.effects, Effect{Kind: EffectNet, Path: req.method + " " + shown.String(),
+			After: req.body, Calls: in.activeCalls()})
+		if in.dry != nil {
+			return &http.Response{StatusCode: 0, Header: http.Header{}}, nil, nil
+		}
+	}
+	var reqBody io.Reader
+	if req.write {
+		reqBody = bytes.NewReader(req.body)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, req.method, req.url.String(), reqBody)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -828,9 +890,9 @@ func (in *Interpreter) do(req *httpRequest) (*http.Response, []byte, error) {
 		httpReq.Header.Set(name, value)
 	}
 
-	shown := *req.url
-	shown.User = nil
-	in.effects = append(in.effects, Effect{Kind: EffectLive, Path: req.method + " " + shown.String(), Calls: in.activeCalls()})
+	if !req.write {
+		in.effects = append(in.effects, Effect{Kind: EffectLive, Path: req.method + " " + shown.String(), Calls: in.activeCalls()})
+	}
 
 	resp, err := client.Do(httpReq)
 	if err != nil {

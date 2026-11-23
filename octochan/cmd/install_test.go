@@ -170,7 +170,12 @@ func TestInspectModule(t *testing.T) {
 	}
 	required := false
 	for _, s := range report.Settings {
-		required = required || s.Key == "modules.pgstat.cluster" && s.Required
+		required = required || s.Key == "modules.pgstat.cluster" && s.Required &&
+			strings.HasPrefix(s.Warning, "модуль pgstat: не задано обязательное — modules.pgstat.cluster в ")
+	}
+	if out := e.must("inspect", module); !strings.Contains(out, "    внимание: модуль pgstat: не задано обязательное — modules.pgstat.cluster в ") ||
+		!strings.Contains(out, "Выключить — defaults.warn_missing_settings: false") {
+		t.Fatalf("inspect без примера предупреждения:\n%s", out)
 	}
 	if !required || len(report.Commands) == 0 || len(report.Runners) != 0 {
 		t.Fatalf("inspect --json: %+v", report)
