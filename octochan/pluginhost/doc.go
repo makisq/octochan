@@ -9,6 +9,6 @@
 // Имя pluginhost, а не plugin, чтобы не конфликтовать с пакетом
 // hashicorp/go-plugin, который здесь же и импортируется.
 //
-// Пакет не зависит ни от config, ни от rlm, ни от scenario: исполнителей он
+// Пакет не зависит ни от config, ни от scenario: исполнителей он
 // переносит JSON-ом, а типизирует их мост runnerhost.
 package pluginhost

@@ -8,7 +8,6 @@
 #                                       ручная без вопросов; незаданное — по умолчанию
 #   scripts/install.sh --here --desktop ещё и значок: меню приложений и рабочий стол
 #   PREFIX=/usr/local scripts/install.sh    программы в PREFIX/bin (спросит sudo), остальное по умолчанию
-#   scripts/install.sh --rlm            ещё и модуль RLM
 #   scripts/install.sh --uninstall      убрать программы из PREFIX/bin (по умолчанию ~/.local/bin)
 #
 # Быстрая установка — для машин, где работать и запускать программы
@@ -48,7 +47,6 @@ remove() {
 	done
 }
 
-WITH_RLM=
 SETUP=
 for arg; do
 	shift
@@ -57,13 +55,12 @@ for arg; do
 		remove
 		exit 0
 		;;
-	--rlm) WITH_RLM=1 ;;
 	--here | --here=* | --bin=* | --home=* | --modules=* | --logs=* | --reports=* | --registry-cache=* | --desktop | --desktop=* | --yes | -y)
 		SETUP=1
 		set -- "$@" "$arg"
 		;;
 	*)
-		echo "Неизвестный ключ $arg: --here[=папка], --bin=, --home=, --modules=, --logs=, --reports=, --registry-cache=, --desktop, --yes, --rlm, --uninstall" >&2
+		echo "Неизвестный ключ $arg: --here[=папка], --bin=, --home=, --modules=, --logs=, --reports=, --registry-cache=, --desktop, --yes, --uninstall" >&2
 		exit 1
 		;;
 	esac
@@ -84,36 +81,19 @@ echo "Сборка ochan…"
 (cd "$ROOT" && go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/ochan" .)
 echo "Сборка ochan-mcp…"
 (cd "$ROOT/mcp" && go build -trimpath -ldflags "$MCP_LDFLAGS" -o "$OUT/ochan-mcp" .)
-if [ -n "$WITH_RLM" ]; then
-	echo "Сборка модуля RLM…"
-	(cd "$ROOT" && go build -trimpath -o "$OUT/rlm.hcplugin" ./plugins/rlm)
-fi
 
 if [ -z "$LEGACY_PREFIX" ] || [ -n "$SETUP" ]; then
 	# Куда ставить, решает ochan setup: спрашивает или берёт из ключей.
 	if [ -n "$LEGACY_PREFIX" ]; then
 		echo "PREFIX вместе с ключами установки не действует: каталог программ — --bin=ПАПКА" >&2
 	fi
-	if [ -n "$WITH_RLM" ]; then
-		# Модуль ставит сам ochan: он фиксирует контрольную сумму, и
-		# подменённый файл модуля потом не загрузится.
-		set -- "$@" "--module=$OUT/rlm.hcplugin"
-	fi
 	"$OUT/ochan" setup "$@"
-	if [ -n "$WITH_RLM" ]; then
-		echo "Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в config.yaml"
-	fi
 	exit 0
 fi
 
 # PREFIX задан: программы — в PREFIX/bin, как у обычных программ системы.
 copy "$OUT/ochan" "$OUT/ochan-mcp"
 echo "Установлено: $BIN/ochan, $BIN/ochan-mcp"
-
-if [ -n "$WITH_RLM" ]; then
-	"$BIN/ochan" '!!install' "$OUT/rlm.hcplugin"
-	echo "Токен RLM: ochan auth --executor rlm; адрес — executors.rlm.api_url в ~/.octochan/config.yaml"
-fi
 
 case ":$PATH:" in
 *":$BIN:"*)

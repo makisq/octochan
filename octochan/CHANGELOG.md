@@ -4,6 +4,21 @@
 
 Версия 0.3.0-alpha: `ochan --version` и `ochan-mcp --version` печатают её.
 
+### Модуль RLM удалён
+
+- Из репозитория убраны клиент API RLM (`rlm/`), его сервисы (`module/`:
+  `pangolin_restart`, `psql_tuning_params_se`, `psqlse_tuningpgbouncer`,
+  `postgresql_se_get_config_files`) и модуль `plugins/rlm`, а с ними
+  `make rlm`, `install.sh --rlm` и `install.ps1 -Rlm`, примеры сценариев
+  RLM и подсказка «сервис теперь приносит модуль rlm». Ядро от RLM и раньше
+  не зависело; запрос к API узла теперь делает исполнитель ядра `http`.
+- Сценарий с сервисом RLM получает обычный отказ «сервис не
+  зарегистрирован» со списком доступных. Кому RLM нужен, собирает модуль
+  из истории git (до этого изменения) или переводит сценарии на `http`:
+  `url` API, тело — параметры, токен — `ochan auth --executor http`
+  (`executors.http.auth_scheme: Token` — для API, которые ждут `Token …`).
+  Прежний токен `~/.octochan/tokens/rlm` больше никто не читает — его
+  можно удалить.
 ### Запрос к API узла: service: http
 
 - Исполнитель ядра `http` — плейбук уходит узлу HTTP-запросом (POST по

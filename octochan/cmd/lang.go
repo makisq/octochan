@@ -45,7 +45,7 @@ func flagSource(f *pflag.Flag) string {
 }
 
 // walkCommands обходит дерево команд вместе с флагами. Флаги, которые
-// появляются от установленных модулей (--rlm у status), не обходятся: их
+// появляются от установленных модулей (--linux у status), не обходятся: их
 // справка — на языке, текущем при установке, и не часть ochan.
 func walkCommands(root *cobra.Command, each func(*cobra.Command), flag func(*pflag.Flag)) {
 	own := func(f *pflag.Flag) {

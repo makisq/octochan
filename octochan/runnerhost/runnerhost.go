@@ -256,7 +256,7 @@ func toStatusReply(st *scenario.Status) statusReply {
 }
 
 // Supplier выдаёт исполнителю токены и настройки по имени исполнителя
-// (rlm, ssh).
+// (http, ssh).
 type Supplier func(executor string) pluginhost.Supply
 
 // remote — исполнитель модуля как scenario.Runner.

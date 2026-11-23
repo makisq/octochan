@@ -1,9 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,62 +121,6 @@ func buildModule(t *testing.T, pkg, name string) string {
 		t.Fatalf("сборка модуля %s: %v\n%s", pkg, err, out)
 	}
 	return module
-}
-
-// RLM — модуль. Без него сервисы RLM называют, что поставить; с ним plan,
-// apply и status идут в RLM API с токеном из auth и адресом из конфига
-// ochan — прежним defaults.api_url или своим executors.rlm.api_url.
-func TestRLMModule(t *testing.T) {
-	module := buildModule(t, "ochan/plugins/rlm", "rlm")
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Token секрет" {
-			w.WriteHeader(http.StatusUnauthorized)
-			fmt.Fprint(w, `{"detail": "нет токена"}`)
-			return
-		}
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/tasks.json":
-			w.WriteHeader(http.StatusCreated)
-			fmt.Fprint(w, `{"id": 101}`)
-		case r.URL.Path == "/api/tasks/101/":
-			fmt.Fprint(w, `{"status": "success", "created_at": "2026-10-27"}`)
-		case r.URL.Path == "/api/tasks/101/events/":
-			fmt.Fprint(w, `[]`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer api.Close()
-
-	e := newScriptEnv(t)
-	t.Cleanup(func() {
-		pluginhost.GetModuleManager().Cleanup()
-		syncRunners()
-	})
-	e.write(e.path("restart.yaml"), "service: pangolin_restart\nparameters:\n  restart: instance\n"+
-		"  skip_sm_conflicts: false\n  confirm: true\ntargets:\n  - svm_ci: CI00000001\n")
-
-	e.fails("теперь приносит модуль rlm", "plan", "restart.yaml")
-	e.fails("исполнителей нет", "auth", "секрет")
-
-	e.must("!!install", module)
-	setting(t, "defaults.api_url", api.URL+"/api/tasks.json")
-	if out := e.must("auth", "секрет"); !strings.Contains(out, "Токен исполнителя rlm сохранён") {
-		t.Fatalf("auth без --executor при одном исполнителе:\n%s", out)
-	}
-	if out := e.must("plan", "restart.yaml"); !strings.Contains(out, "pangolin_restart") || !strings.Contains(out, "исполнитель RLM") {
-		t.Fatalf("план через модуль RLM:\n%s", out)
-	}
-	if out := e.must("apply", "restart.yaml"); !strings.Contains(out, "Создано:\n  - 101") {
-		t.Fatalf("выполнение через модуль RLM:\n%s", out)
-	}
-	if out := e.must("status", "--rlm", "101"); !strings.Contains(out, "Состояние: success") {
-		t.Fatalf("статус через модуль RLM:\n%s", out)
-	}
-
-	// Свой адрес исполнителя перекрывает общий.
-	setting(t, "executors.rlm.api_url", api.URL+"/elsewhere/tasks.json")
-	e.fails("код 404", "status", "--rlm", "101")
 }
 
 // setting задаёт параметр конфига на время теста.

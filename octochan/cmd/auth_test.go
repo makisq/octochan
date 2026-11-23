@@ -34,9 +34,9 @@ func TestTokenReminderNeedsSavedToken(t *testing.T) {
 	}
 
 	// Токен сохранили час назад — срок вышел.
-	e.must("auth", "--executor", "rlm", "token-1")
+	e.must("auth", "--executor", "ext", "token-1")
 	fm, _ := mustFileManager()
-	path, err := fm.ExecutorTokenPath("rlm")
+	path, err := fm.ExecutorTokenPath("ext")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestTokenReminderNeedsSavedToken(t *testing.T) {
 	restartTokenReminder()
 	select {
 	case msg := <-messages:
-		if !strings.Contains(msg, "истекло") || !strings.Contains(msg, "ochan auth --executor rlm") {
+		if !strings.Contains(msg, "истекло") || !strings.Contains(msg, "ochan auth --executor ext") {
 			t.Fatalf("напоминание: %s", msg)
 		}
 	case <-time.After(2 * time.Second):
@@ -55,7 +55,7 @@ func TestTokenReminderNeedsSavedToken(t *testing.T) {
 	}
 
 	// Свежий токен — до предупреждения ещё пятнадцать минут.
-	e.must("auth", "--executor", "rlm", "token-2")
+	e.must("auth", "--executor", "ext", "token-2")
 	select {
 	case msg := <-messages:
 		t.Fatalf("о свежем токене напомнили сразу: %s", msg)

@@ -24,7 +24,7 @@ gofmt -l .
 | `cmd`: `TestReference` | справочник команд и функций совпадает с кодом |
 | `mcp`: `TestTableOnlyReadsOrRequests`, `TestToolDescriptionsAreEnglish` | модели недоступно выполнение; описания инструментов — по-английски |
 | `pluginhost`: `TestLanguageModuleOverGRPC` | модуль языка собирается, ставится и отдаёт словарь по gRPC |
-| `cmd`: `TestApplyRequestUsesApprovedPlan`, `rlm`: `TestExecuteScenarioIsBoundToPlan` | исполнитель применяет ровно согласованный план; запрос сверх плана — отказ до первой отправки |
+| `cmd`: `TestApplyRequestUsesApprovedPlan` | исполнитель применяет ровно согласованный план; запрос сверх плана — отказ до первой отправки |
 | `workspace`: `TestGraph` | порядок между заявками: «ожидает», «не выполнится», без циклов |
 | `cmd`: `TestWatchPolicy` | без человека выполняется только то, что укладывается в политику; отзыв действует со следующего прохода |
 | `cmd`: `TestSystemRolePolicy`, `rbac`: `TestSystemFileCheck` | хранилище ролей сужает права, но не поднимает выше потолка; политике, которую может править не root, не верят |

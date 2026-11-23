@@ -373,8 +373,8 @@ defaults:
   allow_unverified_modules: false
 
 executors:
-  rlm:                     # модуль RLM, если он стоит
-    api_url: https://rlm.example.internal/api/tasks.json
+  http:                    # исполнитель ядра: запрос к API узла
+    api_url: https://node.example.internal/api
 
 logs:
   max_size: 100MB          # журнал ochan уходит в архив с датой в имени
@@ -384,9 +384,8 @@ server:
   listen: 127.0.0.1:7443   # серверный режим
 ```
 
-Адрес API не зашит в код: без него исполнитель модуля откажет с
-объяснением. Всё остальное работает без него. Модуль RLM ставит `make rlm`
-(на Windows — `scripts\install.ps1 -Rlm`), см. [«Модуль RLM»](scenarios.md#модуль-rlm).
+Адрес API не зашит в код: без него исполнитель откажет с объяснением. Всё
+остальное работает без него, см. [«Запрос к API узла»](scenarios.md#запрос-к-api-узла-service-http).
 
 ## Секреты
 
