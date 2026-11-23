@@ -136,21 +136,24 @@ var timerCmd = &cobra.Command{
 			return nil
 		}
 
+		var on bool
 		switch args[0] {
 		case "on":
-			viper.Set("defaults.token_timer_enabled", true)
-			cmd.Println("Напоминание о смене токена включено")
+			on = true
 		case "off":
-			viper.Set("defaults.token_timer_enabled", false)
-			cmd.Println("Напоминание о смене токена выключено")
 		default:
 			return fmt.Errorf("используйте: timer on или timer off")
 		}
-
-		// WriteConfig теперь безопасен: токен в viper не попадает,
-		// он живёт в отдельном файле с правами 0600.
-		if err := viper.WriteConfig(); err != nil {
+		// В файле меняется один ключ: комментарии и прочие настройки
+		// остаются, умолчания в него не выгружаются.
+		if err := setConfigValues(viper.ConfigFileUsed(), map[string]any{"defaults.token_timer_enabled": on}); err != nil {
 			return fmt.Errorf("не удалось сохранить настройки: %w", err)
+		}
+		viper.Set("defaults.token_timer_enabled", on)
+		if on {
+			cmd.Println("Напоминание о смене токена включено")
+		} else {
+			cmd.Println("Напоминание о смене токена выключено")
 		}
 		restartTokenReminder()
 		return nil
