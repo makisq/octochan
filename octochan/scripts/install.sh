@@ -16,7 +16,7 @@
 # (ochan setup) и читает ответы из stdin построчно: их можно подать и
 # конвейером, а без ответа ставит в каталоги по умолчанию.
 #
-# Нужен Go 1.22 или новее. Сборка идёт от вашего имени, sudo — только на
+# Нужен Go 1.26 или новее. Сборка идёт от вашего имени, sudo — только на
 # копирование в PREFIX/bin, если каталог вам не принадлежит.
 set -eu
 
@@ -55,18 +55,18 @@ for arg; do
 		remove
 		exit 0
 		;;
-	--here | --here=* | --bin=* | --home=* | --modules=* | --logs=* | --reports=* | --registry-cache=* | --desktop | --desktop=* | --yes | -y)
+	--here | --here=* | --bin=* | --home=* | --modules=* | --logs=* | --reports=* | --registry-cache=* | --desktop | --desktop=* | --yes | -y | --update | --update=*)
 		SETUP=1
 		set -- "$@" "$arg"
 		;;
 	*)
-		echo "Неизвестный ключ $arg: --here[=папка], --bin=, --home=, --modules=, --logs=, --reports=, --registry-cache=, --desktop, --yes, --uninstall" >&2
+		echo "Неизвестный ключ $arg: --here[=папка], --bin=, --home=, --modules=, --logs=, --reports=, --registry-cache=, --desktop, --yes, --update[=папка], --uninstall" >&2
 		exit 1
 		;;
 	esac
 done
 
-command -v go >/dev/null 2>&1 || { echo "Нужен Go 1.22 или новее: https://go.dev/dl/" >&2; exit 1; }
+command -v go >/dev/null 2>&1 || { echo "Нужен Go 1.26 или новее: https://go.dev/dl/" >&2; exit 1; }
 
 OUT="$ROOT/bin"
 mkdir -p "$OUT"

@@ -129,6 +129,13 @@ func Execute() int {
 	if code, ok := setupStandalone(os.Args[1:]); ok {
 		return code
 	}
+	// Версия — без рабочего каталога: по ней ochan update и setup узнают
+	// программу, и запуск новой версии из папки загрузки не должен
+	// заводить ~/.octochan.
+	if args := os.Args[1:]; len(args) == 1 && (args[0] == "--version" || args[0] == "-v") {
+		fmt.Printf("ochan %s\n", Version)
+		return 0
+	}
 
 	if err := initConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "ошибка: %v\n", err)

@@ -217,6 +217,14 @@ func initConfig() error {
 		return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)
 	}
 
+	// Значения переименованных настроек — на новые ключи, до того как их
+	// прочитают пути и всё остальное.
+	notes, err := migrateConfig(path)
+	if err != nil {
+		return err
+	}
+	reportMigrations(notes)
+
 	if err := applyPaths(fm); err != nil {
 		return err
 	}

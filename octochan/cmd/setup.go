@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +37,10 @@ import (
 // подать и конвейером; все они задаются и флагами.
 
 var (
-	setupHere    string
+	setupHere string
+	// setupUpdate — --update: обновить установленный ochan этой версией
+	// (auto — найти его самому).
+	setupUpdate  string
 	setupBin     string
 	setupHome    string
 	setupDirs    = map[workspace.Dir]*string{}
@@ -83,12 +87,19 @@ var setupCmd = &cobra.Command{
 		"столе, ochan находится поиском системы и открывается в своей оболочке\n" +
 		"(Linux и Windows). --desktop=only — только значок для уже установленной\n" +
 		"программы, --desktop=remove — убрать его.\n\n" +
+		"Уже установленный ochan (в PATH, в каталоге программ по умолчанию или в\n" +
+		"текущей папке) установка находит сама и предлагает обновить его этой\n" +
+		"версией: модули, токены, config.yaml и роли остаются, прежняя версия\n" +
+		"сжимается в архив ochan-versions/ рядом с программой. --update — то же\n" +
+		"без вопроса (--update=папка — установка в этой папке); откат — ochan\n" +
+		"update --rollback.\n\n" +
 		"Команда не требует ни рабочего каталога, ни ролей: её запускают там, где\n" +
 		"ochan ещё не установлен.",
 	Example: "ochan setup\n" +
 		"ochan setup --here --desktop\n" +
 		"ochan setup --bin ~/tools --home /srv/ochan --modules /opt/ochan/modules\n" +
-		"printf '1\\n' | ochan setup",
+		"printf '1\\n' | ochan setup\n" +
+		"ochan setup --update=/srv/work/octochan",
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error { return runSetup(cmd) },
 }
@@ -105,6 +116,8 @@ func init() {
 	f.StringArrayVar(&setupModules, "module", nil, "после установки поставить модуль из файла (можно несколько раз)")
 	f.BoolVarP(&setupYes, "yes", "y", false, "не спрашивать подтверждения")
 	f.StringVar(&setupDesktop, "desktop", "", "значок в меню приложений и на рабочем столе; only — только значок, remove — убрать")
+	f.StringVar(&setupUpdate, "update", "", "обновить установленный ochan этой версией: папка или путь к нему (без значения — найти самому)")
+	f.Lookup("update").NoOptDefVal = "auto"
 	f.Lookup("desktop").NoOptDefVal = "yes"
 	rootCmd.AddCommand(setupCmd)
 }
@@ -285,6 +298,9 @@ func runSetup(cmd *cobra.Command) error {
 	default:
 		return fmt.Errorf("--desktop=%s: без значения — значок вместе с установкой, only — только значок, remove — убрать", setupDesktop)
 	}
+	if setupUpdate != "" {
+		return setupUpgrade(out, setupUpdate)
+	}
 	plan := setupPlan{dirs: map[workspace.Dir]string{}, desktop: setupDesktop == "yes"}
 	manual := setupBin != "" || setupHome != ""
 	for _, d := range setupDirFlags {
@@ -299,6 +315,17 @@ func runSetup(cmd *cobra.Command) error {
 	case here != "":
 		plan.here = true
 	case !manual:
+		// Уже установленный ochan — обновить его, а не ставить рядом второй:
+		// модули, токены и настройки остаются.
+		if installed, version := findInstalled(); installed != "" {
+			fmt.Fprintf(out, "Найден установленный ochan %s: %s\n"+
+				"  его модули, токены, config.yaml и роли останутся; прежняя версия уйдёт в архив\n", version, installed)
+			answer, _ := ask(fmt.Sprintf("Обновить его до %s? да или нет", Version), "да")
+			if isYes(answer) {
+				return upgradePrograms(out, selfProgram(), filepath.Dir(installed))
+			}
+			fmt.Fprintln(out, "Тогда — новая установка")
+		}
 		cwd, _ := os.Getwd()
 		fmt.Fprintf(out, "Установка ochan. Как ставить?\n"+
 			"  1 — быстрая: всё в этой папке — %s\n"+
@@ -696,4 +723,70 @@ func onPath(dir string) bool {
 		}
 	}
 	return false
+}
+
+// selfProgram — путь запущенной программы.
+func selfProgram() string {
+	self, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(self); err == nil {
+		self = real
+	}
+	return self
+}
+
+// findInstalled — установленный ochan, не эта программа: в PATH, в
+// каталоге программ по умолчанию или в текущей папке. Пусто — не найден.
+func findInstalled() (path, version string) {
+	self := selfProgram()
+	name := "ochan" + programExt()
+	var candidates []string
+	if found, err := exec.LookPath("ochan"); err == nil {
+		candidates = append(candidates, found)
+	}
+	cwd, _ := os.Getwd()
+	candidates = append(candidates, filepath.Join(defaultBin(), name), filepath.Join(cwd, name))
+	for _, c := range candidates {
+		if real, err := filepath.EvalSymlinks(c); err == nil {
+			c = real
+		}
+		if same, _ := sameFile(c, self); same || c == "" {
+			continue
+		}
+		// Та же сборка — обновлять нечего: обычная установка.
+		if a, err1 := fileSum(c); err1 == nil {
+			if b, err2 := fileSum(self); err2 == nil && bytes.Equal(a, b) {
+				continue
+			}
+		}
+		if v, err := programVersion(c); err == nil {
+			return c, v
+		}
+	}
+	return "", ""
+}
+
+// setupUpgrade — ochan setup --update: обновить установленный ochan этой
+// программой без вопросов.
+func setupUpgrade(out io.Writer, target string) error {
+	installed := ""
+	if target == "auto" {
+		installed, _ = findInstalled()
+		if installed == "" {
+			return errors.New("установленного ochan не найдено (PATH, каталог программ по умолчанию, текущая папка): " +
+				"укажите его — ochan setup --update=<папка>")
+		}
+	} else {
+		path, err := setupPath(target)
+		if err != nil {
+			return err
+		}
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			path = filepath.Join(path, "ochan"+programExt())
+		}
+		installed = path
+	}
+	return upgradePrograms(out, selfProgram(), filepath.Dir(installed))
 }
