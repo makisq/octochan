@@ -319,5 +319,15 @@ func initLogger() error {
 
 	log.SetOutput(out)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	// Прежний журнал закрывается: раньше каждый !!reload оставлял его файл
+	// открытым — дескриптор на перечитывание, а на Windows открытый файл
+	// не перенести в архив и не удалить.
+	if logWriter != nil {
+		_ = logWriter.Close()
+	}
+	logWriter = writer
 	return nil
 }
+
+// logWriter — журнал, в который сейчас пишет log; его заменяет initLogger.
+var logWriter *logs.Rotator
