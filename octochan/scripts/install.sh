@@ -70,12 +70,17 @@ command -v go >/dev/null 2>&1 || { echo "Нужен Go 1.26 или новее: h
 
 OUT="$ROOT/bin"
 mkdir -p "$OUT"
-# VERSION задаёт make install; без неё — версия, записанная в исходниках.
-LDFLAGS=""
+# VERSION и SYSTEM_ROLES задаёт make install; без них — версия и путь
+# системной политики, записанные в исходниках. SourceDir — где эти
+# исходники: по нему ochan new module пишет replace в go.mod заготовки.
+LDFLAGS="-X 'ochan/cmd.SourceDir=$ROOT'"
 MCP_LDFLAGS=""
 if [ -n "${VERSION:-}" ]; then
-	LDFLAGS="-X ochan/cmd.Version=$VERSION"
+	LDFLAGS="$LDFLAGS -X ochan/cmd.Version=$VERSION"
 	MCP_LDFLAGS="-X main.serverVersion=$VERSION"
+fi
+if [ -n "${SYSTEM_ROLES:-}" ]; then
+	LDFLAGS="$LDFLAGS -X ochan/core/rbac.SystemPolicyPath=$SYSTEM_ROLES"
 fi
 echo "Сборка ochan…"
 (cd "$ROOT" && go build -trimpath -ldflags "$LDFLAGS" -o "$OUT/ochan" .)

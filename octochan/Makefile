@@ -28,7 +28,10 @@ PREFIX       ?=
 OUT          ?= bin
 SYSTEM_ROLES ?= /etc/octochan/roles.yaml
 
-LDFLAGS     := -X ochan/cmd.Version=$(VERSION) -X ochan/rbac.SystemPolicyPath=$(SYSTEM_ROLES)
+LDFLAGS     := -X ochan/cmd.Version=$(VERSION) -X ochan/core/rbac.SystemPolicyPath=$(SYSTEM_ROLES)
+# Сборка для этой машины помнит, где её исходники: по ним ochan new module
+# пишет replace в go.mod. В релиз (dist) путь не попадает.
+LOCAL_LDFLAGS := $(LDFLAGS) -X 'ochan/cmd.SourceDir=$(CURDIR)'
 MCP_LDFLAGS := -X main.serverVersion=$(VERSION)
 PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
@@ -37,7 +40,7 @@ PLATFORMS   := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 PYTHON ?= python3
 
 build:
-	go build -trimpath -ldflags "$(LDFLAGS)" -o "$(abspath $(OUT))/ochan" .
+	go build -trimpath -ldflags "$(LOCAL_LDFLAGS)" -o "$(abspath $(OUT))/ochan" .
 	cd mcp && go build -trimpath -ldflags "$(MCP_LDFLAGS)" -o "$(abspath $(OUT))/ochan-mcp" .
 
 # Ключи установки из переменных make: чего нет — о том спросит ochan setup.
@@ -48,11 +51,11 @@ SETUP_ARGS := $(if $(HERE),$(if $(filter 1 yes true,$(HERE)),--here,"--here=$(HE
 	$(if $(DESKTOP),--desktop)
 
 install:
-	PREFIX="$(PREFIX)" VERSION="$(VERSION)" sh scripts/install.sh $(SETUP_ARGS)
+	PREFIX="$(PREFIX)" VERSION="$(VERSION)" SYSTEM_ROLES="$(SYSTEM_ROLES)" sh scripts/install.sh $(SETUP_ARGS)
 
 # Обновить установленный ochan только что собранным: ochan setup --update.
 update:
-	VERSION="$(VERSION)" sh scripts/install.sh $(if $(TO),"--update=$(TO)",--update)
+	VERSION="$(VERSION)" SYSTEM_ROLES="$(SYSTEM_ROLES)" sh scripts/install.sh $(if $(TO),"--update=$(TO)",--update)
 
 uninstall:
 	PREFIX="$(PREFIX)" sh scripts/install.sh --uninstall

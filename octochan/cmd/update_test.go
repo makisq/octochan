@@ -55,7 +55,7 @@ func TestUpdateAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env := []string{"HOME=" + filepath.Join(root, "user"), "PATH=" + installed + string(os.PathListSeparator) + os.Getenv("PATH")}
+	env := []string{"HOME=" + filepath.Join(root, "user"), "PATH=" + installed + string(os.PathListSeparator) + pathWithoutOchan()}
 	run := func(program string, stdin string, args ...string) string {
 		t.Helper()
 		c := exec.Command(program, args...)
