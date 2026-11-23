@@ -31,6 +31,7 @@ const (
 	CommandModule_GetTranslations_FullMethodName          = "/pluginhost.CommandModule/GetTranslations"
 	CommandModule_GetRunners_FullMethodName               = "/pluginhost.CommandModule/GetRunners"
 	CommandModule_CallRunner_FullMethodName               = "/pluginhost.CommandModule/CallRunner"
+	CommandModule_GetSettings_FullMethodName              = "/pluginhost.CommandModule/GetSettings"
 )
 
 // CommandModuleClient is the client API for CommandModule service.
@@ -55,6 +56,9 @@ type CommandModuleClient interface {
 	// Unimplemented, и хост считает, что исполнителей у них нет.
 	GetRunners(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RunnersResponse, error)
 	CallRunner(ctx context.Context, in *RunnerCall, opts ...grpc.CallOption) (*RunnerReply, error)
+	// Настройки модуля. Старые модули отвечают Unimplemented, и хост
+	// считает, что настроек у них нет.
+	GetSettings(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SettingsResponse, error)
 }
 
 type commandModuleClient struct {
@@ -185,6 +189,16 @@ func (c *commandModuleClient) CallRunner(ctx context.Context, in *RunnerCall, op
 	return out, nil
 }
 
+func (c *commandModuleClient) GetSettings(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SettingsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SettingsResponse)
+	err := c.cc.Invoke(ctx, CommandModule_GetSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CommandModuleServer is the server API for CommandModule service.
 // All implementations must embed UnimplementedCommandModuleServer
 // for forward compatibility.
@@ -207,6 +221,9 @@ type CommandModuleServer interface {
 	// Unimplemented, и хост считает, что исполнителей у них нет.
 	GetRunners(context.Context, *Empty) (*RunnersResponse, error)
 	CallRunner(context.Context, *RunnerCall) (*RunnerReply, error)
+	// Настройки модуля. Старые модули отвечают Unimplemented, и хост
+	// считает, что настроек у них нет.
+	GetSettings(context.Context, *Empty) (*SettingsResponse, error)
 	mustEmbedUnimplementedCommandModuleServer()
 }
 
@@ -252,6 +269,9 @@ func (UnimplementedCommandModuleServer) GetRunners(context.Context, *Empty) (*Ru
 }
 func (UnimplementedCommandModuleServer) CallRunner(context.Context, *RunnerCall) (*RunnerReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CallRunner not implemented")
+}
+func (UnimplementedCommandModuleServer) GetSettings(context.Context, *Empty) (*SettingsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSettings not implemented")
 }
 func (UnimplementedCommandModuleServer) mustEmbedUnimplementedCommandModuleServer() {}
 func (UnimplementedCommandModuleServer) testEmbeddedByValue()                       {}
@@ -490,6 +510,24 @@ func _CommandModule_CallRunner_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CommandModule_GetSettings_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CommandModuleServer).GetSettings(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CommandModule_GetSettings_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CommandModuleServer).GetSettings(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CommandModule_ServiceDesc is the grpc.ServiceDesc for CommandModule service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -544,6 +582,10 @@ var CommandModule_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CallRunner",
 			Handler:    _CommandModule_CallRunner_Handler,
+		},
+		{
+			MethodName: "GetSettings",
+			Handler:    _CommandModule_GetSettings_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

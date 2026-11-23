@@ -250,8 +250,10 @@ go build -ldflags "-X ochan/rbac.SystemPolicyPath=/opt/octochan/roles.yaml" -o o
 
 ## Первый запуск
 
-При первом запуске ochan создаёт `~/.octochan` и `config.yaml` со
-значениями по умолчанию. Всё, что ochan хранит, живёт там:
+При первом запуске ochan создаёт `~/.octochan` и `config.yaml` — шаблон
+с пояснениями: главные настройки по разделам, умолчания закомментированы,
+снять `#` — значит задать своё ([«Настройки»](../reference/config.md)).
+Всё, что ochan хранит, живёт там:
 
 ```
 ~/.octochan/

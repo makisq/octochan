@@ -46,13 +46,9 @@ func defaultConfigPath(fm *workspace.FileManager) string {
 	return filepath.Join(fm.BaseDir(), "config.yaml")
 }
 
-func initConfig() error {
-	fm, err := workspace.NewFileManager()
-	if err != nil {
-		return err
-	}
-	fileManager = fm
-
+// setConfigDefaults задаёт умолчания всех настроек; base — рабочий
+// каталог. Их же показывает шаблон config.yaml (config_template.go).
+func setConfigDefaults(base string) {
 	// Все пути живут в рабочем каталоге (~/.octochan или OCTOCHAN_HOME).
 	// Прежняя версия держала config.yaml в ~/octochan, а всё остальное в
 	// ~/.octochan.
@@ -66,7 +62,7 @@ func initConfig() error {
 	// Адрес API, время запроса и параллельность — общие умолчания для
 	// исполнителей модулей; свои у исполнителя — executors.<имя>.
 	viper.SetDefault("defaults.api_url", "")
-	viper.SetDefault("defaults.scenario_path", fm.ScenariosDir())
+	viper.SetDefault("defaults.scenario_path", filepath.Join(base, "scenarios"))
 	// Прежний ключ каталога журналов; теперь paths.logs.
 	viper.SetDefault("defaults.log_path", "")
 	viper.SetDefault("defaults.auto_check_status", false)
@@ -110,6 +106,8 @@ func initConfig() error {
 	// логотип при входе.
 	viper.SetDefault("shell.history_size", 1000)
 	viper.SetDefault("shell.logo", true)
+	// Прощаться ли при exit: «До встречи!» или выйти молча.
+	viper.SetDefault("shell.goodbye", true)
 
 	// Адрес общего оркестратора по умолчанию: ochan remote ping без адреса.
 	viper.SetDefault("remote.address", "")
@@ -173,8 +171,8 @@ func initConfig() error {
 	// Серверный режим. ssl включает шифрование, tls задаёт его настройки.
 	viper.SetDefault("ssl", true)
 	viper.SetDefault("tls.min_version", "1.2")
-	viper.SetDefault("tls.cert", filepath.Join(fm.BaseDir(), "tls", "server.crt"))
-	viper.SetDefault("tls.key", filepath.Join(fm.BaseDir(), "tls", "server.key"))
+	viper.SetDefault("tls.cert", filepath.Join(base, "tls", "server.crt"))
+	viper.SetDefault("tls.key", filepath.Join(base, "tls", "server.key"))
 	viper.SetDefault("tls.ca", "")
 	viper.SetDefault("tls.server_name", "")
 	viper.SetDefault("server.listen", "127.0.0.1:7443")
@@ -183,15 +181,32 @@ func initConfig() error {
 	viper.SetDefault("server.command_timeout", "10m")
 	viper.SetDefault("ha.replicate_every", "10s")
 	viper.SetDefault("ha.require_standby", false)
-	viper.SetDefault("ha.token_file", filepath.Join(fm.BaseDir(), "ha.token"))
+	viper.SetDefault("ha.token_file", filepath.Join(base, "ha.token"))
+
+}
+
+func initConfig() error {
+	fm, err := workspace.NewFileManager()
+	if err != nil {
+		return err
+	}
+	fileManager = fm
+
+	setConfigDefaults(fm.BaseDir())
 
 	path := configPath(fm)
 	viper.SetConfigFile(path)
 
 	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-		// Конфига ещё нет — создаём со значениями по умолчанию.
-		if err := viper.WriteConfigAs(path); err != nil {
+		// Конфига ещё нет — шаблон с комментариями: главные настройки по
+		// разделам, умолчания закомментированы. Раньше сюда выгружались все
+		// умолчания без пояснений, с абсолютными путями рабочего каталога:
+		// они замерзали в файле, и перенесённая папка указывала на старое.
+		if err := writeConfigTemplate(path, nil); err != nil {
 			return fmt.Errorf("не удалось создать конфиг %s: %w", path, err)
+		}
+		if err := viper.ReadInConfig(); err != nil {
+			return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)
 		}
 	} else if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("не удалось прочитать конфиг %s: %w", path, err)

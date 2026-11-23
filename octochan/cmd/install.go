@@ -114,7 +114,9 @@ func installPlugin(cmd *cobra.Command, filePath string) error {
 		return fmt.Errorf("модуль не загрузился и был удалён: %w", err)
 	}
 
-	registerModuleCommands()
+	// Команды модуля — заново: переустановленный модуль — новый процесс, и
+	// прежние команды вели бы в погашенный (в оболочке — до выхода).
+	refreshModuleCommands()
 	for _, warning := range syncRunners() {
 		cmd.PrintErrf("внимание: %s\n", warning)
 	}
@@ -134,6 +136,25 @@ func installPlugin(cmd *cobra.Command, filePath string) error {
 			if r.Module == info.Name {
 				cmd.Printf("  исполнитель %s: сервисы %s; токен — ochan auth --executor %s\n",
 					r.Kind, strings.Join(r.Services, ", "), strings.ToLower(r.Kind))
+			}
+		}
+		// Настройки модуля — в config.yaml сами: пользователь видит, что
+		// модуль настраивается и чем, и не пишет раздел руками.
+		if len(info.Settings) > 0 {
+			path := viper.ConfigFileUsed()
+			added, err := declareModuleSettings(path, info)
+			if err != nil {
+				cmd.PrintErrf("внимание: настройки модуля %s не записаны в %s: %v\n", info.Name, path, err)
+			} else if len(added) > 0 {
+				cmd.Printf("  настройки записаны в %s (раздел %s.%s):\n", path, modulesKey, info.Name)
+			} else {
+				cmd.Printf("  настройки (уже в %s, раздел %s.%s):\n", path, modulesKey, info.Name)
+			}
+			for _, line := range moduleSettingsLines(info) {
+				cmd.Printf("    %s\n", line)
+			}
+			if warning := moduleMissing(info); warning != "" {
+				cmd.PrintErrf("внимание: %s — задайте и выполните !!reload\n", warning)
 			}
 		}
 	}
@@ -386,8 +407,9 @@ func executorSupply(executor string) pluginhost.Supply {
 }
 
 // executorSettings — настройки исполнителя: executors.<имя> в config.yaml
-// поверх общих defaults.api_url, defaults.http_timeout и
-// defaults.max_parallel_tasks. Своего конфига у процесса модуля нет.
+// поверх настроек его модуля (modules.<модуль>) и общих defaults.api_url,
+// defaults.http_timeout и defaults.max_parallel_tasks. Своего конфига у
+// процесса модуля нет.
 func executorSettings(executor string) map[string]string {
 	settings := map[string]string{
 		"http_timeout":       viper.GetString("defaults.http_timeout"),
@@ -395,6 +417,21 @@ func executorSettings(executor string) map[string]string {
 	}
 	if url := viper.GetString("defaults.api_url"); url != "" {
 		settings["api_url"] = url
+	}
+	// Настройки модуля, который принёс исполнителя.
+	mm := pluginhost.GetModuleManager()
+	for _, r := range mm.Runners() {
+		if strings.EqualFold(strings.ReplaceAll(strings.TrimSpace(r.Kind), " ", "-"), executor) {
+			for _, info := range mm.LoadedModules() {
+				if info.Name == r.Module {
+					values, _ := moduleSettingValues(info.Name, info.Settings)
+					for k, v := range values {
+						settings[k] = v
+					}
+				}
+			}
+			break
+		}
 	}
 	for key, value := range viper.GetStringMapString("executors." + executor) {
 		settings[key] = value

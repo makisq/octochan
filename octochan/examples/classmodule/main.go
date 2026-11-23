@@ -19,6 +19,15 @@
 //	ochan shell
 //	> node.call @ ("tune.yaml" | "login.yaml")
 //
+// И настройки: модуль объявляет их (Settings), а !!install сам пишет их в
+// config.yaml — раздел modules.pgstat, с пояснениями и значениями по
+// умолчанию. Значения модуль получает в Init при каждой загрузке:
+//
+//	modules:
+//	  pgstat:
+//	    host: db1.example.internal
+//	    cluster: main
+//
 // // Сборка и установка:
 //
 //	go build -o pgstat.hcplugin ./examples/classmodule
@@ -38,9 +47,26 @@ import (
 
 type module struct{}
 
-func (module) Init(map[string]any) error { return nil }
-func (module) Name() string              { return "pgstat" }
-func (module) Version() string           { return "0.1.0" }
+// settings — значения настроек, которые ochan передал в Init.
+var settings = map[string]string{}
+
+func (module) Init(values map[string]any) error {
+	for k, v := range values {
+		settings[k] = fmt.Sprint(v)
+	}
+	return nil
+}
+func (module) Name() string    { return "pgstat" }
+func (module) Version() string { return "0.1.0" }
+
+// Settings — что настраивается: ochan пишет это в config.yaml при установке.
+func (module) Settings() []pluginhost.Setting {
+	return []pluginhost.Setting{
+		{Key: "host", Default: "127.0.0.1", Description: "сервер PostgreSQL, статистику которого показывает pgstat"},
+		{Key: "port", Default: "5432", Description: "порт PostgreSQL"},
+		{Key: "cluster", Description: "имя кластера в отчётах pgstat", Required: true},
+	}
+}
 
 func (module) GetCommands() []*cobra.Command {
 	root := &cobra.Command{
@@ -61,6 +87,18 @@ func (module) GetCommands() []*cobra.Command {
 		Annotations: map[string]string{"class": "execution"},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.Println("pg_stat: статистика сброшена")
+			return nil
+		},
+	})
+	root.AddCommand(&cobra.Command{
+		Use:   "where",
+		Short: "Показать, куда смотрит pgstat (настройки modules.pgstat)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cluster := settings["cluster"]
+			if cluster == "" {
+				cluster = "не задан"
+			}
+			cmd.Printf("pgstat: %s:%s, кластер %s\n", settings["host"], settings["port"], cluster)
 			return nil
 		},
 	})

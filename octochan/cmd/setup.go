@@ -592,57 +592,48 @@ func writeHomeFile(path, home string) error {
 	return os.WriteFile(path, []byte(text), 0o644)
 }
 
-// setupConfig записывает вынесенные каталоги в config.yaml: прежние
-// настройки остаются, paths.* без нового значения — тоже. quiet — хозяин
-// просил больше не предупреждать об открытых каталогах; work — подпапка
-// для нейросети (llm.chat.root).
+// setupConfig записывает в config.yaml то, что задала установка: вынесенные
+// каталоги (paths.*), отказ от предупреждения об открытых каталогах (quiet)
+// и подпапку для нейросети (work — llm.chat.root, если своей ещё нет).
+// Конфига нет — он создаётся шаблоном с пояснениями, где заданное — без #;
+// есть — меняются только эти ключи, комментарии и прочее остаются.
 func setupConfig(path string, dirs map[workspace.Dir]string, quiet, work bool) error {
 	if len(dirs) == 0 && !quiet && !work {
 		return nil
 	}
-	config := map[string]any{}
-	data, err := os.ReadFile(path)
-	switch {
-	case err == nil:
-		if err := yaml.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-	case !os.IsNotExist(err):
-		return err
-	}
-	paths, _ := config["paths"].(map[string]any)
-	if paths == nil {
-		paths = map[string]any{}
-	}
+	set := map[string]any{}
 	for d, dir := range dirs {
-		paths[string(d)] = dir
+		set["paths."+string(d)] = dir
 	}
 	if quiet {
-		paths[strings.TrimPrefix(pathsWarnOpen, "paths.")] = false
-	}
-	if len(paths) > 0 {
-		config["paths"] = paths
+		set[pathsWarnOpen] = false
 	}
 	if work {
 		// Каталог модели — подпапка: путь от папки, из которой запускают
 		// ochan. Уже заданный остаётся.
-		llm, _ := config["llm"].(map[string]any)
-		if llm == nil {
-			llm = map[string]any{}
+		var config struct {
+			LLM struct {
+				Chat struct {
+					Root []string `yaml:"root"`
+				} `yaml:"chat"`
+			} `yaml:"llm"`
 		}
-		chat, _ := llm["chat"].(map[string]any)
-		if chat == nil {
-			chat = map[string]any{}
+		if data, err := os.ReadFile(path); err == nil {
+			if err := yaml.Unmarshal(data, &config); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
 		}
-		if roots, _ := chat["root"].([]any); len(roots) == 0 {
-			chat["root"] = []string{setupWorkDir}
+		if len(config.LLM.Chat.Root) == 0 {
+			set["llm.chat.root"] = []string{setupWorkDir}
 		}
-		llm["chat"], config["llm"] = chat, llm
 	}
-	if data, err = yaml.Marshal(config); err != nil {
-		return err
+	if len(set) == 0 {
+		return nil
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Шаблон показывает умолчания: установка идёт до initConfig, и
+	// умолчаний ещё нет.
+	setConfigDefaults(filepath.Dir(path))
+	return setConfigValues(path, set)
 }
 
 // installProgram копирует программу: рядом, затем переименованием — занятая

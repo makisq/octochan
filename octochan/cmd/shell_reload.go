@@ -75,6 +75,7 @@ func shellReload(out io.Writer) error {
 	}
 	fmt.Fprintln(out, i18n.Sprintf("  алиасов: %d", len(registry.List())))
 	fmt.Fprintln(out, i18n.T("  переменные и алиасы оболочки сохранены; сбросить — !!reset"))
+	warnMissingSettings(func(msg string) { fmt.Fprintln(os.Stderr, i18n.Sprintf("внимание: %s", msg)) })
 
 	for _, w := range warnings {
 		fmt.Fprintln(os.Stderr, i18n.Sprintf("внимание: %s", w))

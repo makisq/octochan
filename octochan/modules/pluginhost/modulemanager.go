@@ -71,6 +71,29 @@ type Translator interface {
 	Translations() []Language
 }
 
+// Setting — настройка модуля: что пользователь задаёт в config.yaml, в
+// разделе modules.<имя модуля>. ochan пишет её туда при !!install — с
+// пояснением и значением по умолчанию — и при каждой загрузке передаёт
+// модулю значения в Init: заданное или Default. Секретов здесь нет:
+// токены — ochan auth --executor <имя>.
+type Setting struct {
+	Key         string // имя в разделе модуля: api_url, timeout
+	Default     string // значение по умолчанию текстом (YAML: 30s, [a, b]); пусто — нет
+	Description string // что задаёт: пояснение в config.yaml
+	Required    bool   // без значения модуль не работает
+}
+
+// Configurable реализует модуль с настройками: ochan спрашивает их при
+// загрузке. Модулю без настроек реализовывать его не нужно.
+type Configurable interface {
+	Settings() []Setting
+}
+
+// SettingValues — значения настроек модуля для Init: их даёт ochan (из
+// config.yaml). nil — только значения по умолчанию. missing — обязательные
+// настройки без значения.
+var SettingValues func(module string, declared []Setting) (values map[string]string, missing []string)
+
 // CommandPlugin связывает CommandModule с go-plugin.
 type CommandPlugin struct {
 	plugin.NetRPCUnsupportedPlugin
@@ -143,6 +166,19 @@ func (s *CommandGRPCServer) GetTranslations(_ context.Context, _ *Empty) (*Trans
 	}
 	for _, lang := range translator.Translations() {
 		resp.Languages = append(resp.Languages, &Translation{Code: lang.Code, Name: lang.Name, Entries: lang.Entries})
+	}
+	return resp, nil
+}
+
+func (s *CommandGRPCServer) GetSettings(_ context.Context, _ *Empty) (*SettingsResponse, error) {
+	resp := &SettingsResponse{}
+	configurable, ok := s.Impl.(Configurable)
+	if !ok {
+		return resp, nil
+	}
+	for _, setting := range configurable.Settings() {
+		resp.Settings = append(resp.Settings, &SettingSpec{Key: setting.Key, Default: setting.Default,
+			Description: setting.Description, Required: setting.Required})
 	}
 	return resp, nil
 }
@@ -484,6 +520,26 @@ func (c *CommandGRPCClient) Translations() ([]Language, error) {
 	return out, nil
 }
 
+// Settings — настройки модуля; модуль старее GetSettings — их нет.
+func (c *CommandGRPCClient) Settings() ([]Setting, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	resp, err := c.Client.GetSettings(ctx, &Empty{})
+	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.Unimplemented {
+			return nil, nil
+		}
+		return nil, unwrapGRPCError(err)
+	}
+	var out []Setting
+	for _, s := range resp.GetSettings() {
+		out = append(out, Setting{Key: s.GetKey(), Default: s.GetDefault(), Description: s.GetDescription(),
+			Required: s.GetRequired()})
+	}
+	return out, nil
+}
+
 func (c *CommandGRPCClient) Version() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -507,6 +563,8 @@ type loadedModule struct {
 	commands  []*cobra.Command
 	languages []Language
 	runners   []RemoteRunner
+	settings  []Setting
+	missing   []string
 }
 
 // ModuleManager владеет процессами плагинов и их командами.
@@ -680,6 +738,33 @@ func (m *ModuleManager) LoadModule(path string) error {
 			runners[i].Module = name
 		}
 	}
+	// Настройки — до того, как модуль начнёт работать: он получает их
+	// значения в Init. Раньше Init не вызывался вовсе, и настроить модуль
+	// было нечем.
+	var settings []Setting
+	if configurable, ok := module.(interface{ Settings() ([]Setting, error) }); ok {
+		settings, err = configurable.Settings()
+		if err != nil {
+			return fmt.Errorf("модуль %s: настройки: %w", name, err)
+		}
+	}
+	values := map[string]string{}
+	var missing []string
+	for _, s := range settings {
+		if s.Default != "" {
+			values[s.Key] = s.Default
+		}
+	}
+	if SettingValues != nil {
+		values, missing = SettingValues(name, settings)
+	}
+	init := make(map[string]any, len(values))
+	for k, v := range values {
+		init[k] = v
+	}
+	if err := module.Init(init); err != nil {
+		return fmt.Errorf("модуль %s не принял настройки: %w", name, err)
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -705,6 +790,8 @@ func (m *ModuleManager) LoadModule(path string) error {
 		commands:  commands,
 		languages: languages,
 		runners:   runners,
+		settings:  settings,
+		missing:   missing,
 	}
 	// Владение процессом перешло менеджеру: гасить его будет Cleanup.
 	adopted = true
@@ -828,6 +915,10 @@ type ModuleInfo struct {
 	Languages []string
 	// Runners — виды исполнителей модуля.
 	Runners []string
+	// Settings — настройки модуля (modules.<имя> в config.yaml); Missing —
+	// обязательные без значения.
+	Settings []Setting
+	Missing  []string
 }
 
 // LoadedModules перечисляет загруженные модули.
@@ -849,6 +940,8 @@ func (m *ModuleManager) LoadedModules() []ModuleInfo {
 		for _, r := range module.runners {
 			info.Runners = append(info.Runners, r.Kind)
 		}
+		info.Settings = append([]Setting(nil), module.settings...)
+		info.Missing = append([]string(nil), module.missing...)
 		infos = append(infos, info)
 	}
 	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
