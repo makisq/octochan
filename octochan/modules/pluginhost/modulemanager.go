@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -87,6 +88,27 @@ type Setting struct {
 // загрузке. Модулю без настроек реализовывать его не нужно.
 type Configurable interface {
 	Settings() []Setting
+}
+
+// settingKey — имя настройки: оно становится ключом YAML в разделе модуля,
+// поэтому без точек, пробелов и двоеточий.
+var settingKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
+
+// CheckSettings проверяет объявленные настройки: имя — буквы, цифры, «_»
+// и «-», первой — буква; имена не повторяются. Иначе модуль не грузится:
+// автор узнает об этом при первой же установке.
+func CheckSettings(settings []Setting) error {
+	seen := map[string]bool{}
+	for _, s := range settings {
+		if !settingKey.MatchString(s.Key) {
+			return fmt.Errorf("настройка %q: имя — буквы, цифры, «_» и «-», первой — буква (оно станет ключом в config.yaml)", s.Key)
+		}
+		if seen[s.Key] {
+			return fmt.Errorf("настройка %s объявлена дважды", s.Key)
+		}
+		seen[s.Key] = true
+	}
+	return nil
 }
 
 // SettingValues — значения настроек модуля для Init: их даёт ochan (из
@@ -746,6 +768,9 @@ func (m *ModuleManager) LoadModule(path string) error {
 		settings, err = configurable.Settings()
 		if err != nil {
 			return fmt.Errorf("модуль %s: настройки: %w", name, err)
+		}
+		if err := CheckSettings(settings); err != nil {
+			return fmt.Errorf("модуль %s: %w", name, err)
 		}
 	}
 	values := map[string]string{}

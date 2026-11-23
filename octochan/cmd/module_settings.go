@@ -201,8 +201,13 @@ func insertModuleBlock(text, module, title string, entries []configEntry) string
 			break
 		}
 	}
+	// mark — строка под заголовком: под заданным — # после отступа (у
+	// пояснения он уже свой), под закомментированным — # в начале строки.
 	mark := func(indent string, parentActive bool, rest string) string {
-		if parentActive {
+		switch {
+		case parentActive && strings.HasPrefix(rest, "# "):
+			return indent + rest
+		case parentActive:
 			return indent + "# " + rest
 		}
 		return "# " + indent + rest
@@ -212,10 +217,27 @@ func insertModuleBlock(text, module, title string, entries []configEntry) string
 		block = append(block, mark("  ", active, "# "+title))
 		block = append(block, mark("  ", active, module+":"))
 	}
+	// Строки настроек: модуль задан — # после отступа; задан только раздел
+	// modules — # после отступа модуля; не задано ничего — # в начале.
+	child := func(rest string) string {
+		switch {
+		case moduleActive:
+			return mark("    ", true, rest)
+		case active:
+			return "  # " + "  " + rest
+		}
+		return "# " + "    " + rest
+	}
 	for _, e := range entries {
 		leaf := e.key[strings.LastIndex(e.key, ".")+1:]
-		block = append(block, mark("    ", moduleActive, "# "+e.comment))
-		block = append(block, mark("    ", moduleActive, leaf+": "+string(e.example.(rawYAML))))
+		block = append(block, child("# "+e.comment))
+		block = append(block, child(leaf+": "+string(e.example.(rawYAML))))
+	}
+	// Новая версия модуля — новая версия и в заголовке блока.
+	if at > header {
+		if _, content, ok := templateCommentLine(lines[at-1]); ok && strings.HasPrefix(content, module+" ") {
+			lines[at-1] = strings.TrimSuffix(lines[at-1], content) + title
+		}
 	}
 	pos := end
 	if at >= 0 {
@@ -325,4 +347,13 @@ func moduleSettingsLines(info pluginhost.ModuleInfo) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// templateCommentLine — пояснение в строке конфига: всё до текста и текст.
+func templateCommentLine(line string) (prefix, content string, ok bool) {
+	m := templateComment.FindStringSubmatch(line)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
 }

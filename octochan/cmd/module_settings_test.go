@@ -79,12 +79,38 @@ func TestModuleSettings(t *testing.T) {
 	// исполнитель (status показывает регион).
 	e.must("!!install", runner)
 	text = readFile(t, path)
-	if strings.Count(text, "\nmodules:") != 1 || !strings.Contains(text, "  # demo-runner:\n    # # регион") &&
-		!strings.Contains(text, "  # demo-runner:") {
+	if strings.Count(text, "\nmodules:") != 1 ||
+		!strings.Contains(text, "  # demo-runner:\n  #   # регион API демонстрационного исполнителя\n  #   region: eu-1") {
 		t.Fatalf("второй модуль в разделе modules:\n%s", text)
 	}
 	if _, err := parseYAML(text); err != nil {
 		t.Fatalf("config.yaml не разбирается: %v\n%s", err, text)
+	}
+	if strings.Contains(text, "# # ") {
+		t.Fatalf("двойной # в разделе modules:\n%s", text)
+	}
+
+	// Новая версия модуля с новой настройкой: дописана в его блок, с одним
+	// #, версия в заголовке блока — новая, заданное не тронуто.
+	data := readFile(t, path)
+	data = strings.Replace(data, "  # pgstat 0.1.0", "  # pgstat 0.0.9", 1)
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := pluginhost.ModuleInfo{Name: "pgstat", Version: "0.1.0", Settings: []pluginhost.Setting{
+		{Key: "host"}, {Key: "refresh", Default: "30s", Description: "как часто обновлять статистику"}}}
+	if added, err := declareModuleSettings(path, info); err != nil || len(added) != 1 || added[0] != "modules.pgstat.refresh" {
+		t.Fatalf("новая настройка новой версии: %v %v", added, err)
+	}
+	text = readFile(t, path)
+	for _, want := range []string{"  # pgstat 0.1.0\n  pgstat:", "    # как часто обновлять статистику\n    # refresh: 30s",
+		"    host: db1.example.internal"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("после новой версии нет %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "# # ") || strings.Contains(text, "0.0.9") {
+		t.Fatalf("блок модуля после новой версии:\n%s", text)
 	}
 	if out := e.must("status", "--executor", "demo", "demo-1"); !strings.Contains(out, "Регион: eu-1") {
 		t.Fatalf("настройка модуля не дошла до исполнителя:\n%s", out)

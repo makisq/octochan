@@ -301,15 +301,36 @@ $ ochan '!!registry' revoke @pgconf v1.3.0 --registry /srv/registry --key corp-r
 ## Модуль команд
 
 Модуль — отдельный исполняемый файл, реализующий
-`pluginhost.CommandModule`. Обвязка go-plugin и gRPC живёт в
-`pluginhost`, модулю достаточно отдать команды cobra:
+`pluginhost.CommandModule` (пакет `ochan/modules/pluginhost`). Обвязка
+go-plugin и gRPC живёт в `pluginhost`, модулю достаточно отдать команды
+cobra.
+
+Что модуль может объявить ядру — и где об этом подробно:
+
+| Что | Как объявить | Подробно |
+|---|---|---|
+| команды | `GetCommands() []*cobra.Command` | ниже; рецепт [«Свой модуль команд»](../cookbook/command-module.md) |
+| право на команду | аннотация `class` у команды: `read`, `execution` (`apply`), любая группа прав | [«Класс команды»](#класс-команды-read-или-execution) |
+| общие строки для `f @ (…)` | аннотация `shared` у команды | [«Общие строки команды»](#общие-строки-команды-shared) |
+| настройки в `config.yaml` | `Settings() []pluginhost.Setting`, значения — в `Init` | [«Настройки модуля»](#настройки-модуля-settings); рецепт [«Настройки своего модуля»](../cookbook/module-settings.md) |
+| язык интерфейса | `Translations() []pluginhost.Language` | [«Модуль языка»](#модуль-языка); рецепт [«ochan на своём языке»](../cookbook/translate.md) |
+| исполнитель сценариев | `Runners() []pluginhost.RunnerSpec` | [«Модуль-исполнитель»](#модуль-исполнитель) |
+
+Каждый метод, кроме `GetCommands`, `Init`, `Name` и `Version`, —
+по желанию. Модуль, собранный до того, как метод появился в контракте,
+отвечает на него Unimplemented, и ochan считает, что модулю нечего
+объявить: старые модули работают на новом ochan как раньше. Импорт
+пакетов ochan с 0.3.0 — по группам: `ochan/modules/pluginhost`,
+`ochan/modules/runnerhost`, `ochan/core/scenario`, `ochan/core/config`
+(раньше — `ochan/pluginhost` и т. д.); собранного `.hcplugin` это не
+касается.
 
 ```go
 type Module struct{}
 
 func (Module) Name() string                 { return "hello" }
 func (Module) Version() string              { return "1.0.0" }
-func (Module) Init(map[string]any) error    { return nil }
+func (Module) Init(map[string]any) error    { return nil } // значения настроек — см. Settings
 func (Module) GetCommands() []*cobra.Command {
     return []*cobra.Command{{
         Use:   "hello",
@@ -341,6 +362,8 @@ ochan hello
 - Предел времени команды модуля — `defaults.module_command_timeout` (10m).
 - Оболочка перезагружает изменившиеся модули сама; после пересборки модуль
   нужно переустановить (`!!install`), чтобы обновить контрольную сумму.
+  `!!reload` в оболочке загружает все модули заново и перечитывает
+  `config.yaml` — так модуль получает новые значения своих настроек.
 - `ochan inspect модуль.hcplugin` поднимает модуль отдельно и показывает
   его имя, версию и команды, не меняя набор команд текущей сессии. Это
   тоже запуск исполняемого файла, поэтому и здесь нужна контрольная сумма
@@ -500,6 +523,15 @@ modules:
   (`runnerhost.Token(ctx)`).
 - `ochan inspect модуль.hcplugin` и `ochan modules` показывают настройки.
   Модуль, собранный до `Settings`, работает как раньше — настроек у него нет.
+- Имя настройки (`Key`) — буквы, цифры, `_` и `-`, первой — буква: оно
+  становится ключом YAML. Неверное имя или повтор — модуль не загружается,
+  с причиной.
+- Повторная установка обновляет и версию в заголовке блока модуля
+  (`# pgstat 0.2.0`).
+- ochan, собранный до `Settings`, у модуля их не спрашивает и `Init` не
+  вызывает: значения по умолчанию держите и в коде модуля.
+
+Пошагово, с выводами — рецепт [«Настройки своего модуля»](../cookbook/module-settings.md).
 
 ## Модуль языка
 
@@ -531,6 +563,12 @@ func (Module) Runners() []pluginhost.RunnerSpec {
 - По проводу идёт JSON — сценарий, план, ссылки, статус; формат описан в
   [runnerhost](../../modules/runnerhost/runnerhost.go). Модулю на другом языке
   достаточно реализовать тот же gRPC-сервис и тот же JSON.
+- Настройки исполнителя — в каждом вызове: `runnerhost.Settings(ctx)`.
+  Это `defaults.api_url`, `defaults.http_timeout`,
+  `defaults.max_parallel_tasks`, поверх них — настройки модуля
+  (`modules.<модуль>`, которые он объявил в `Settings`), поверх всего —
+  `executors.<имя>`. Объявить настройки — значит, что `!!install` сам
+  запишет их в `config.yaml` ([«Настройки модуля»](#настройки-модуля-settings)).
 - Свой API исполнитель выбирает сам. Токен ему задаёт оператор —
   `ochan auth --executor ssh` (файл `~/.octochan/tokens/ssh`, права 0600)
   или `OCTOCHAN_TOKEN_SSH`; ядро передаёт его при каждом вызове, в коде
