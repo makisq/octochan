@@ -280,12 +280,16 @@ func runInteractiveShell(ctx context.Context) error {
 			Fn:  func(*prompt.Buffer) { exitShell(0) },
 		}),
 	}
+	// Ctrl+←/→, Ctrl+Backspace, Ctrl+Delete — по словам (shell_keys.go).
+	options = append(options, wordKeyOptions()...)
+	var parser prompt.ConsoleParser = prompt.NewStandardInputParser()
 	if shellTerminal != nil {
-		options = append(options, prompt.OptionParser(&restoringParser{
-			ConsoleParser: prompt.NewStandardInputParser(),
-			terminal:      shellTerminal,
-		}))
+		parser = &restoringParser{ConsoleParser: parser, terminal: shellTerminal}
 	}
+	options = append(options, prompt.OptionParser(&wordKeysParser{
+		ConsoleParser: parser,
+		ctrlBackspace: ctrlBackspaceByte(),
+	}))
 
 	p := prompt.New(func(input string) { executeShellInput(shellCtx, input) }, completer, options...)
 	p.Run()
