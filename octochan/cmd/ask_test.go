@@ -217,7 +217,9 @@ func TestApplyApprove(t *testing.T) {
 	if !strings.Contains(out, "Заявка "+id+": согласована") || !strings.Contains(e.read("prod.conf"), "max_connections = 200") {
 		t.Fatalf("apply --approve:\n%s\n%s", out, e.read("prod.conf"))
 	}
-	// Нет права approve — нет и apply --approve.
+	// Нет права approve — нет и apply --approve. Конфиг — прежний: заявку,
+	// которая ничего не изменит, ochan не оформляет.
+	e.write(e.path("prod.conf"), "max_connections = 100\nwork_mem = 4MB\n")
 	created = e.must("request", "tune.ochan")
 	id = requestIDPattern.FindStringSubmatch(created)[1]
 	e.must("role", "create", "runner", "--allow", "read,plan,apply")

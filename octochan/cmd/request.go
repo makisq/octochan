@@ -83,6 +83,13 @@ var requestCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if emptyPlan(request) {
+			if ochanPlanned(request) {
+				return emptyPlanError(request)
+			}
+			cmd.PrintErrln(i18n.T("внимание: план заявки пуст — исполнитель не назвал ни одного изменения; " +
+				"согласуйте её, только если так и задумано"))
+		}
 		request.After = after
 		if request.Incident, err = linkIncident(requestIncident); err != nil {
 			return err
@@ -484,6 +491,15 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 		who = fmt.Sprintf("%s, роль %s", workspace.CurrentUser(), currentRole.Name)
 	}
 	if state == workspace.RequestApproved && request.State == workspace.RequestPending {
+		// Пустой план: выполнение ничего не изменит. Такую заявку (её могли
+		// оформить до этой проверки) не согласуют, а отклоняют.
+		if emptyPlan(request) {
+			if ochanPlanned(request) {
+				return i18n.Errorf("заявка %s: план пуст — выполнение ничего не изменит, согласовывать нечего; "+
+					"отклоните её: ochan reject %s", request.ID, request.ID)
+			}
+			cmd.Println(i18n.T("внимание: план заявки пуст — исполнитель не назвал ни одного изменения"))
+		}
 		if err := checkApprover(cmd, request); err != nil {
 			return refuse(cmd, err)
 		}
@@ -525,6 +541,31 @@ func decideRequest(cmd *cobra.Command, id string, state workspace.RequestState, 
 	notify(cmd, fmt.Sprintf("Заявка %s %s", request.ID, request.State.Russian()),
 		requestMailBody(request), nil)
 	return nil
+}
+
+// emptyPlan — в плане заявки нет ни одного изменения.
+func emptyPlan(request *workspace.Request) bool {
+	return request.Plan == nil || request.Plan.Len() == 0
+}
+
+// ochanPlanned — план заявки строит сам ochan: сценарий на языке алиасов
+// (выполнением в режиме плана) или правка конфига (сравнением). Тогда
+// пустой план точно значит «ничего не изменится». План сценария через
+// исполнитель даёт исполнитель — он может и не уметь его строить.
+func ochanPlanned(request *workspace.Request) bool {
+	return request.Script != nil || request.Target != ""
+}
+
+// emptyPlanError — отказ оформить заявку, которая ничего не изменит.
+// Модели (request_script по MCP) он объясняет, что не так: чаще всего
+// сценарий только присваивает переменные и ничего не записывает.
+func emptyPlanError(request *workspace.Request) error {
+	if request.Script != nil {
+		return i18n.Errorf("план пуст: сценарий ничего не меняет — заявка не создана. Присваивание переменной " +
+			"файл не трогает; правка конфига — c = config(файл), put(c, параметр, значение), save(c, файл). " +
+			"Что изменит сценарий, покажет ochan plan")
+	}
+	return i18n.Errorf("план пуст: в конфиге с новыми значениями нет отличий от правимого — заявка не создана")
 }
 
 // checkApprover — разделение обязанностей при согласовании.
