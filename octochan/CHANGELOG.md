@@ -4,6 +4,19 @@
 
 Версия 0.3.0-alpha: `ochan --version` и `ochan-mcp --version` печатают её.
 
+### Оболочка: правка строки по словам
+
+- Ctrl+← и Ctrl+→ — на слово назад и вперёд, Ctrl+Backspace и
+  Ctrl+Delete — стереть слово перед курсором и после; на macOS —
+  Option+←, Option+→, Option+Backspace. Работает на Windows (классическая
+  консоль и Windows Terminal), в терминалах Linux и macOS: Ctrl+Backspace
+  они шлют по-разному (консоль Windows — 0x7F, обычный Backspace — 0x08;
+  Linux и macOS — наоборот), и ochan сводит это к одному. Терминал с
+  `stty erase ^H` — Backspace не перехватывается.
+- Слово — буквы, цифры и `_`, серия знаков препинания — отдельное слово;
+  счёт в символах: на кириллице курсор не прыгает. Раньше Option+← и
+  Option+→ на macOS вставляли в строку `^[b` и `^[f`.
+
 ### Исправлено: запись postgresql.conf ломала конфиг
 
 - `save` и правка конфига (`ochan request a.conf b.conf`, `put` + `save`
