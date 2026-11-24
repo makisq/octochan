@@ -1,0 +1,71 @@
+# Проверка octochan на каждом PR и пуше в main: форматирование, vet и
+# тесты ядра и ochan-mcp на Linux, Windows и macOS. Ошибки, которые
+# видны только на одной системе (Windows: замена работающего файла,
+# открытые файлы журнала; Linux/macOS: терминал), ловятся здесь, а не
+# у пользователя.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Новый пуш в тот же PR отменяет прежний прогон.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: octochan
+    shell: bash
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: octochan/go.mod
+          cache-dependency-path: |
+            octochan/go.sum
+            octochan/mcp/go.sum
+
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: |
+          unformatted=$(gofmt -l . )
+          if [ -n "$unformatted" ]; then
+            echo "Не отформатировано (gofmt -w):"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: vet
+        run: |
+          go vet ./...
+          (cd mcp && go vet ./...)
+
+      - name: test (race)
+        if: runner.os == 'Linux'
+        run: |
+          go test -race ./...
+          (cd mcp && go test -race ./...)
+
+      - name: test
+        if: runner.os != 'Linux'
+        run: |
+          go test ./...
+          (cd mcp && go test ./...)
