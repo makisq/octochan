@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -231,6 +233,47 @@ func TestSaveConfigRoundTripKeepsSpecialValues(t *testing.T) {
 	for key, want := range cfg[""] {
 		if got := reparsed[""][key]; got != want {
 			t.Errorf("%s: получено %q, ожидалось %q\nфайл:\n%s", key, got, want, data)
+		}
+	}
+}
+
+// Кавычки — по грамматике postgresql.conf: listen_addresses = * без кавычек
+// сервер считал синтаксической ошибкой и не применял из файла ничего.
+func TestSaveConfigQuotesLikePostgres(t *testing.T) {
+	cases := map[string]string{
+		// без кавычек: имена и числа с единицами
+		"64MB": "64MB", "4.0": "4.0", ".5": ".5", "-1": "-1", "10s": "10s", "0x1F": "0x1F", "on": "on", "1.5e3": "1.5e3",
+		"replica": "replica", "en_US.UTF-8": "en_US.UTF-8", "x.y.z": "x.y.z", "Europe/Moscow": "Europe/Moscow",
+		"Европа/Москва": "Европа/Москва",
+		// в кавычках: всё, что грамматика без них не читает
+		"*": "'*'", "127.0.0.1": "'127.0.0.1'", "localhost,127.0.0.1": "'localhost,127.0.0.1'",
+		"/var/lib/postgresql": "'/var/lib/postgresql'", "$libdir/plugins": "'$libdir/plugins'",
+		"": "''", "%m [%p] ": "'%m [%p] '", "it's": "'it''s'", "1.2.3": "'1.2.3'",
+		// сервер не принимает и их — проверено postgres -C
+		"1e3": "'1e3'", "1.5GB": "'1.5GB'", "pg_catalog.english": "'pg_catalog.english'", "x.y": "'x.y'", "a$b": "'a$b'", "1_000": "'1_000'",
+	}
+	cfg := ConfigMap{"": {}}
+	i := 0
+	keys := map[string]string{}
+	for value := range cases {
+		key := fmt.Sprintf("k%02d", i)
+		i++
+		cfg[""][key] = value
+		keys[key] = value
+	}
+	text := FormatConfig(cfg)
+	for key, value := range keys {
+		if line := key + " = " + cases[value] + "\n"; !strings.Contains(text, line) {
+			t.Errorf("%q записано не как %q:\n%s", value, line, text)
+		}
+	}
+	reparsed, err := ParseConfig(text)
+	if err != nil {
+		t.Fatalf("повторный разбор: %v\n%s", err, text)
+	}
+	for key, value := range keys {
+		if got := reparsed[""][key]; got != value {
+			t.Errorf("%s: прочитано %q, записано %q\nфайл:\n%s", key, got, value, text)
 		}
 	}
 }
