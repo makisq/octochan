@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -454,22 +455,44 @@ func GetNextReportNumber(reportDir string) (int, error) {
 // Без этого запись теряла данные: log_line_prefix = '%m [%p] #' сохранялся
 // без кавычек, и при следующем чтении всё после решётки отрезалось
 // как комментарий.
+//
+// Без кавычек пишется только то, что postgresql.conf принимает без них
+// (plainConfValue). Раньше кавычки ставились только из-за # и ; — и правка
+// postgresql.conf писала listen_addresses = *: сервер видел синтаксическую
+// ошибку и не применял из файла ничего, а при перезапуске не поднялся бы.
+// То же с адресами (127.0.0.1), списками через запятую, путями от корня и
+// пустым значением: оно пишется двумя одинарными кавычками.
 func quoteIfNeeded(value string) string {
-	if value == "" {
+	if plainConfValue(value) {
 		return value
 	}
-
-	needsQuotes := strings.ContainsAny(value, "#;") ||
-		value != strings.TrimSpace(value) ||
-		strings.HasPrefix(value, "'") ||
-		strings.HasPrefix(value, `"`)
-
-	if !needsQuotes {
-		return value
-	}
-
 	// Одинарные кавычки — как в postgresql.conf; внутренние удваиваются.
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
+// Грамматика значения postgresql.conf (guc-file.l), сверенная с самим
+// PostgreSQL 16 (postgres -C): буква — латиница, _ и любой не-ASCII символ.
+var (
+	// INTEGER: десятичное или 0x…, с буквами единицы: 64MB, -1, 10s, 0x1F.
+	confInteger = regexp.MustCompile(`^[-+]?(?:[0-9]+|0[xX][0-9A-Fa-f]+)[A-Za-z]*$`)
+	// REAL: с точкой, порядок — только у числа с точкой, единицы нет:
+	// 4.0, .5, 1.5e3; а 1e3 и 1.5GB сервер не принимает.
+	confReal = regexp.MustCompile(`^[-+]?(?:[0-9]+\.[0-9]*|[0-9]*\.[0-9]+)(?:[Ee][-+]?[0-9]+)?$`)
+	// UNQUOTED_STRING: буква, дальше буквы, цифры, - . _ : /
+	// (on, replica, en_US.UTF-8, Europe/Moscow).
+	confUnquoted = regexp.MustCompile(`^[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}\-.:/]*$`)
+	// QUALIFIED_ID — ровно «имя.имя»: лексер берёт его раньше строки, а
+	// значением оно быть не может (pg_catalog.english, x.y — ошибка;
+	// x.y.z — уже строка).
+	confQualified = regexp.MustCompile(`^[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}]*\.[A-Za-z_\x{80}-\x{10FFFF}][A-Za-z0-9_\x{80}-\x{10FFFF}]*$`)
+)
+
+// plainConfValue — postgresql.conf прочитает значение без кавычек так же.
+func plainConfValue(value string) bool {
+	if confInteger.MatchString(value) || confReal.MatchString(value) {
+		return true
+	}
+	return confUnquoted.MatchString(value) && !confQualified.MatchString(value)
 }
 
 // SaveConfig записывает конфиг в файл.
