@@ -75,10 +75,12 @@ jobs:
           go vet ./...
           (cd mcp && go vet ./...)
 
+      # Под -race счёт своей модели в разы медленнее: ochan/ai/own идёт
+      # минуты, поэтому срок шире стандартных 10 минут на пакет.
       - name: test (race)
         if: runner.os == 'Linux'
         run: |
-          go test -race ./...
+          go test -race -timeout 20m ./...
           (cd mcp && go test -race ./...)
 
       - name: test

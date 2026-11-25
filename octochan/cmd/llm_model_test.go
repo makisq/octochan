@@ -16,6 +16,16 @@ import (
 	"github.com/spf13/viper"
 )
 
+// skipHeavyUnderRace пропускает обучение и счёт своей модели под -race:
+// там он в сотни раз медленнее (2.8 с против 9+ минут на раннере CI), а сам
+// счёт под -race проверяют тесты ochan/ai/own.
+func skipHeavyUnderRace(t *testing.T) {
+	t.Helper()
+	if raceEnabled {
+		t.Skip("счёт модели под -race проверяется в ochan/ai/own")
+	}
+}
+
 // Стартовая модель: обученные веса из бинарника — одной командой, и модель
 // отвечает сразу; параметры колец у неё свои, с холодного старта.
 func TestLLMInitPretrained(t *testing.T) {
@@ -54,6 +64,7 @@ func TestLLMInitPretrained(t *testing.T) {
 // Обучение весов — в ochan: новая модель учится по корпусу, каталог после
 // обучения — рабочая модель; дообучение пишет новые веса в новый каталог.
 func TestLLMTrain(t *testing.T) {
+	skipHeavyUnderRace(t)
 	e := newScriptEnv(t)
 	dir := filepath.Join(e.home, "models", "new")
 	out := e.must("llm", "init", "--out", dir, "--size", "tiny")
@@ -102,6 +113,7 @@ func TestLLMTrain(t *testing.T) {
 // fit по журналу, версии и откат, корпус с токенами, квантование со
 // сверкой.
 func TestLLMOwnModelInProcess(t *testing.T) {
+	skipHeavyUnderRace(t)
 	e := newScriptEnv(t)
 	dir := filepath.Join(e.home, "models", "own")
 	out := e.must("llm", "init", "--out", dir, "--size", "tiny", "--random-weights")
