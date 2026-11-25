@@ -223,6 +223,12 @@ func TestSetupDesktop(t *testing.T) {
 		e.fails("only — только значок", "setup", "--desktop=maybe")
 		return
 	}
+	if runtime.GOOS != "linux" {
+		// Значок — для Linux и Windows; на остальных setup --desktop
+		// отказывает и говорит, как запускать.
+		e.fails("значок ставится под Linux и Windows", "setup", "--here="+filepath.Join(t.TempDir(), "x"), "--desktop")
+		return
+	}
 	data := filepath.Join(e.home, "data")
 	t.Setenv("XDG_DATA_HOME", data)
 	t.Setenv("PATH", "") // xdg-user-dir машины теста не спрашивается

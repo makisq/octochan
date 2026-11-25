@@ -21,6 +21,13 @@ func TestNewModule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Кеш модулей — обычный, до того как тест подменит HOME: иначе go
+	// скачивал бы всё во временный каталог, а файлы кеша только для
+	// чтения — и удалить каталог теста в конце нельзя.
+	modcache, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
 	e := newScriptEnv(t)
 	dir := e.path("mymod")
 	out := e.must("new", "module", "mymod", "--dir", dir, "--src", src)
@@ -34,6 +41,7 @@ func TestNewModule(t *testing.T) {
 	for _, args := range [][]string{{"mod", "tidy"}, {"build", "-o", "mymod.hcplugin", "."}} {
 		c := exec.Command("go", args...)
 		c.Dir = dir
+		c.Env = append(os.Environ(), "GOMODCACHE="+strings.TrimSpace(string(modcache)))
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("go %v: %v\n%s", args, err, out)
 		}
