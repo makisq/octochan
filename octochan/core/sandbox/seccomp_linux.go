@@ -14,7 +14,8 @@ import (
 // Запрещается то, чем из процесса выбираются наружу или дотягиваются до
 // ядра: запуск программ, отладка чужих процессов, монтирование,
 // пространства имён, загрузка в ядро, io_uring (его операции фильтр не
-// видит), сигналы чужим процессам, а без сети — и сокеты.
+// видит), сигналы чужим процессам, прослушивание портов, а без сети — и
+// сокеты.
 
 // commonDenied — вызовы, запрещённые на всех архитектурах.
 var commonDenied = []uintptr{
@@ -36,6 +37,11 @@ var commonDenied = []uintptr{
 	unix.SYS_OPEN_BY_HANDLE_AT, unix.SYS_NAME_TO_HANDLE_AT, unix.SYS_LOOKUP_DCOOKIE,
 	unix.SYS_IO_URING_SETUP, unix.SYS_IO_URING_ENTER, unix.SYS_IO_URING_REGISTER,
 	unix.SYS_FANOTIFY_INIT, unix.SYS_MIGRATE_PAGES, unix.SYS_MOVE_PAGES,
+	// Слушать порт сценарию незачем никогда, и с разрешённой сетью тоже:
+	// она нужна живым источникам — исходящие соединения. Landlock ABI 4
+	// (NET_BIND_TCP) не на всех ядрах закрывает bind на порт 0, «любой
+	// свободный»: listen запрещается и здесь.
+	unix.SYS_LISTEN,
 }
 
 // namespaceFlags — флаги clone, создающие пространства имён.

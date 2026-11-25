@@ -27,6 +27,9 @@ type MCP struct {
 	instructions string
 	tools        []Tool
 	stderr       *tailBuffer
+	// exited закрывается, когда сервер вышел; Wait — один раз (waitOnce).
+	exited   chan struct{}
+	waitOnce sync.Once
 }
 
 // tailBuffer — конец журнала сервера: в сообщение об ошибке.
@@ -74,7 +77,7 @@ func StartMCP(ctx context.Context, binary string, args, env []string, client, ve
 	if err != nil {
 		return nil, err
 	}
-	m := &MCP{cmd: cmd, stdin: stdin, lines: make(chan []byte, 16), stderr: &tailBuffer{}}
+	m := &MCP{cmd: cmd, stdin: stdin, lines: make(chan []byte, 16), stderr: &tailBuffer{}, exited: make(chan struct{})}
 	cmd.Stderr = m.stderr
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("сервер инструментов %s не запустился: %w", binary, err)
@@ -171,6 +174,10 @@ func (m *MCP) request(ctx context.Context, method string, params, out any) error
 func (m *MCP) failed(err error) error {
 	if err == nil || errors.Is(err, io.EOF) {
 		err = errors.New("сервер инструментов закрыл соединение")
+		// stdout закрыт — сервер выходит. Его последние строки (почему
+		// упал) os/exec дописывает в stderr до возврата Wait: без ожидания
+		// в ошибку попадало начало журнала, а не причина.
+		m.wait(2 * time.Second)
 	}
 	if log := m.stderr.String(); log != "" {
 		return fmt.Errorf("%w: %s", err, log)
@@ -213,13 +220,26 @@ func (m *MCP) Call(ctx context.Context, name string, input json.RawMessage) (str
 // Close останавливает сервер.
 func (m *MCP) Close() error {
 	_ = m.stdin.Close()
-	done := make(chan error, 1)
-	go func() { done <- m.cmd.Wait() }()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
+	if !m.wait(3 * time.Second) {
 		_ = m.cmd.Process.Kill()
-		<-done
+		<-m.exited
 	}
 	return nil
+}
+
+// wait ждёт выхода сервера не дольше timeout; true — вышел. Wait
+// вызывается один раз, сколько бы раз ни ждали.
+func (m *MCP) wait(timeout time.Duration) bool {
+	m.waitOnce.Do(func() {
+		go func() {
+			_ = m.cmd.Wait()
+			close(m.exited)
+		}()
+	})
+	select {
+	case <-m.exited:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }

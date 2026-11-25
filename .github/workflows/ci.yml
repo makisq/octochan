@@ -43,6 +43,23 @@ jobs:
             octochan/go.sum
             octochan/mcp/go.sum
 
+      # Временный каталог тестов — по настоящему пути. На macOS системный
+      # /var/folders — ссылка на /private/var/folders, на Windows TEMP —
+      # короткое имя RUNNER~1: ochan пишет путь без ссылок и полным
+      # именем, а тесты сравнивают его с t.TempDir().
+      - name: temp dir
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            dir="$(cygpath -u "$RUNNER_TEMP")/gotest"
+            mkdir -p "$dir"
+            win="$(cygpath -w "$dir")"
+            echo "TEMP=$win" >> "$GITHUB_ENV"
+            echo "TMP=$win" >> "$GITHUB_ENV"
+          else
+            mkdir -p "$RUNNER_TEMP/gotest"
+            echo "TMPDIR=$(cd "$RUNNER_TEMP/gotest" && pwd -P)" >> "$GITHUB_ENV"
+          fi
+
       - name: gofmt
         if: runner.os == 'Linux'
         run: |
@@ -58,10 +75,12 @@ jobs:
           go vet ./...
           (cd mcp && go vet ./...)
 
+      # Под -race счёт своей модели в разы медленнее: ochan/ai/own идёт
+      # минуты, поэтому срок шире стандартных 10 минут на пакет.
       - name: test (race)
         if: runner.os == 'Linux'
         run: |
-          go test -race ./...
+          go test -race -timeout 20m ./...
           (cd mcp && go test -race ./...)
 
       - name: test

@@ -143,19 +143,24 @@ func TestSetupManualFlags(t *testing.T) {
 // каталоги по умолчанию.
 func TestSetupDialog(t *testing.T) {
 	e := setupEnv(t)
+	// Про значок спрашивают только там, где он ставится (Linux, Windows).
+	icon := ""
+	if desktopSupported() {
+		icon = "\n"
+	}
 	// 1 — всё в текущей папке.
-	e.answers("\nтри\n1\n\nда\n")
+	e.answers("\nтри\n1\n" + icon + "да\n")
 	out := e.must("setup")
+	asked := strings.Contains(out, "Значок в меню приложений и на рабочем столе? да или нет [нет]")
 	if !strings.Contains(out, "1 — быстрая: всё в этой папке") || !strings.Contains(out, "1 — быстрая, 2 — ручная") ||
-		!strings.Contains(out, "Значок в меню приложений и на рабочем столе? да или нет [нет]") ||
-		pointerPath(t, e.work) != ".octochan" {
+		asked != desktopSupported() || pointerPath(t, e.work) != ".octochan" {
 		t.Fatalf("быстрая установка в разговоре:\n%s", out)
 	}
 
 	// 2 — пути по одному: Enter — путь по умолчанию.
 	root := t.TempDir()
 	bin, logs := filepath.Join(root, "bin"), filepath.Join(root, "logs")
-	e.answers("2\n" + bin + "\n\n\n" + logs + "\n\n\n\nда\n")
+	e.answers("2\n" + bin + "\n\n\n" + logs + "\n\n\n" + icon + "да\n")
 	out = e.must("setup")
 	home := filepath.Join(e.home, ".octochan")
 	if !strings.Contains(out, "Рабочий каталог — роли, заявки, журнал аудита, конфиг ["+home+"]") ||
@@ -166,7 +171,7 @@ func TestSetupDialog(t *testing.T) {
 		t.Fatal("рабочий каталог по умолчанию, а указатель записан")
 	}
 
-	e.answers("2\n" + bin + "\n\n\n\n\n\n\nнет\n")
+	e.answers("2\n" + bin + "\n\n\n\n\n\n" + icon + "нет\n")
 	e.fails("установка отменена", "setup")
 
 	// Ответить некому: каталоги по умолчанию, как у прежней установки.
@@ -221,6 +226,12 @@ func TestSetupDesktop(t *testing.T) {
 			t.Fatalf("ярлык не записан: %v", err)
 		}
 		e.fails("only — только значок", "setup", "--desktop=maybe")
+		return
+	}
+	if runtime.GOOS != "linux" {
+		// Значок — для Linux и Windows; на остальных setup --desktop
+		// отказывает и говорит, как запускать.
+		e.fails("значок ставится под Linux и Windows", "setup", "--here="+filepath.Join(t.TempDir(), "x"), "--desktop")
 		return
 	}
 	data := filepath.Join(e.home, "data")

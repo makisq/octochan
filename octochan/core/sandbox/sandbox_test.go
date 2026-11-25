@@ -270,7 +270,10 @@ func TestNetworkClosedUnlessAllowed(t *testing.T) {
 	if open["dial"] != "ok" {
 		t.Errorf("с сетью соединение не прошло: %v", open)
 	}
-	if report.Landlock >= 4 && open["listen"] == "ok" {
+	t.Logf("с сетью: listen=%s; Landlock ABI %d, seccomp %v", open["listen"], report.Landlock, report.Seccomp)
+	// Прослушивание держат seccomp (listen) и Landlock ABI 4 (bind): хватит
+	// одного из них.
+	if (report.Landlock >= 4 || report.Seccomp) && open["listen"] == "ok" {
 		t.Errorf("слушать порт сценарию нельзя и с сетью: %v", open)
 	}
 	if got.NetNS || got.NetworkClosed() {
